@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.example
+tests
+README.md
+docker-compose*.yml
+.waha-data

@@ -1,0 +1,79 @@
+services:
+  api:
+    build: .
+    container_name: bitrix-hub-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file:
+      - .env
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      waha:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPU_LIMIT:-1}"
+          memory: "${API_MEMORY_LIMIT:-512M}"
+
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: waha
+    restart: unless-stopped
+
+    # Solo accesible desde el propio servidor.
+    # Nginx/Caddy/Traefik será quien exponga HTTPS si hace falta acceso externo.
+    ports:
+      - "127.0.0.1:${WAHA_PORT:-3000}:3000"
+
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+
+    env_file:
+      - .env
+
+    volumes:
+      # Sesiones de WhatsApp
+      - ./.waha-data/sessions:/app/.sessions
+
+      # Archivos multimedia
+      - ./.waha-data/media:/app/.media
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --header=\"X-Api-Key: $$WAHA_API_KEY\" --spider http://127.0.0.1:3000/api/version || exit 1"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    security_opt:
+      - no-new-privileges:true
+
+    deploy:
+      resources:
+        limits:
+          cpus: "${WAHA_CPU_LIMIT:-2}"
+          memory: "${WAHA_MEMORY_LIMIT:-2G}"
