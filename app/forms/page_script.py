@@ -10,10 +10,19 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
 
 (function () {
   var canvas = document.getElementById('signature-canvas');
-  var ctx = canvas.getContext('2d');
+  // willReadFrequently: cada trazo toma un snapshot con getImageData
+  // (historial de Deshacer) y al final se vuelve a leer para recortar la
+  // firma — sin esto el navegador optimiza para dibujo, no para lectura, y
+  // avisa en consola que cada getImageData es más lento de lo que podría ser.
+  var ctx = canvas.getContext('2d', { willReadFrequently: true });
   var drawing = false;
   var hasSignature = false;
   var mode = 'draw';
+  // True mientras se limpia el fondo de una foto subida (en el navegador o
+  // en el servidor) — bloquea el resto de los controles de firma para que
+  // el cliente no pueda subir otra foto, cambiar de pestaña o deshacer justo
+  // cuando ya hay un procesamiento en curso.
+  var processingSignature = false;
 
   // Quitar el fondo de una foto de firma corre en el celular del cliente,
   // no en el servidor: RMBG-1.4 vía Transformers.js/WASM — el mismo modelo
@@ -91,6 +100,25 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     });
   }
 
+  // Si el modelo en el navegador no termina en este tiempo (celular viejo o
+  // lento), no dejamos a la persona esperando indefinidamente: se cae al
+  // respaldo del servidor igual que si hubiera fallado. 20s porque la
+  // inferencia de RMBG-1.4 en WASM (no solo la descarga del modelo) puede
+  // tardar más de 10s en un celular real incluso con el modelo ya cargado —
+  // con un umbral más corto, la mayoría de los celulares terminaba cayendo
+  // al servidor sin necesidad, perdiendo el camino rápido casi siempre.
+  var BROWSER_MODEL_TIMEOUT_MS = 20000;
+
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error('El navegador tardó demasiado.')); }, ms);
+      promise.then(
+        function (value) { clearTimeout(timer); resolve(value); },
+        function (err) { clearTimeout(timer); reject(err); }
+      );
+    });
+  }
+
   // Respaldo si el navegador no pudo correr el modelo: la foto cruda se
   // manda al servidor, que la limpia con OpenCV (ver app/forms/signature_cleaner.py).
   function removeBackgroundOnServer(file) {
@@ -117,9 +145,22 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
   }
 
   function removeSignaturePhotoBackground(file) {
-    return removeBackgroundInBrowser(file).catch(function (err) {
-      console.warn('Limpieza en el navegador falló, uso el respaldo del servidor:', err);
+    return withTimeout(removeBackgroundInBrowser(file), BROWSER_MODEL_TIMEOUT_MS).catch(function (err) {
+      console.warn('Limpieza en el navegador falló o tardó demasiado, uso el respaldo del servidor:', err);
       return removeBackgroundOnServer(file);
+    });
+  }
+
+  // Carga la foto cruda como <img> para mostrarla de inmediato en el canvas
+  // (debajo del overlay de "procesando") en vez de dejarlo en blanco
+  // mientras se limpia el fondo — la persona ve al instante que su foto se
+  // recibió, aunque el resultado final tarde unos segundos más.
+  function loadImageFromFile(file) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('No se pudo leer la foto.')); };
+      img.src = URL.createObjectURL(file);
     });
   }
 
@@ -133,6 +174,38 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
   var fileInput = document.getElementById('signature-file');
   var statusText = document.getElementById('signature-status-text');
   var undoButton = document.getElementById('undo-signature');
+  var clearButton = document.getElementById('clear-signature');
+  var processingOverlay = document.getElementById('signature-processing-overlay');
+  var processingOverlayText = document.getElementById('signature-processing-overlay-text');
+
+  // Deshabilita pestañas, input de archivo y Deshacer/Borrar, y muestra el
+  // overlay con spinner sobre el canvas — o revierte todo eso al terminar.
+  function setProcessingUI(isProcessing) {
+    processingSignature = isProcessing;
+    tabDraw.disabled = isProcessing;
+    tabUpload.disabled = isProcessing;
+    fileInput.disabled = isProcessing;
+    undoButton.disabled = isProcessing;
+    clearButton.disabled = isProcessing;
+    canvas.classList.toggle('signature-box--processing', isProcessing);
+    processingOverlay.classList.toggle('signature-processing-overlay--hidden', !isProcessing);
+    // El placeholder de "Tocá para elegir una foto" no debe verse detrás del
+    // overlay mientras se procesa — refreshSignatureUI() lo vuelve a mostrar
+    // si corresponde una vez termina.
+    if (isProcessing) placeholder.classList.add('signature-placeholder--hidden');
+  }
+
+  // Igual que startStatusAnimation, pero rotando el texto fijo del overlay
+  // del canvas en vez de armar un spinner nuevo cada vez.
+  function startOverlayTextAnimation(messages) {
+    var i = 0;
+    processingOverlayText.textContent = messages[0];
+    var timer = setInterval(function () {
+      i = (i + 1) % messages.length;
+      processingOverlayText.textContent = messages[i];
+    }, 1800);
+    return function stop() { clearInterval(timer); };
+  }
 
   // Un snapshot del canvas por cada trazo, tomado justo antes de que
   // empiece — "Deshacer" restaura el último y lo saca de la pila.
@@ -166,12 +239,22 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
       statusText.textContent = mode === 'draw' ? 'Firma aquí con el dedo' : 'Elegí una foto de tu firma';
     }
     statusText.classList.toggle('signature-status-text--ready', hasSignature);
+
+    // Mientras se procesa una foto, setProcessingUI ya los deja bloqueados —
+    // acá solo decidimos si tiene sentido habilitarlos según lo que hay
+    // realmente para deshacer/borrar.
+    if (!processingSignature) {
+      undoButton.disabled = strokeHistory.length === 0;
+      clearButton.disabled = !hasSignature;
+    }
   }
 
   function setMode(newMode) {
     mode = newMode;
     refreshSignatureUI();
   }
+
+  refreshSignatureUI(); // estado inicial: Deshacer/Borrar arrancan deshabilitados, no hay nada que hacer todavía.
 
   tabDraw.addEventListener('click', function () { setMode('draw'); });
   tabUpload.addEventListener('click', function () {
@@ -232,7 +315,7 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     refreshSignatureUI();
   });
 
-  document.getElementById('clear-signature').addEventListener('click', function () {
+  clearButton.addEventListener('click', function () {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     strokeHistory = [];
     hasSignature = false;
@@ -281,7 +364,14 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
   fileInput.addEventListener('change', function (evt) {
     var file = evt.target.files[0];
     if (!file) return;
-    var stopAnimation = startStatusAnimation([
+
+    setProcessingUI(true);
+
+    // Vista previa inmediata: la persona ve su foto ya mismo, en vez de un
+    // canvas en blanco mientras corre la limpieza de fondo.
+    loadImageFromFile(file).then(drawImageFitted).catch(function () { /* solo es preview, seguimos igual */ });
+
+    var stopOverlayAnimation = startOverlayTextAnimation([
       'Limpiando la firma...',
       'Separando la tinta del fondo...',
       'Analizando la foto...',
@@ -294,11 +384,13 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     removeSignaturePhotoBackground(file).then(function (result) {
       drawImageFitted(result);
       hasSignature = true;
+      stopOverlayAnimation();
+      setProcessingUI(false);
       refreshSignatureUI();
-      stopAnimation();
-      status.textContent = '';
     }).catch(function (err) {
-      stopAnimation();
+      stopOverlayAnimation();
+      setProcessingUI(false);
+      refreshSignatureUI();
       status.textContent = 'Ocurrió un error: ' + err.message;
     });
   });
@@ -343,6 +435,10 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
 
   form.addEventListener('submit', function (evt) {
     evt.preventDefault();
+    if (processingSignature) {
+      status.textContent = 'Esperá a que termine de procesar la firma.';
+      return;
+    }
     if (!hasSignature) {
       status.textContent = 'Falta la firma.';
       return;

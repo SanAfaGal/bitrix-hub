@@ -42,6 +42,11 @@ _WIDGET_TO_LOGICAL_NAME = {widget_name: logical for logical, widget_name in FIEL
 SIGNATURE_PAGE = 1
 SIGNATURE_RECT = fitz.Rect(50, 615, 260, 678)
 
+# Aire alrededor de la firma dentro de ese rect: sin esto, una firma que
+# llena bien el recuadro queda pegada a las líneas del documento (renglón de
+# firma / texto de abajo), no se ve como una firma "puesta encima" del papel.
+SIGNATURE_MARGIN = 6
+
 _DATA_URL_RE = re.compile(r"^data:image/(png|jpeg);base64,(.+)$")
 
 
@@ -88,7 +93,13 @@ def fill_and_sign(values: dict[str, str], signature_png_bytes: bytes) -> bytes:
                 widget.field_flags |= fitz.PDF_FIELD_IS_READ_ONLY
                 widget.update()
 
-        doc[SIGNATURE_PAGE].insert_image(SIGNATURE_RECT, stream=signature_png_bytes)
+        signature_rect = SIGNATURE_RECT + (
+            SIGNATURE_MARGIN,
+            SIGNATURE_MARGIN,
+            -SIGNATURE_MARGIN,
+            -SIGNATURE_MARGIN,
+        )
+        doc[SIGNATURE_PAGE].insert_image(signature_rect, stream=signature_png_bytes)
 
         return doc.tobytes()
     finally:

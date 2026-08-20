@@ -4,7 +4,12 @@ import io
 import fitz
 import pytest
 
-from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
+from app.forms.filler import SIGNATURE_RECT, build_blank_template, decode_signature_png, fill_and_sign
+
+# No se importa SIGNATURE_MARGIN de filler.py a propósito: si el test usara
+# esa misma constante para calcular lo esperado, pasaría igual aunque el
+# margen real fuera 0 — comprobaría consistencia, no que exista margen.
+_MIN_EXPECTED_MARGIN = 3
 
 
 def _signature_png_data_url() -> str:
@@ -71,6 +76,35 @@ def test_fill_and_sign_writes_field_values_and_signature():
         signature_page = doc[1]
         images = signature_page.get_images(full=True)
         assert len(images) >= 1
+    finally:
+        doc.close()
+
+
+def test_fill_and_sign_leaves_margin_around_signature():
+    # Una firma "cuadrada" que llenaría todo el recuadro si se insertara al
+    # ras del rect — sirve para detectar si el margen realmente se aplicó.
+    img = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 200, 200))
+    img.set_rect(img.irect, (0, 0, 0))
+    b64 = base64.b64encode(img.tobytes("png")).decode()
+    signature_png_bytes = decode_signature_png(f"data:image/png;base64,{b64}")
+
+    pdf_bytes = fill_and_sign({}, signature_png_bytes)
+
+    doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    try:
+        page = doc[1]
+        # La plantilla ya trae otras imágenes (logo, etc.) — nos quedamos con
+        # la que cayó dentro del rect de la firma.
+        bbox = next(
+            page.get_image_bbox(img)
+            for img in page.get_images(full=True)
+            if SIGNATURE_RECT.contains(page.get_image_bbox(img))
+        )
+
+        assert bbox.x0 >= SIGNATURE_RECT.x0 + _MIN_EXPECTED_MARGIN
+        assert bbox.y0 >= SIGNATURE_RECT.y0 + _MIN_EXPECTED_MARGIN
+        assert bbox.x1 <= SIGNATURE_RECT.x1 - _MIN_EXPECTED_MARGIN
+        assert bbox.y1 <= SIGNATURE_RECT.y1 - _MIN_EXPECTED_MARGIN
     finally:
         doc.close()
 

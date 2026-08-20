@@ -242,13 +242,65 @@ FORM_STYLE = """<style>
   .signature-placeholder--hidden { display: none; }
   .signature-file-input { display: none; }
 
+  /* Barra flotante en la esquina del recuadro de firma — así Deshacer/Borrar
+     quedan junto al trazo que afectan, en vez de perdidos como texto plano
+     debajo del canvas donde no queda claro a qué aplican. */
+  .signature-toolbar {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    z-index: 2;
+    display: flex;
+    gap: var(--space-1);
+  }
+  .signature-icon-btn {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-border);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--color-teal);
+    cursor: pointer;
+    transition: background-color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard),
+      opacity 0.15s var(--ease-standard);
+  }
+  .signature-icon-btn svg { width: 15px; height: 15px; }
+  .signature-icon-btn:hover:not(:disabled) { background: var(--color-info-bg); border-color: var(--color-teal); }
+  .signature-icon-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .signature-processing-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    text-align: center;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(1px);
+  }
+  .signature-processing-overlay--hidden { display: none; }
+  .signature-processing-overlay__text {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-teal);
+  }
+  .signature-box--processing { pointer-events: none; }
+  .signature-tab:disabled { opacity: 0.5; cursor: default; }
+
   .signature-actions {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    justify-content: center;
     margin-top: var(--space-2);
   }
-  .signature-actions__buttons { display: flex; gap: var(--space-2); }
   .signature-status-text {
     font-size: 12px;
     font-weight: 500;
@@ -318,6 +370,11 @@ FORM_STYLE = """<style>
     border-top-color: var(--color-teal);
     animation: spin 0.7s linear infinite;
     flex-shrink: 0;
+  }
+  .spinner--lg {
+    width: 28px;
+    height: 28px;
+    border-width: 3px;
   }
   @keyframes spin {
     to { transform: rotate(360deg); }
