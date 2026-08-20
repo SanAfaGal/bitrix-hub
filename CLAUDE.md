@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Language
+
+Team is Spanish-speaking. Commit messages and code documentation (comments, docstrings) go in Spanish. Everything else (code, identifiers, this file) stays in English.
+
 ## What this is
 
 FastAPI service that receives Bitrix webhooks and dispatches actions to external systems: property lookups in Xposure (migrated from the separate `MLS` repo) and WhatsApp sends via Waha (self-hosted, runs as a second service in this same `docker-compose.yml` — not a separate repo). One deploy, one `.env`, modular by integration internally.
