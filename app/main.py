@@ -36,10 +36,7 @@ tags_metadata = [
     },
     {
         "name": "Waha",
-        "description": (
-            "Envío de WhatsApp vía Waha. Todavía sin flujo de negocio real "
-            "cableado — ver app/flows/README.md."
-        ),
+        "description": "Envío de WhatsApp vía Waha. Flujos de negocio en app/flows/ — ver app/flows/README.md.",
     },
     {
         "name": "Formularios",

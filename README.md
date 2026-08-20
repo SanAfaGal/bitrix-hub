@@ -44,6 +44,7 @@ WAHA_API_KEY=your_api_key_here
 WAHA_SESSION=default
 WHATSAPP_DEFAULT_ENGINE=GOWS
 TZ=America/Bogota
+HUB_PUBLIC_BASE_URL=https://tu-dominio-bitrix-hub.com
 ```
 
 ## Ejecución local
@@ -210,8 +211,26 @@ curl -X POST "http://127.0.0.1:8000/webhook/waha-test?chat_id=573001112233@c.us&
 ```
 
 Sirve para confirmar que `WahaClient` llega a la instancia de Waha
-configurada. Se reemplaza por un endpoint real cuando se cablee el primer
-flujo que use Waha (ver `app/flows/README.md`).
+configurada.
+
+### Cambio de etapa de deal -> bienvenida + Autorización de Corretaje por WhatsApp
+
+Apuntar acá la regla de automatización de Bitrix de la etapa que dispara el
+envío. Le manda al contacto del deal, por WhatsApp, un mensaje de
+bienvenida y — tras una pausa aleatoria de 3-6s simulando comportamiento
+humano — el enlace al formulario público de Autorización de Corretaje
+(`/formularios/autorizacion-de-corretaje?deal_id=<id>`). Ver
+`app/flows/welcome_authorization.py`.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/webhook/deal-stage-broker-auth" \
+  -d "data[FIELDS][ID]=42"
+```
+
+Cuando el cliente completa y firma ese formulario, si llegó con `deal_id`
+en la URL, queda un comentario en el timeline del deal en Bitrix
+confirmando la firma (best-effort: si Bitrix falla, el cliente igual
+descarga su PDF firmado — ver `app/forms/router.py`).
 
 ## Corte de producción pendiente (MLS -> bitrix-hub)
 

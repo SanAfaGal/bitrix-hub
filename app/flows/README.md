@@ -37,5 +37,5 @@ siendo testeable de forma aislada (mock de su propio cliente); el flujo se
 testea con todos los clientes mockeados, igual que
 `MLS/tests/test_deal_event.py`.
 
-No hay flujos reales todavía — este README documenta el patrón para cuando
-se cablee el primero.
+Flujos reales existentes: `deal_duplicado.py` (Bitrix + Xposure),
+`notify_contact.py` y `welcome_authorization.py` (Bitrix + Waha).
