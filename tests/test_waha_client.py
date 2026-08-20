@@ -93,3 +93,55 @@ def test_send_text_returns_false_on_http_error(monkeypatch) -> None:
     client = WahaClient(settings)
 
     assert client.send_text("573001112233@c.us", "hola") is False
+
+
+def test_send_text_sequence_sends_each_message_in_order_with_delay_between(monkeypatch) -> None:
+    sent_texts = []
+    sleeps = []
+
+    monkeypatch.setattr("app.waha.client.requests.post", lambda *a, **k: FakeResponse())
+    monkeypatch.setattr("app.waha.client.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("app.waha.client.random.uniform", lambda lo, hi: 4.2)
+
+    original_send_text = WahaClient.send_text
+
+    def spying_send_text(self, chat_id, text, session=None):
+        sent_texts.append(text)
+        return original_send_text(self, chat_id, text, session=session)
+
+    monkeypatch.setattr(WahaClient, "send_text", spying_send_text)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    result = client.send_text_sequence("573001112233@c.us", ["hola", "el link"], session="default")
+
+    assert result is True
+    assert sent_texts == ["hola", "el link"]
+    assert sleeps == [4.2]
+
+
+def test_send_text_sequence_returns_false_if_any_message_fails(monkeypatch) -> None:
+    responses = iter([FakeResponse(), FakeResponse(status_code=500)])
+    monkeypatch.setattr("app.waha.client.requests.post", lambda *a, **k: next(responses))
+    monkeypatch.setattr("app.waha.client.time.sleep", lambda seconds: None)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    result = client.send_text_sequence("573001112233@c.us", ["hola", "el link"])
+
+    assert result is False
+
+
+def test_send_text_sequence_does_not_sleep_after_last_message(monkeypatch) -> None:
+    sleeps = []
+    monkeypatch.setattr("app.waha.client.requests.post", lambda *a, **k: FakeResponse())
+    monkeypatch.setattr("app.waha.client.time.sleep", lambda seconds: sleeps.append(seconds))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    client.send_text_sequence("573001112233@c.us", ["hola"])
+
+    assert sleeps == []

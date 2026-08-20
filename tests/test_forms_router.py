@@ -67,6 +67,8 @@ def test_get_form_links_to_template_instead_of_embedding_pages():
     # Sección de firma con pestañas dibujar/subir foto.
     assert 'id="tab-draw"' in response.text
     assert 'id="tab-upload"' in response.text
+    # Overlay que bloquea el canvas mientras se procesa una foto subida.
+    assert 'id="signature-processing-overlay"' in response.text
 
 
 def test_get_template_pdf():

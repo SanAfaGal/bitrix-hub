@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import time
 
 import requests
 
@@ -43,3 +45,28 @@ class WahaClient:
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error("Error enviando mensaje a %s vía Waha: %s", chat_id, exc)
             return False
+
+    def send_text_sequence(
+        self,
+        chat_id: str,
+        messages: list[str],
+        *,
+        session: str | None = None,
+        min_delay: float = 3.0,
+        max_delay: float = 6.0,
+    ) -> bool:
+        """Envía varios mensajes al mismo chat, con pausa aleatoria entre cada uno.
+
+        Simula el ritmo de una respuesta humana en vez de mandar todo de
+        golpe. Método síncrono (bloquea con `time.sleep` durante la pausa) —
+        quien lo llame desde una ruta async debe correrlo en un hilo aparte
+        (`asyncio.to_thread`) para no congelar el event loop. Retorna True
+        solo si Waha aceptó todos los mensajes.
+        """
+        all_sent = True
+        for index, text in enumerate(messages):
+            sent = self.send_text(chat_id, text, session=session)
+            all_sent = all_sent and sent
+            if index < len(messages) - 1:
+                time.sleep(random.uniform(min_delay, max_delay))
+        return all_sent
