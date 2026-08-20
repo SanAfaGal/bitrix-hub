@@ -7,11 +7,14 @@ dependencies = [
     "beautifulsoup4>=4.15.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "numpy>=2.4.6",
+    "opencv-python-headless>=5.0.0.93",
     "pymupdf>=1.28.2",
     "pytest>=9.1.1",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.32",
     "requests>=2.34.2",
+    "tzdata>=2026.3",
     "uvicorn>=0.52.1",
 ]
 

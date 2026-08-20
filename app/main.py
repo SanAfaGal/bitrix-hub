@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+# Windows no siempre trae .webp registrado en su mapa de MIME types del
+# sistema; sin esto, StaticFiles serviría el logo como application/octet-stream.
+mimetypes.add_type("image/webp", ".webp")
 
 from app.flows.router import router as flows_router
+from app.forms.router import router as forms_router
 from app.waha.router import router as waha_router
 from app.xposure.router import router as xposure_router
 
@@ -34,6 +41,13 @@ tags_metadata = [
             "cableado — ver app/flows/README.md."
         ),
     },
+    {
+        "name": "Formularios",
+        "description": (
+            "Formularios públicos que el cliente llena y firma desde el "
+            "celular (sin apps de terceros) y que generan el PDF final."
+        ),
+    },
 ]
 
 app = FastAPI(
@@ -51,6 +65,10 @@ app = FastAPI(
 app.include_router(xposure_router)
 app.include_router(flows_router)
 app.include_router(waha_router)
+app.include_router(forms_router)
+
+# Assets de marca (favicon, logo) usados por app/forms.
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.get("/health", tags=["Salud"], summary="Estado del servicio")
