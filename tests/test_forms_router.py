@@ -71,6 +71,20 @@ def test_get_form_links_to_template_instead_of_embedding_pages():
     assert 'id="signature-processing-overlay"' in response.text
 
 
+def test_get_form_embeds_deal_id_as_hidden_field_when_present():
+    response = client.get("/formularios/autorizacion-de-corretaje?deal_id=42")
+
+    assert response.status_code == 200
+    assert '<input type="hidden" name="deal_id" value="42">' in response.text
+
+
+def test_get_form_has_no_deal_id_field_when_absent():
+    response = client.get("/formularios/autorizacion-de-corretaje")
+
+    assert response.status_code == 200
+    assert 'name="deal_id"' not in response.text
+
+
 def test_get_template_pdf():
     response = client.get("/formularios/autorizacion-de-corretaje/plantilla.pdf")
 
@@ -145,3 +159,54 @@ def test_post_form_is_rate_limited():
 
     assert responses[-1].status_code == 429
     assert any(r.status_code == 200 for r in responses)
+
+
+def test_post_form_with_deal_id_adds_bitrix_comment(monkeypatch):
+    calls = []
+
+    class FakeBitrixClient:
+        def add_comment(self, entity_id, entity_type, comment):
+            calls.append((entity_id, entity_type, comment))
+            return 1
+
+    monkeypatch.setattr("app.forms.router.get_bitrix_client", lambda: FakeBitrixClient())
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+    assert len(calls) == 1
+    entity_id, entity_type, comment = calls[0]
+    assert entity_id == "42"
+    assert "firm" in comment.lower()
+
+
+def test_post_form_without_deal_id_does_not_touch_bitrix(monkeypatch):
+    def fail_if_called():
+        raise AssertionError("no debería construirse un BitrixClient sin deal_id")
+
+    monkeypatch.setattr("app.forms.router.get_bitrix_client", fail_if_called)
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=_valid_form_payload())
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+
+
+def test_post_form_still_returns_pdf_when_bitrix_comment_fails(monkeypatch):
+    class FailingBitrixClient:
+        def add_comment(self, entity_id, entity_type, comment):
+            raise RuntimeError("Bitrix caído")
+
+    monkeypatch.setattr("app.forms.router.get_bitrix_client", lambda: FailingBitrixClient())
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")

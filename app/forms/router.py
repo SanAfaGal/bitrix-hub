@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import base64
 import logging
+from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 
+from app.bitrix.deps import get_bitrix_client
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
 from app.forms.models import BrokerageAuthorizationPayload, CleanSignaturePhotoPayload
 from app.forms.page import CLEAN_SIGNATURE_PATH, FORM_PATH, TEMPLATE_PATH_URL, render_form_html
@@ -56,8 +58,8 @@ def _content_disposition(filename: str) -> str:
     response_class=HTMLResponse,
     summary="Formulario de Autorización de Corretaje (llenar y firmar desde el celular)",
 )
-def get_brokerage_authorization_form() -> HTMLResponse:
-    return HTMLResponse(render_form_html())
+def get_brokerage_authorization_form(deal_id: str | None = None) -> HTMLResponse:
+    return HTMLResponse(render_form_html(deal_id=deal_id))
 
 
 @router.post(
@@ -109,8 +111,21 @@ def post_brokerage_authorization_form(
         logger.exception("Error generando el PDF de Autorización de Corretaje")
         raise HTTPException(status_code=500, detail="No se pudo generar el documento.") from None
 
+    if payload.deal_id:
+        _add_signed_authorization_comment(payload.deal_id)
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": _content_disposition("Autorización de Corretaje - Firmada.pdf")},
     )
+
+
+def _add_signed_authorization_comment(deal_id: str) -> None:
+    """Deja constancia en el timeline del deal de que el cliente firmó. Best-effort: nunca rompe la descarga del PDF."""
+    try:
+        bitrix_client = get_bitrix_client()
+        fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+        bitrix_client.add_comment(deal_id, "deal", f"El cliente firmó la Autorización de Corretaje el {fecha}.")
+    except Exception:
+        logger.exception("Error dejando comentario de firma en el deal %s", deal_id)

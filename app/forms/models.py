@@ -26,6 +26,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     term_months: str = ""
     signer_id_number: str = ""
     signature_png: str = Field(max_length=_MAX_IMAGE_DATA_URL_LENGTH)
+    deal_id: str | None = None
 
 
 class CleanSignaturePhotoPayload(BaseModel):
