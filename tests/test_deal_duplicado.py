@@ -67,5 +67,7 @@ def test_process_deal_event_without_matricula_skips_xposure() -> None:
 
     assert result == {"ok": True, "deal_id": "42", "matricula": None}
     assert fake_xposure.called_with is None
-    assert fake_crm.duplicado_updates == [("42", False)]
-    assert fake_crm.pins == []  # sin matrícula: comentario, pero sin fijar
+    # Sin matrícula no se pudo validar nada: solo queda el comentario, el
+    # campo Duplicado/Sin duplicado (V_Validación MLS) no se toca.
+    assert fake_crm.duplicado_updates == []
+    assert fake_crm.pins == []
