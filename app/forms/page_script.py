@@ -9,6 +9,119 @@ FORM_SCRIPT = """<script type="module">
 import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm';
 
 (function () {
+  // Sin espacios al principio, y nunca más de uno seguido — se aplica en
+  // cada tecla, no solo al salir del campo, para que la persona nunca vea
+  // "   dfdfdfd   " mientras escribe. Deja un espacio final suelto (para
+  // poder seguir escribiendo la siguiente palabra); el trim final completo
+  // pasa al salir del campo (ver el listener 'blur' más abajo).
+  function collapseSpacesLive(value) {
+    return value.replace(/^\s+/, '').replace(/ {2,}/g, ' ');
+  }
+
+  // Aplica `transformFn` al valor y reubica el cursor donde debería quedar,
+  // en vez de dejar que el navegador lo mande al final del campo (lo que
+  // pasa siempre que se reasigna `el.value` a mano) — así se puede seguir
+  // corrigiendo en medio de un nombre o dirección sin que el cursor salte.
+  // Funciona porque estas transformaciones son "estables por prefijo": el
+  // resultado de transformar todo el texto hasta el cursor no cambia según
+  // lo que venga después (quitar caracteres o colapsar espacios cumple esto;
+  // el formato de moneda no, por eso los montos no usan este helper).
+  function transformPreservingCursor(el, transformFn) {
+    var cursorPos = el.selectionStart;
+    var oldValue = el.value;
+    var newValue = transformFn(oldValue);
+    if (newValue === oldValue) return;
+    var newCursorPos = transformFn(oldValue.slice(0, cursorPos)).length;
+    el.value = newValue;
+    el.setSelectionRange(newCursorPos, newCursorPos);
+  }
+
+  // Formato visual "$ 500.000.000" mientras se escribe — el backend igual
+  // limpia a solo dígitos (ver app/forms/cleaning.py), esto es solo display.
+  // Mismo criterio para precio de venta y saldo de la deuda: son el mismo
+  // tipo de dato (un monto en pesos), deben verse igual. El cursor se deja
+  // al final: los separadores de miles se recalculan enteros con cada
+  // dígito, no hay una posición "estable" que preservar como en el resto de
+  // los campos (típico también en inputs de moneda de otros formularios).
+  function formatAsCurrency(el) {
+    el.addEventListener('input', function () {
+      var digits = el.value.replace(/[^0-9]/g, '');
+      el.value = digits ? '$ ' + Number(digits).toLocaleString('es-CO') : '';
+    });
+  }
+  ['field-sale_price', 'field-outstanding_debt'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) formatAsCurrency(el);
+  });
+
+  // Solo letras en el nombre y municipio — bloquea números y símbolos al
+  // escribir, en vez de dejar que se note hasta que el backend lo rechace al
+  // enviar (misma regla que `_NAME_RE` en app/forms/models.py). Todo el
+  // formulario va en mayúscula, salvo el correo.
+  function onlyLettersUppercase(value) {
+    return collapseSpacesLive(value.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ'\-\s]/g, '')).toUpperCase();
+  }
+  ['field-interested_party', 'field-municipality'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', function () { transformPreservingCursor(el, onlyLettersUppercase); });
+  });
+
+  // Solo dígitos en cédula y duración — mismo criterio que los montos, sin
+  // el formato de moneda.
+  function onlyDigits(value) {
+    return value.replace(/[^0-9]/g, '');
+  }
+  ['field-id_number', 'field-term_months'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', function () { transformPreservingCursor(el, onlyDigits); });
+  });
+
+  // Dirección: sin espacios al principio ni dobles, y en mayúscula.
+  function collapseSpacesAndUppercase(value) {
+    return collapseSpacesLive(value).toUpperCase();
+  }
+  var addressInput = document.getElementById('field-address');
+  if (addressInput) {
+    addressInput.addEventListener('input', function () {
+      transformPreservingCursor(addressInput, collapseSpacesAndUppercase);
+    });
+  }
+
+  // Matrícula: solo números y guion, sin ningún espacio — no es texto libre
+  // como la dirección, es un código (misma regla que `_REGISTRATION_NUMBER_RE`
+  // en app/forms/models.py).
+  function onlyDigitsAndHyphen(value) {
+    return value.replace(/[^0-9-]/g, '');
+  }
+  var registrationNumberInput = document.getElementById('field-registration_number');
+  if (registrationNumberInput) {
+    registrationNumberInput.addEventListener('input', function () {
+      transformPreservingCursor(registrationNumberInput, onlyDigitsAndHyphen);
+    });
+  }
+
+  // Correo: única excepción a la mayúscula del resto del formulario — va
+  // siempre en minúscula, en vivo mientras se escribe (mismo criterio que
+  // `clean_email` en app/forms/cleaning.py).
+  function collapseSpacesLowercase(value) {
+    return collapseSpacesLive(value).toLowerCase();
+  }
+  var emailInput = document.getElementById('field-email');
+  if (emailInput) {
+    emailInput.addEventListener('input', function () {
+      transformPreservingCursor(emailInput, collapseSpacesLowercase);
+    });
+  }
+
+  // Trim final completo en todos los campos de texto al salir del campo —
+  // el backend igual limpia esto (`app/forms/cleaning.py`), pero así la
+  // persona ve el dato limpio antes de enviar, no solo después.
+  Array.prototype.forEach.call(document.querySelectorAll('input[type="text"], input[type="email"]'), function (el) {
+    el.addEventListener('blur', function () {
+      el.value = el.value.trim().replace(/ {2,}/g, ' ');
+    });
+  });
+
   var canvas = document.getElementById('signature-canvas');
   // willReadFrequently: cada trazo toma un snapshot con getImageData
   // (historial de Deshacer) y al final se vuelve a leer para recortar la
@@ -233,6 +346,7 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     canvas.classList.toggle('signature-box--ready', hasSignature);
     placeholder.classList.toggle('signature-placeholder--hidden', hasSignature || mode !== 'upload');
 
+    statusText.classList.remove('signature-status-text--error');
     if (hasSignature) {
       statusText.textContent = '✓ Firma lista';
     } else {
@@ -327,11 +441,100 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
   var status = document.getElementById('form-status');
   var submitButton = document.getElementById('submit-button');
 
+  // Mensajes propios de Alberto Álvarez en vez de los globos genéricos del
+  // navegador ("Please fill out this field") — el <form> lleva `novalidate`
+  // y esta validación reemplaza por completo a la nativa. Los de campos
+  // obligatorios van junto al campo (`.field__error`), no en un mensaje
+  // general abajo del formulario — así la persona ve de una cuál dato falta.
+  function showFormError(message) {
+    status.className = 'form-status--error';
+    status.textContent = message;
+  }
+  function clearFormError() {
+    status.className = '';
+    status.textContent = '';
+  }
+
+  function fieldErrorEl(el) {
+    var wrap = el.closest('.field');
+    return wrap && wrap.querySelector('.field__error');
+  }
+
+  function fieldLabelText(el) {
+    var wrap = el.closest('.field');
+    var label = wrap && wrap.querySelector('.field__label');
+    return label ? label.textContent.replace('*', '').trim() : 'Este dato';
+  }
+
+  function showFieldError(el, message) {
+    el.classList.add('field__input--invalid');
+    var errorEl = fieldErrorEl(el);
+    if (errorEl) {
+      errorEl.textContent = message;
+      errorEl.classList.add('field__error--visible');
+    }
+  }
+
+  function clearFieldError(el) {
+    el.classList.remove('field__input--invalid');
+    var errorEl = fieldErrorEl(el);
+    if (errorEl) {
+      errorEl.textContent = '';
+      errorEl.classList.remove('field__error--visible');
+    }
+  }
+
+  // Marca con un mensaje propio cada campo obligatorio vacío (no solo el
+  // primero) y devuelve el primero, para poder llevarle el foco.
+  function markMissingRequiredFields() {
+    var firstMissing = null;
+    Array.prototype.forEach.call(form.querySelectorAll('[required]'), function (el) {
+      if (!el.value || !el.value.trim()) {
+        showFieldError(el, 'Dato obligatorio para tu Autorización de Corretaje.');
+        if (!firstMissing) firstMissing = el;
+      } else {
+        clearFieldError(el);
+      }
+    });
+    return firstMissing;
+  }
+
+  // El backend (Pydantic) devuelve 422 con `detail: [{loc: ["body", "campo"],
+  // msg: "Value error, <mensaje>"}, ...]` — esto lo lleva al campo exacto que
+  // falló (mismo `.field__error` que "obligatorio"), en vez de un mensaje
+  // genérico abajo del formulario. Devuelve el primer campo marcado, o null
+  // si ningún error de la respuesta correspondía a un campo visible (caso
+  // raro: solo pasaría si alguien le pega a la API sin usar este formulario).
+  function applyServerValidationErrors(detail) {
+    var firstInvalid = null;
+    (detail || []).forEach(function (item) {
+      var fieldName = item.loc && item.loc[item.loc.length - 1];
+      var el = fieldName && document.getElementById('field-' + fieldName);
+      if (!el) return;
+      var rawMessage = item.msg || '';
+      var message = rawMessage.indexOf('Value error,') === 0
+        ? rawMessage.replace(/^Value error,\s*/, '')
+        : fieldLabelText(el) + ' inválido.';
+      showFieldError(el, message);
+      if (!firstInvalid) firstInvalid = el;
+    });
+    return firstInvalid;
+  }
+
+  // Limpia el error de un campo (obligatorio o no) apenas la persona vuelve
+  // a tocarlo — cubre tanto "faltaba" como un formato inválido que haya
+  // marcado `applyServerValidationErrors` (ej. matrícula, precio).
+  Array.prototype.forEach.call(form.querySelectorAll('.field__input'), function (el) {
+    el.addEventListener('input', function () { clearFieldError(el); });
+    el.addEventListener('change', function () { clearFieldError(el); });
+  });
+
   // Spinner + frases que van rotando mientras se espera al backend, para
   // que la espera no se sienta larga aunque tarde unos segundos. Devuelve
   // una función para pararla al terminar (éxito o error).
   function startStatusAnimation(messages) {
     var i = 0;
+    status.className = '';
     status.innerHTML = '<span class="status-loading">'
       + '<span class="spinner"></span>'
       + '<span class="status-loading__text">' + messages[0] + '</span>'
@@ -435,12 +638,21 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
 
   form.addEventListener('submit', function (evt) {
     evt.preventDefault();
+    clearFormError();
+
+    var missingField = markMissingRequiredFields();
+    if (missingField) {
+      missingField.focus();
+      return;
+    }
     if (processingSignature) {
-      status.textContent = 'Esperá a que termine de procesar la firma.';
+      statusText.textContent = 'Esperá a que termine de procesar la firma antes de enviar.';
+      statusText.classList.add('signature-status-text--error');
       return;
     }
     if (!hasSignature) {
-      status.textContent = 'Falta la firma.';
+      statusText.textContent = 'Falta tu firma: es necesaria para tu Autorización de Corretaje.';
+      statusText.classList.add('signature-status-text--error');
       return;
     }
     var data = {};
@@ -462,7 +674,12 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     }).then(function (resp) {
-      if (!resp.ok) throw new Error('Error al generar el documento.');
+      if (resp.status === 422) {
+        return resp.json().then(function (body) {
+          return Promise.reject({ validationDetail: (body && body.detail) || [] });
+        });
+      }
+      if (!resp.ok) throw new Error('No se pudo generar el documento. Intentá de nuevo en unos minutos.');
       return resp.blob();
     }).then(function (blob) {
       var url = URL.createObjectURL(blob);
@@ -473,11 +690,21 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
       a.click();
       a.remove();
       stopAnimation();
+      status.className = '';
       status.textContent = 'Documento firmado y descargado. Gracias.';
     }).catch(function (err) {
       stopAnimation();
-      status.textContent = 'Ocurrió un error: ' + err.message;
       submitButton.disabled = false;
+      if (err && err.validationDetail) {
+        var firstInvalid = applyServerValidationErrors(err.validationDetail);
+        if (firstInvalid) {
+          firstInvalid.focus();
+        } else {
+          showFormError('Alberto Álvarez: revisá tus datos, algo no tiene el formato correcto.');
+        }
+        return;
+      }
+      showFormError('Alberto Álvarez: ' + err.message);
     });
   });
 })();

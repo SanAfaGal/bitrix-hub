@@ -152,6 +152,15 @@ FORM_STYLE = """<style>
     letter-spacing: 0.05em;
     color: var(--color-navy);
   }
+  .field__required {
+    color: var(--color-error);
+  }
+  .field__hint {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    margin-top: -2px;
+  }
   .field__input {
     font-family: var(--font-family);
     font-size: 16px;
@@ -167,6 +176,18 @@ FORM_STYLE = """<style>
   .field__input:focus {
     outline: none;
     border-color: var(--color-teal);
+  }
+  .field__input--invalid {
+    border-color: var(--color-error);
+  }
+  .field__error {
+    display: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-error);
+  }
+  .field__error--visible {
+    display: block;
   }
 
   .field-group {
@@ -308,6 +329,7 @@ FORM_STYLE = """<style>
     transition: color 0.15s var(--ease-standard);
   }
   .signature-status-text--ready { color: var(--color-teal); font-weight: 700; }
+  .signature-status-text--error { color: var(--color-error); font-weight: 700; }
   .signature-note {
     font-size: 12px;
     font-weight: 500;
@@ -356,6 +378,12 @@ FORM_STYLE = """<style>
     text-align: center;
     margin-top: var(--space-2);
     color: var(--color-text-muted);
+  }
+  .form-status--error {
+    color: var(--color-error);
+    background: var(--color-error-bg);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
   }
   .status-loading {
     display: inline-flex;

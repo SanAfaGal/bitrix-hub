@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from html import escape
 
+from app.forms.models import PROPERTY_TYPES
 from app.forms.page_script import FORM_SCRIPT
 from app.forms.page_styles import FORM_STYLE
 
@@ -21,21 +22,72 @@ CLEAN_SIGNATURE_PATH = f"{FORM_PATH}/limpiar-firma"
 FAVICON_URL = "/static/imgs/favicon.ico"
 LOGO_URL = "/static/imgs/logo_short.webp"
 
-# Campos de texto que ve y llena el cliente. `id_number` se reutiliza para el
-# campo de cédula que va junto a la firma (`signer_id_number`), no se pide dos veces.
-_TEXT_FIELDS = [
-    ("interested_party", "Nombre completo del interesado", "text", True),
-    ("id_number", "Cédula (CC)", "text", True),
-    ("email", "Correo electrónico", "email", True),
-    ("property_type", "Tipo de inmueble", "text", True),
-    ("address", "Dirección del inmueble", "text", True),
-    ("municipality", "Municipio", "text", True),
-    ("registration_number", "Matrícula inmobiliaria", "text", True),
-    ("sale_price", "Precio de venta ($)", "text", True),
-    ("mortgage_loan", "Crédito hipotecario (si aplica)", "text", False),
-    ("leasing", "Leasing (si aplica)", "text", False),
-    ("outstanding_debt", "Saldo actual de la deuda ($, aprox.)", "text", False),
-    ("term_months", "Duración del acuerdo (meses)", "text", True),
+# Campos que ve y llena el cliente. `id_number` se reutiliza para el campo de
+# cédula que va junto a la firma (`signer_id_number`), no se pide dos veces.
+# `kind` decide cómo se renderiza: "text" -> <input>, "select" -> <select>
+# con las opciones de `property_type`, "yesno" -> <select> Sí/No obligatorio.
+_FIELDS = [
+    dict(
+        name="interested_party", label="Nombre completo del interesado", kind="text",
+        input_type="text", required=True,
+        hint="Escríbelo completo, tal como aparece en tu cédula.",
+        placeholder="Ej: Juan Pérez Gómez",
+    ),
+    dict(
+        name="id_number", label="Cédula (CC)", kind="text", input_type="text", required=True,
+        hint="Solo números, sin puntos ni espacios.",
+        placeholder="Ej: 1234567890", inputmode="numeric",
+    ),
+    dict(
+        name="email", label="Correo electrónico", kind="text", input_type="email", required=True,
+        hint="Un correo donde te podamos contactar.",
+        placeholder="Ej: nombre@correo.com",
+    ),
+    dict(
+        name="property_type", label="Tipo de inmueble", kind="select", required=True,
+        hint="Selecciona el tipo de inmueble que vas a autorizar.",
+    ),
+    dict(
+        name="address", label="Dirección del inmueble", kind="text", input_type="text", required=True,
+        hint="Incluye número, apartamento o detalles que ayuden a ubicarlo.",
+        placeholder="Ej: Cra 7 # 12-34, Apto 302",
+    ),
+    dict(
+        name="municipality", label="Municipio", kind="text", input_type="text", required=True,
+        hint="Municipio donde está ubicado el inmueble.",
+        placeholder="Ej: Envigado",
+    ),
+    dict(
+        name="registration_number", label="Matrícula inmobiliaria", kind="text", input_type="text",
+        required=False,
+        hint="Solo números y guion. Déjala en blanco si no la tienes.",
+        placeholder="Ej: 050-123456",
+    ),
+    dict(
+        name="sale_price", label="Precio de venta ($)", kind="text", input_type="text", required=False,
+        hint="Valor aproximado, en pesos colombianos. Déjalo en blanco si no aplica.",
+        placeholder="Ej: $ 350.000.000", inputmode="numeric",
+    ),
+    dict(
+        name="mortgage_loan", label="Crédito hipotecario", kind="yesno", required=True,
+        hint="Indica si el inmueble tiene un crédito hipotecario vigente.",
+    ),
+    dict(
+        name="leasing", label="Leasing", kind="yesno", required=True,
+        hint="Indica si el inmueble está bajo leasing habitacional.",
+    ),
+    dict(
+        name="outstanding_debt", label="Saldo actual de la deuda ($, aprox.)", kind="text",
+        input_type="text", required=False,
+        hint="Saldo aproximado de la deuda. Déjalo en blanco si no aplica.",
+        placeholder="Ej: $ 50.000.000", inputmode="numeric",
+    ),
+    dict(
+        name="term_months", label="Duración del acuerdo (meses)", kind="text", input_type="text",
+        required=False,
+        hint="Tiempo en meses que Alberto Álvarez administrará el inmueble. Déjalo en blanco si no aplica.",
+        placeholder="Ej: 12", inputmode="numeric",
+    ),
 ]
 
 _HTML = """<!doctype html>
@@ -77,7 +129,7 @@ __STYLE__
         <h2 class="card__title">Completa tus datos</h2>
         <p class="card__subtitle">Llena tus datos y firma al final.</p>
       </div>
-      <form id="authorization-form">
+      <form id="authorization-form" novalidate>
 __DEAL_ID_FIELD__
 __FIELDS_HTML__
         <div class="field-group">
@@ -132,23 +184,57 @@ __SCRIPT__
 """
 
 
+def _render_text_input(field: dict) -> str:
+    placeholder = field.get("placeholder")
+    return (
+        '          <input class="field__input" id="field-{name}" type="{input_type}" '
+        'name="{name}"{placeholder}{inputmode}{required}>'.format(
+            name=field["name"],
+            input_type=field["input_type"],
+            placeholder=f' placeholder="{escape(placeholder)}"' if placeholder else "",
+            inputmode=f' inputmode="{field["inputmode"]}"' if field.get("inputmode") else "",
+            required=" required" if field["required"] else "",
+        )
+    )
+
+
+def _render_select(field: dict, options: list[tuple[str, str]]) -> str:
+    options_html = "\n".join(
+        f'            <option value="{escape(value)}">{escape(label)}</option>' for value, label in options
+    )
+    return (
+        f'          <select class="field__input" id="field-{field["name"]}" name="{field["name"]}"'
+        f'{" required" if field["required"] else ""}>\n'
+        '            <option value="" selected disabled>Selecciona una opción...</option>\n'
+        f"{options_html}\n"
+        "          </select>"
+    )
+
+
+def _render_field(field: dict) -> str:
+    if field["kind"] == "select":
+        body = _render_select(field, [(name, name) for name in PROPERTY_TYPES])
+    elif field["kind"] == "yesno":
+        body = _render_select(field, [("si", "Sí"), ("no", "No")])
+    else:
+        body = _render_text_input(field)
+    required_mark = ' <span class="field__required">*</span>' if field["required"] else ""
+    return (
+        '        <div class="field">\n'
+        f'          <label class="field__label" for="field-{field["name"]}">'
+        f"{escape(field['label'])}{required_mark}</label>\n"
+        f'          <span class="field__hint">{escape(field["hint"])}</span>\n'
+        f"{body}\n"
+        f'          <span class="field__error" id="error-{field["name"]}"></span>\n'
+        "        </div>"
+    )
+
+
 def render_form_html(deal_id: str | None = None) -> str:
     deal_id_field_html = (
         f'        <input type="hidden" name="deal_id" value="{escape(deal_id)}">' if deal_id else ""
     )
-    fields_html = "\n".join(
-        '        <div class="field">\n'
-        '          <label class="field__label" for="field-{name}">{label}</label>\n'
-        '          <input class="field__input" id="field-{name}" type="{input_type}" '
-        'name="{name}"{required}>\n'
-        "        </div>".format(
-            label=label,
-            input_type=input_type,
-            name=name,
-            required=" required" if required else "",
-        )
-        for name, label, input_type, required in _TEXT_FIELDS
-    )
+    fields_html = "\n".join(_render_field(field) for field in _FIELDS)
     return (
         _HTML.replace("__DEAL_ID_FIELD__", deal_id_field_html)
         .replace("__FIELDS_HTML__", fields_html)
