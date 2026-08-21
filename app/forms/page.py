@@ -30,6 +30,24 @@ SECTION_TITLES = {
     "financial": "Condiciones financieras",
 }
 
+# Mismo estilo de ícono (stroke="currentColor") que los botones de
+# deshacer/borrar firma más abajo — 24x24, sin relleno.
+SECTION_ICONS = {
+    "interested": (
+        '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>'
+        '<circle cx="12" cy="7" r="4"/>'
+    ),
+    "property": (
+        '<path d="M3 9.5 12 3l9 6.5"/>'
+        '<path d="M5 10v10h14V10"/>'
+    ),
+    "financial": (
+        '<circle cx="12" cy="12" r="9"/>'
+        '<path d="M15 9.5H10.5a1.75 1.75 0 0 0 0 3.5h3a1.75 1.75 0 0 1 0 3.5H9"/>'
+        '<path d="M12 7.5v9"/>'
+    ),
+}
+
 # Campos que ve y llena el cliente. `id_number` se reutiliza para el campo de
 # cédula que va junto a la firma (`signer_id_number`), no se pide dos veces.
 # `kind` decide cómo se renderiza: "text" -> <input>, "select" -> <select>
@@ -194,6 +212,14 @@ __FIELDS_HTML__
             <span class="signature-status-text" id="signature-status-text">Firma aquí con el dedo</span>
           </div>
         </div>
+        <div class="submit-warning">
+          <svg class="submit-warning__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span>Este enlace es de un solo uso: revisa bien tu información antes de enviar.</span>
+        </div>
         <button type="submit" class="btn btn--primary" id="submit-button">Enviar autorización</button>
         <div id="form-status"></div>
       </form>
@@ -328,9 +354,15 @@ def _render_fields_with_sections(fields: list[dict]) -> str:
     last_section = None
     for field in fields:
         if field.get("section") and field["section"] != last_section:
-            title = escape(SECTION_TITLES[field["section"]])
-            parts.append(f'        <h3 class="form-section__title">{title}</h3>')
-            last_section = field["section"]
+            section = field["section"]
+            title = escape(SECTION_TITLES[section])
+            icon = (
+                '<svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+                f"{SECTION_ICONS[section]}</svg>"
+            )
+            parts.append(f'        <h3 class="form-section__title">{icon}{title}</h3>')
+            last_section = section
         parts.append(_render_field(field))
     return "\n".join(parts)
 

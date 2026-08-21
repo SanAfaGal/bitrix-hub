@@ -13,6 +13,9 @@ FORM_STYLE = """<style>
     --color-success: #2f8f5b;
     --color-success-bg: #e9f6ee;
     --color-info-bg: #e8f1f5;
+    --color-warning: #9a6b12;
+    --color-warning-bg: #fdf2dc;
+    --color-warning-border: #f0cd85;
     --color-bg: #f3f3fb;
     --color-card: #ffffff;
     --color-border: #cccccc;
@@ -201,6 +204,11 @@ FORM_STYLE = """<style>
   .form-section__title:first-of-type {
     margin-top: 0;
   }
+  .form-section__title-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
 
   .field { display: flex; flex-direction: column; gap: var(--space-1); }
   .field--hidden { display: none; }
@@ -220,6 +228,26 @@ FORM_STYLE = """<style>
     color: var(--color-text-muted);
     margin-top: -2px;
   }
+
+  .submit-warning {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    background: var(--color-warning-bg);
+    border: 1.5px solid var(--color-warning-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--color-warning);
+  }
+  .submit-warning__icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
   .field__input {
     font-family: var(--font-family);
     font-size: 16px;
