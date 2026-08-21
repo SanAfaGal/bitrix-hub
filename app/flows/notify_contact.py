@@ -1,7 +1,7 @@
-"""Flujo: deal de Bitrix -> contacto vinculado -> teléfono -> mensaje de WhatsApp.
+"""Flujo: deal del CRM -> contacto vinculado -> teléfono -> mensaje de WhatsApp.
 
-Combina app.bitrix (leer el deal y su contacto) con app.waha (limpiar el
-teléfono y enviar el mensaje) — mismo patrón que app.flows.deal_duplicado,
+Combina app.crm (leer el deal y su contacto) con app.waha (formatear el
+chatId y enviar el mensaje) — mismo patrón que app.flows.deal_duplicado,
 pero con Waha en vez de Xposure.
 """
 from __future__ import annotations
@@ -9,32 +9,30 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.bitrix.client import BitrixClient
+from app.crm.protocol import CrmClient
 from app.waha.client import WahaClient
-from app.waha.phone import extract_phone_from_contact, to_chat_id
+from app.waha.phone import to_chat_id
 
 logger = logging.getLogger(__name__)
-
-FIELD_CONTACT_ID = "CONTACT_ID"
 
 
 def process_notify_contact(
     deal_id: str,
     text: str,
-    bitrix_client: BitrixClient,
+    crm_client: CrmClient,
     waha_client: WahaClient,
     session: str | None = None,
 ) -> dict[str, Any]:
     """Busca el contacto vinculado al deal, resuelve su teléfono y le envía `text` por WhatsApp."""
-    deal = bitrix_client.get_deal(deal_id)
-    contact_id = deal.get(FIELD_CONTACT_ID)
+    deal = crm_client.get_deal(deal_id)
+    contact_id = crm_client.get_deal_contact_id(deal)
 
     if not contact_id:
-        logger.warning("Deal %s sin contacto vinculado (%s)", deal_id, FIELD_CONTACT_ID)
+        logger.warning("Deal %s sin contacto vinculado", deal_id)
         return {"ok": False, "deal_id": deal_id, "error": "El deal no tiene contacto vinculado"}
 
-    contact = bitrix_client.get_contact(contact_id)
-    raw_phone = extract_phone_from_contact(contact)
+    contact = crm_client.get_contact(contact_id)
+    raw_phone = crm_client.get_contact_phone(contact)
     if not raw_phone:
         logger.warning("Contacto %s (deal %s) sin teléfono", contact_id, deal_id)
         return {"ok": False, "deal_id": deal_id, "contact_id": contact_id, "error": "El contacto no tiene teléfono"}

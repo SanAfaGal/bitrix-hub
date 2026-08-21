@@ -1,6 +1,6 @@
 """Reglas de negocio que solo involucran Waha (sin otras integraciones).
 
-Acá van las funciones de flujo que reciben un evento de Bitrix y solo
+Acá van las funciones de flujo que reciben un evento del CRM y solo
 necesitan enviar (o, a futuro, recibir) un mensaje de WhatsApp — análogo a
 `MLS/app/deal_event.py`, pero para Waha puro.
 
@@ -11,10 +11,10 @@ Ejemplo de forma esperada, una vez que haya un flujo real:
 
     def notify_stage_change(
         deal_id: str,
-        bitrix_client: BitrixClient,
+        crm_client: CrmClient,
         waha_client: WahaClient,
     ) -> dict[str, Any]:
-        deal = bitrix_client.get_deal(deal_id)
+        deal = crm_client.get_deal(deal_id)
         ...
         waha_client.send_text(chat_id, texto)
         return {"ok": True, "deal_id": deal_id}

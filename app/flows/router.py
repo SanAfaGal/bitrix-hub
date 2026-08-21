@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException, Request
 
-from app.bitrix.deps import get_bitrix_client
+from app.crm.deps import get_crm_client
 from app.flows.deal_duplicado import process_deal_event
 from app.flows.notify_contact import process_notify_contact
 from app.flows.settings import load_public_base_url
@@ -90,8 +90,8 @@ async def webhook_deal_event(
 
         logger.info("Evento de deal recibido: %s", deal_id)
 
-        bitrix_client = get_bitrix_client()
-        return process_deal_event(deal_id, bitrix_client, get_xposure_client)
+        crm_client = get_crm_client()
+        return process_deal_event(deal_id, crm_client, get_xposure_client)
     except HTTPException as exc:
         logger.exception("Error procesando evento de deal")
         return {"ok": False, "error": str(exc.detail)}
@@ -132,13 +132,13 @@ async def webhook_deal_notify_test(
 ) -> dict[str, Any]:
     """Endpoint de prueba: igual patrón que /webhook/deal-event, pero para Waha.
 
-    Lee el deal, toma su `CONTACT_ID`, obtiene el contacto y su teléfono
-    (`app.waha.phone.extract_phone_from_contact` + `to_chat_id`), y le
-    manda `text` por WhatsApp. Todavía no es un disparador real de
-    Bitrix — sirve para validar el flujo Bitrix -> contacto -> Waha antes
-    de cablearlo a un evento real (ver app/flows/README.md). Acepta el
-    mismo ID del deal que manda Bitrix, en las mismas variantes que
-    `/webhook/deal-event`.
+    Lee el deal, resuelve su contacto vinculado y el teléfono de ese
+    contacto (`CrmClient.get_deal_contact_id` + `get_contact_phone`, luego
+    `app.waha.phone.to_chat_id`), y le manda `text` por WhatsApp. Todavía
+    no es un disparador real de Bitrix — sirve para validar el flujo
+    CRM -> contacto -> Waha antes de cablearlo a un evento real (ver
+    app/flows/README.md). Acepta el mismo ID del deal que manda Bitrix, en
+    las mismas variantes que `/webhook/deal-event`.
     """
     deal_id = await _resolve_deal_id(request, deal_id_data_fields, document_id_2, deal_id_simple)
 
@@ -146,14 +146,14 @@ async def webhook_deal_notify_test(
         logger.error("Evento de deal-notify-test sin ID")
         return {"ok": False, "error": "Falta ID"}
 
-    bitrix_client = get_bitrix_client()
+    crm_client = get_crm_client()
     try:
         waha_client = get_waha_client()
     except HTTPException as exc:
         logger.error("Evento de deal-notify-test %s no se pudo procesar: %s", deal_id, exc.detail)
         return {"ok": False, "error": str(exc.detail)}
 
-    return process_notify_contact(deal_id, text, bitrix_client, waha_client, session=session)
+    return process_notify_contact(deal_id, text, crm_client, waha_client, session=session)
 
 
 @router.post(
@@ -201,7 +201,7 @@ async def webhook_deal_stage_broker_auth(
         logger.error("Evento de deal-stage-broker-auth sin ID")
         return {"ok": False, "error": "Falta ID"}
 
-    bitrix_client = get_bitrix_client()
+    crm_client = get_crm_client()
     try:
         waha_client = get_waha_client()
         public_base_url = load_public_base_url()
@@ -211,5 +211,5 @@ async def webhook_deal_stage_broker_auth(
         return {"ok": False, "error": str(detail)}
 
     return await asyncio.to_thread(
-        process_welcome_and_authorization, deal_id, bitrix_client, waha_client, public_base_url, session=session
+        process_welcome_and_authorization, deal_id, crm_client, waha_client, public_base_url, session=session
     )

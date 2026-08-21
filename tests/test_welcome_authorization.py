@@ -1,19 +1,7 @@
 from __future__ import annotations
 
 from app.flows.welcome_authorization import process_welcome_and_authorization
-
-
-class FakeBitrixClient:
-    def __init__(self, deal: dict, contact: dict | None = None) -> None:
-        self._deal = deal
-        self._contact = contact or {}
-
-    def get_deal(self, deal_id: str) -> dict:
-        return self._deal
-
-    def get_contact(self, contact_id: str) -> dict:
-        assert contact_id == self._deal.get("CONTACT_ID")
-        return self._contact
+from tests.fakes import FakeCrmClient
 
 
 class FakeWahaClient:
@@ -27,14 +15,14 @@ class FakeWahaClient:
 
 
 def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
-    bitrix = FakeBitrixClient(
-        deal={"ID": "42", "CONTACT_ID": "7"},
-        contact={"PHONE": [{"VALUE": "300 111 2233", "VALUE_TYPE": "MOBILE"}]},
+    crm = FakeCrmClient(
+        deals={"42": {"ID": "42", "CONTACT_ID": "7"}},
+        contacts={"7": {"PHONE": "300 111 2233"}},
     )
     waha = FakeWahaClient()
 
     result = process_welcome_and_authorization(
-        "42", bitrix, waha, public_base_url="https://hub.example.com", session="default"
+        "42", crm, waha, public_base_url="https://hub.example.com", session="default"
     )
 
     assert result == {"ok": True, "deal_id": "42", "contact_id": "7", "chat_id": "573001112233@c.us"}
@@ -47,23 +35,23 @@ def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
 
 
 def test_returns_error_when_deal_has_no_contact() -> None:
-    bitrix = FakeBitrixClient(deal={"ID": "42"})
+    crm = FakeCrmClient(deals={"42": {"ID": "42"}})
     waha = FakeWahaClient()
 
-    result = process_welcome_and_authorization("42", bitrix, waha, public_base_url="https://hub.example.com")
+    result = process_welcome_and_authorization("42", crm, waha, public_base_url="https://hub.example.com")
 
     assert result == {"ok": False, "deal_id": "42", "error": "El deal no tiene contacto vinculado"}
     assert waha.calls == []
 
 
 def test_returns_error_when_phone_cannot_be_normalized() -> None:
-    bitrix = FakeBitrixClient(
-        deal={"ID": "42", "CONTACT_ID": "7"},
-        contact={"PHONE": [{"VALUE": "123", "VALUE_TYPE": "MOBILE"}]},
+    crm = FakeCrmClient(
+        deals={"42": {"ID": "42", "CONTACT_ID": "7"}},
+        contacts={"7": {"PHONE": "123"}},
     )
     waha = FakeWahaClient()
 
-    result = process_welcome_and_authorization("42", bitrix, waha, public_base_url="https://hub.example.com")
+    result = process_welcome_and_authorization("42", crm, waha, public_base_url="https://hub.example.com")
 
     assert result == {
         "ok": False,
@@ -75,13 +63,13 @@ def test_returns_error_when_phone_cannot_be_normalized() -> None:
 
 
 def test_propagates_waha_failure() -> None:
-    bitrix = FakeBitrixClient(
-        deal={"ID": "42", "CONTACT_ID": "7"},
-        contact={"PHONE": [{"VALUE": "3001112233", "VALUE_TYPE": "MOBILE"}]},
+    crm = FakeCrmClient(
+        deals={"42": {"ID": "42", "CONTACT_ID": "7"}},
+        contacts={"7": {"PHONE": "3001112233"}},
     )
     waha = FakeWahaClient(sent=False)
 
-    result = process_welcome_and_authorization("42", bitrix, waha, public_base_url="https://hub.example.com")
+    result = process_welcome_and_authorization("42", crm, waha, public_base_url="https://hub.example.com")
 
     assert result["ok"] is False
     assert result["chat_id"] == "573001112233@c.us"

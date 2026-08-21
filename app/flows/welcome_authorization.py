@@ -1,22 +1,20 @@
-"""Flujo: deal de Bitrix -> contacto vinculado -> WhatsApp de bienvenida + enlace de Autorización de Corretaje.
+"""Flujo: deal del CRM -> contacto vinculado -> WhatsApp de bienvenida + enlace de Autorización de Corretaje.
 
-Combina app.bitrix (leer el deal y su contacto) con app.waha (limpiar el
-teléfono y enviar los mensajes) — mismo patrón que
-app.flows.notify_contact, pero manda dos mensajes en secuencia en vez de uno.
+Combina app.crm (leer el deal y su contacto) con app.waha (formatear el
+chatId y enviar los mensajes) — mismo patrón que app.flows.notify_contact,
+pero manda dos mensajes en secuencia en vez de uno.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from app.bitrix.client import BitrixClient
+from app.crm.protocol import CrmClient
 from app.forms.page import FORM_PATH
 from app.waha.client import WahaClient
-from app.waha.phone import extract_phone_from_contact, to_chat_id
+from app.waha.phone import to_chat_id
 
 logger = logging.getLogger(__name__)
-
-FIELD_CONTACT_ID = "CONTACT_ID"
 
 WELCOME_MESSAGE = "¡Hola! 👋 Soy el asistente virtual de Alberto Álvarez. Gracias por tu interés, ya te comparto el siguiente paso."
 _AUTHORIZATION_LINK_MESSAGE = "Para continuar, necesitamos que completes y firmes la Autorización de Corretaje aquí: {link}"
@@ -24,7 +22,7 @@ _AUTHORIZATION_LINK_MESSAGE = "Para continuar, necesitamos que completes y firme
 
 def process_welcome_and_authorization(
     deal_id: str,
-    bitrix_client: BitrixClient,
+    crm_client: CrmClient,
     waha_client: WahaClient,
     public_base_url: str,
     session: str | None = None,
@@ -34,15 +32,15 @@ def process_welcome_and_authorization(
     Los dos mensajes van al mismo chat/sesión, con pausa aleatoria entre
     ellos (`WahaClient.send_text_sequence`) simulando comportamiento humano.
     """
-    deal = bitrix_client.get_deal(deal_id)
-    contact_id = deal.get(FIELD_CONTACT_ID)
+    deal = crm_client.get_deal(deal_id)
+    contact_id = crm_client.get_deal_contact_id(deal)
 
     if not contact_id:
-        logger.warning("Deal %s sin contacto vinculado (%s)", deal_id, FIELD_CONTACT_ID)
+        logger.warning("Deal %s sin contacto vinculado", deal_id)
         return {"ok": False, "deal_id": deal_id, "error": "El deal no tiene contacto vinculado"}
 
-    contact = bitrix_client.get_contact(contact_id)
-    raw_phone = extract_phone_from_contact(contact)
+    contact = crm_client.get_contact(contact_id)
+    raw_phone = crm_client.get_contact_phone(contact)
     if not raw_phone:
         logger.warning("Contacto %s (deal %s) sin teléfono", contact_id, deal_id)
         return {"ok": False, "deal_id": deal_id, "contact_id": contact_id, "error": "El contacto no tiene teléfono"}

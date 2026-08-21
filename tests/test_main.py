@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.xposure.deps import get_xposure_client
 from app.xposure.models import PropertySearchResult
+from tests.fakes import FakeCrmClient
 
 client = TestClient(app)
 
@@ -32,20 +33,7 @@ def test_single_property_lookup() -> None:
 
 
 def test_webhook_deal_event_delegates_to_flow(monkeypatch) -> None:
-    class FakeBitrixClient:
-        def get_deal(self, deal_id: str) -> dict:
-            return {"ID": deal_id}
-
-        def add_comment(self, *args, **kwargs) -> int:
-            return 1
-
-        def pin_comment(self, *args, **kwargs) -> None:
-            return None
-
-        def update_deal(self, *args, **kwargs) -> None:
-            return None
-
-    monkeypatch.setattr("app.flows.router.get_bitrix_client", lambda: FakeBitrixClient())
+    monkeypatch.setattr("app.flows.router.get_crm_client", lambda: FakeCrmClient())
     monkeypatch.setattr("app.flows.router.get_xposure_client", lambda: None)
 
     response = client.post("/webhook/deal-event", data={"data[FIELDS][ID]": "42"})
@@ -54,12 +42,10 @@ def test_webhook_deal_event_delegates_to_flow(monkeypatch) -> None:
 
 
 def test_webhook_deal_stage_broker_auth_sends_welcome_and_link(monkeypatch) -> None:
-    class FakeBitrixClient:
-        def get_deal(self, deal_id: str) -> dict:
-            return {"ID": deal_id, "CONTACT_ID": "7"}
-
-        def get_contact(self, contact_id: str) -> dict:
-            return {"PHONE": [{"VALUE": "3001112233", "VALUE_TYPE": "MOBILE"}]}
+    fake_crm = FakeCrmClient(
+        deals={"42": {"ID": "42", "CONTACT_ID": "7"}},
+        contacts={"7": {"PHONE": "3001112233"}},
+    )
 
     class FakeWahaClient:
         def __init__(self) -> None:
@@ -69,7 +55,7 @@ def test_webhook_deal_stage_broker_auth_sends_welcome_and_link(monkeypatch) -> N
             self.calls.append((chat_id, messages, session))
             return True
 
-    monkeypatch.setattr("app.flows.router.get_bitrix_client", lambda: FakeBitrixClient())
+    monkeypatch.setattr("app.flows.router.get_crm_client", lambda: fake_crm)
     monkeypatch.setattr("app.flows.router.get_waha_client", lambda: FakeWahaClient())
     monkeypatch.setattr("app.flows.router.load_public_base_url", lambda: "https://hub.example.com")
 
@@ -88,14 +74,10 @@ def test_webhook_deal_stage_broker_auth_requires_deal_id() -> None:
 
 
 def test_webhook_deal_stage_broker_auth_logs_error_when_public_base_url_missing(monkeypatch, caplog) -> None:
-    class FakeBitrixClient:
-        def get_deal(self, deal_id: str) -> dict:
-            return {"ID": deal_id}
-
     def raise_missing_public_base_url():
         raise RuntimeError("Falta variable de entorno: HUB_PUBLIC_BASE_URL")
 
-    monkeypatch.setattr("app.flows.router.get_bitrix_client", lambda: FakeBitrixClient())
+    monkeypatch.setattr("app.flows.router.get_crm_client", lambda: FakeCrmClient())
     monkeypatch.setattr("app.flows.router.get_waha_client", lambda: object())
     monkeypatch.setattr("app.flows.router.load_public_base_url", raise_missing_public_base_url)
 

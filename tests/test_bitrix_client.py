@@ -88,10 +88,28 @@ def test_add_comment_posts_expected_payload_and_returns_id(monkeypatch) -> None:
     monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
-    comment_id = client.add_comment("42", "deal", "hola")
+    comment_id = client.add_comment("42", "hola")
 
     assert comment_id == 999
     assert captured["url"] == "https://example.bitrix24.com/rest/1/token/crm.timeline.comment.add.json"
+    assert captured["json"]["fields"]["ENTITY_TYPE"] == "deal"
+
+
+def test_pin_comment_posts_expected_payload(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.pin_comment(999, "42")
+
+    assert captured["url"] == "https://example.bitrix24.com/rest/1/token/crm.timeline.item.pin.json"
+    assert captured["json"] == {"id": 999, "ownerTypeId": 2, "ownerId": "42"}
 
 
 def test_update_deal_does_not_raise_on_request_error(monkeypatch) -> None:
@@ -102,3 +120,66 @@ def test_update_deal_does_not_raise_on_request_error(monkeypatch) -> None:
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_deal("42", {"SOME_FIELD": "value"})  # no debe lanzar
+
+
+def test_get_deal_contact_id_extracts_contact_id() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_deal_contact_id({"ID": "42", "CONTACT_ID": "7"}) == "7"
+
+
+def test_get_deal_contact_id_returns_none_when_absent() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_deal_contact_id({"ID": "42"}) is None
+
+
+def test_get_contact_phone_prefers_mobile() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    contact = {
+        "PHONE": [
+            {"VALUE": "6015551234", "VALUE_TYPE": "WORK"},
+            {"VALUE": "3001112233", "VALUE_TYPE": "MOBILE"},
+        ]
+    }
+    assert client.get_contact_phone(contact) == "3001112233"
+
+
+def test_get_contact_phone_falls_back_to_first_available() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    contact = {"PHONE": [{"VALUE": "6015551234", "VALUE_TYPE": "WORK"}]}
+    assert client.get_contact_phone(contact) == "6015551234"
+
+
+def test_get_contact_phone_returns_none_when_no_phone() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_contact_phone({}) is None
+    assert client.get_contact_phone({"PHONE": []}) is None
+    assert client.get_contact_phone({"PHONE": [{"VALUE": "", "VALUE_TYPE": "WORK"}]}) is None
+
+
+def test_get_matricula_extracts_custom_field() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_matricula({"UF_CRM_1773860489786": "5322493"}) == "5322493"
+
+
+def test_get_matricula_returns_none_when_absent() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_matricula({}) is None
+
+
+def test_set_duplicado_status_updates_custom_field(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.set_duplicado_status("42", has_duplicate=True)
+
+    assert captured["json"] == {"id": "42", "fields": {"UF_CRM_1773861337167": 89298}}
+
+    client.set_duplicado_status("42", has_duplicate=False)
+
+    assert captured["json"] == {"id": "42", "fields": {"UF_CRM_1773861337167": 89296}}

@@ -9,7 +9,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 
-from app.bitrix.deps import get_bitrix_client
+from app.crm.deps import get_crm_client
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
 from app.forms.models import BrokerageAuthorizationPayload, CleanSignaturePhotoPayload
 from app.forms.page import CLEAN_SIGNATURE_PATH, FORM_PATH, TEMPLATE_PATH_URL, render_form_html
@@ -53,16 +53,21 @@ def _decode_image_data_url_or_400(data_url: str) -> bytes:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _content_disposition(filename: str) -> str:
+def _content_disposition(filename: str, *, inline: bool = False) -> str:
     """Nombre de archivo "normal" (con espacios/acentos) para lo que el usuario descarga.
 
     La URL sigue en minúsculas y con guiones (convención web); el nombre del
     archivo descargado es aparte y va legible tal como lo vería el usuario
     en su explorador de archivos. `filename*` (RFC 5987) lleva los acentos;
     `filename` es el fallback ASCII para navegadores viejos.
+
+    `inline=True` deja que el navegador lo muestre en la pestaña (p. ej. la
+    plantilla sin diligenciar, que el cliente solo quiere leer antes de
+    llenar el formulario) en vez de forzar la descarga.
     """
+    disposition = "inline" if inline else "attachment"
     ascii_fallback = filename.encode("ascii", "ignore").decode("ascii")
-    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+    return f"{disposition}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
 
 
 @router.get(
@@ -93,13 +98,17 @@ def post_clean_signature_photo(
 
 @router.get(
     TEMPLATE_PATH_URL,
-    summary="Descarga la plantilla del AcroForm sin diligenciar (para pruebas)",
+    summary="Muestra la plantilla sin diligenciar (para que el cliente la lea antes de llenar el formulario)",
 )
 def get_brokerage_authorization_template() -> Response:
     return Response(
         content=build_blank_template(),
         media_type="application/pdf",
-        headers={"Content-Disposition": _content_disposition("Autorización de Corretaje - Plantilla.pdf")},
+        headers={
+            "Content-Disposition": _content_disposition(
+                "Autorización de Corretaje - Plantilla.pdf", inline=True
+            )
+        },
     )
 
 
@@ -136,8 +145,8 @@ def post_brokerage_authorization_form(
 def _add_signed_authorization_comment(deal_id: str) -> None:
     """Deja constancia en el timeline del deal de que el cliente firmó. Best-effort: nunca rompe la descarga del PDF."""
     try:
-        bitrix_client = get_bitrix_client()
+        crm_client = get_crm_client()
         fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
-        bitrix_client.add_comment(deal_id, "deal", f"El cliente firmó la Autorización de Corretaje el {fecha}.")
+        crm_client.add_comment(deal_id, f"El cliente firmó la Autorización de Corretaje el {fecha}.")
     except Exception:
         logger.exception("Error dejando comentario de firma en el deal %s", deal_id)

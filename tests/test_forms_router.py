@@ -264,12 +264,12 @@ def test_post_form_is_rate_limited():
 def test_post_form_with_deal_id_adds_bitrix_comment(monkeypatch):
     calls = []
 
-    class FakeBitrixClient:
-        def add_comment(self, entity_id, entity_type, comment):
-            calls.append((entity_id, entity_type, comment))
+    class FakeCrmClient:
+        def add_comment(self, deal_id, comment):
+            calls.append((deal_id, comment))
             return 1
 
-    monkeypatch.setattr("app.forms.router.get_bitrix_client", lambda: FakeBitrixClient())
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FakeCrmClient())
 
     payload = _valid_form_payload()
     payload["deal_id"] = "42"
@@ -279,16 +279,16 @@ def test_post_form_with_deal_id_adds_bitrix_comment(monkeypatch):
     assert response.status_code == 200
     assert response.content.startswith(b"%PDF")
     assert len(calls) == 1
-    entity_id, entity_type, comment = calls[0]
-    assert entity_id == "42"
+    deal_id, comment = calls[0]
+    assert deal_id == "42"
     assert "firm" in comment.lower()
 
 
 def test_post_form_without_deal_id_does_not_touch_bitrix(monkeypatch):
     def fail_if_called():
-        raise AssertionError("no debería construirse un BitrixClient sin deal_id")
+        raise AssertionError("no debería construirse un cliente de CRM sin deal_id")
 
-    monkeypatch.setattr("app.forms.router.get_bitrix_client", fail_if_called)
+    monkeypatch.setattr("app.forms.router.get_crm_client", fail_if_called)
 
     response = client.post("/formularios/autorizacion-de-corretaje", json=_valid_form_payload())
 
@@ -297,11 +297,11 @@ def test_post_form_without_deal_id_does_not_touch_bitrix(monkeypatch):
 
 
 def test_post_form_still_returns_pdf_when_bitrix_comment_fails(monkeypatch):
-    class FailingBitrixClient:
-        def add_comment(self, entity_id, entity_type, comment):
+    class FailingCrmClient:
+        def add_comment(self, deal_id, comment):
             raise RuntimeError("Bitrix caído")
 
-    monkeypatch.setattr("app.forms.router.get_bitrix_client", lambda: FailingBitrixClient())
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FailingCrmClient())
 
     payload = _valid_form_payload()
     payload["deal_id"] = "42"

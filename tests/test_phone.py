@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.waha.phone import extract_phone_from_contact, to_chat_id
+from app.waha.phone import to_chat_id
 
 
 def test_to_chat_id_plain_local_number() -> None:
@@ -47,24 +47,3 @@ def test_to_chat_id_returns_none_on_too_long() -> None:
 
 def test_to_chat_id_custom_default_country_code() -> None:
     assert to_chat_id("3001112233", default_country_code="52") == "523001112233@c.us"
-
-
-def test_extract_phone_from_contact_prefers_mobile() -> None:
-    contact = {
-        "PHONE": [
-            {"VALUE": "6015551234", "VALUE_TYPE": "WORK"},
-            {"VALUE": "3001112233", "VALUE_TYPE": "MOBILE"},
-        ]
-    }
-    assert extract_phone_from_contact(contact) == "3001112233"
-
-
-def test_extract_phone_from_contact_falls_back_to_first_available() -> None:
-    contact = {"PHONE": [{"VALUE": "6015551234", "VALUE_TYPE": "WORK"}]}
-    assert extract_phone_from_contact(contact) == "6015551234"
-
-
-def test_extract_phone_from_contact_returns_none_when_no_phone() -> None:
-    assert extract_phone_from_contact({}) is None
-    assert extract_phone_from_contact({"PHONE": []}) is None
-    assert extract_phone_from_contact({"PHONE": [{"VALUE": "", "VALUE_TYPE": "WORK"}]}) is None

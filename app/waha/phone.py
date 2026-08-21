@@ -1,55 +1,25 @@
-"""Limpieza del teléfono guardado en Bitrix y su transformación al formato
-que espera Waha (chatId de WhatsApp).
+"""Transforma un teléfono ya extraído del CRM al formato que espera Waha
+(chatId de WhatsApp).
 
-Bitrix guarda el teléfono de un contacto en el campo `PHONE`, una lista de
-entradas `{"VALUE": "...", "VALUE_TYPE": "..."}` — nunca un string simple —
-y el valor casi siempre viene "sucio": con espacios, guiones, paréntesis,
-con o sin `+57` adelante. Este módulo concentra esa limpieza en un solo
-lugar para que cualquier flujo que necesite mandar un WhatsApp no tenga que
-reinventarla.
+El teléfono llega "sucio": con espacios, guiones, paréntesis, con o sin
+`+57` adelante — sin importar de qué CRM viene, la limpieza es la misma.
+Este módulo concentra esa limpieza en un solo lugar para que cualquier
+flujo que necesite mandar un WhatsApp no tenga que reinventarla. Extraer
+el teléfono crudo de la forma de contacto de cada CRM es responsabilidad
+del cliente de ese CRM (`CrmClient.get_contact_phone`), no de este módulo.
 """
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_COUNTRY_CODE = "57"  # Colombia — la mayoría de números en Bitrix son locales, de 10 dígitos.
-
-# Tipos de teléfono de Bitrix, en orden de preferencia para notificar por WhatsApp.
-_PREFERRED_PHONE_TYPES = ("MOBILE", "WORK", "HOME", "OTHER")
-
-
-def extract_phone_from_contact(contact: dict[str, Any]) -> str | None:
-    """Extrae el mejor teléfono disponible del campo PHONE de un contacto de Bitrix.
-
-    Prefiere MOBILE si hay varios números; si no, toma el primero que haya.
-    Retorna None si el contacto no tiene ningún teléfono.
-    """
-    phones = contact.get("PHONE")
-    if not isinstance(phones, list) or not phones:
-        return None
-
-    by_type: dict[str, str] = {}
-    for entry in phones:
-        if not isinstance(entry, dict):
-            continue
-        value = entry.get("VALUE")
-        value_type = entry.get("VALUE_TYPE")
-        if isinstance(value, str) and value.strip():
-            by_type.setdefault(value_type, value)
-
-    for preferred_type in _PREFERRED_PHONE_TYPES:
-        if preferred_type in by_type:
-            return by_type[preferred_type]
-
-    return next(iter(by_type.values()), None)
+DEFAULT_COUNTRY_CODE = "57"  # Colombia — la mayoría de contactos son números locales, de 10 dígitos.
 
 
 def to_chat_id(raw_phone: str, default_country_code: str = DEFAULT_COUNTRY_CODE) -> str | None:
-    """Limpia un teléfono de Bitrix y lo convierte al chatId que espera Waha.
+    """Limpia un teléfono y lo convierte al chatId que espera Waha.
 
     Acepta formatos como "300 111 2233", "+57 (300) 111-2233" o
     "0057 300 1112233". Si el número no trae indicador de país (+ o 00), se

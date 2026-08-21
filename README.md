@@ -35,6 +35,7 @@ Variables clave (ver `.env.example` para la lista completa, incluye todas
 las de Waha: engine, TZ, dashboard, logging, media, etc.):
 
 ```env
+CRM_PROVIDER=bitrix
 BITRIX_WEBHOOK_URL=https://tu-dominio.bitrix24.com/rest/1/tu_token/
 XPOSURE_BASE_URL=https://tu-dominio-xposure.com
 XPOSURE_USERNAME=tu_usuario
@@ -101,10 +102,14 @@ Cada integración es dueña de su router y sus dependencias de FastAPI —
 
 ```
 app/
+  crm/
+    protocol.py      # CrmClient (Protocol) — contrato que implementa cada CRM soportado
+    deps.py            # get_crm_client() — único punto que cambia si se swapea de CRM
+    README.md            # Cómo agregar un CRM nuevo
   bitrix/
-    client.py       # BitrixClient — núcleo compartido (get_deal, get_contact, add_comment, pin_comment, update_deal)
+    client.py       # BitrixClient — implementa CrmClient (get_deal, get_contact, add_comment, pin_comment, update_deal, ...)
     settings.py      # BITRIX_WEBHOOK_URL
-    deps.py           # get_bitrix_client() — dependencia de FastAPI
+    deps.py           # get_bitrix_client() — construye el BitrixClient concreto
   xposure/
     client.py         # XposureClient — login + search_property (migrado de MLS)
     settings.py        # XPOSURE_BASE_URL, XPOSURE_USERNAME, XPOSURE_PASSWORD
@@ -114,16 +119,17 @@ app/
   waha/
     client.py         # WahaClient — send_text(chat_id, text, session=None)
     settings.py        # WAHA_BASE_URL, WAHA_API_KEY, WAHA_SESSION
-    phone.py             # extract_phone_from_contact() + to_chat_id() — limpieza del teléfono de Bitrix
+    phone.py             # to_chat_id() — limpieza y formato del teléfono para WhatsApp (genérico, cualquier CRM)
     events.py             # Reglas de negocio Waha-solo (vacío por ahora)
     deps.py                # get_waha_client()
     router.py               # POST /webhook/waha-test (tag "Waha", scaffolding)
   flows/
-    deal_duplicado.py    # Bitrix + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
+    deal_duplicado.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
     router.py              # POST /webhook/deal-event (tag "Bitrix Webhooks")
     README.md               # Patrón para flujos que combinan >1 integración
   main.py                 # FastAPI(), openapi_tags, include_router(...), GET /health
 tests/
+  fakes.py               # FakeCrmClient — fake compartido de app.crm.protocol.CrmClient
   test_bitrix_client.py
   test_waha_client.py
   test_phone.py
@@ -159,6 +165,10 @@ http://127.0.0.1:8000/docs
 5. Tests unitarios del cliente (mock de `requests`) + tests del flujo con
    los clientes mockeados, siguiendo `tests/test_bitrix_client.py` y
    `tests/test_deal_duplicado.py`.
+
+Para agregar (o reemplazar) el CRM en vez de una integración externa, ver
+`app/crm/README.md` — el resto del hub depende de `app.crm.protocol.CrmClient`,
+nunca de `BitrixClient` directamente.
 
 Para Mobilia específicamente: no escribir un cliente nuevo desde cero, usar
 el paquete ya existente
