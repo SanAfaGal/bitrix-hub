@@ -225,8 +225,7 @@ def _mark_as_signed(deal_id: str, address: str, pdf_bytes: bytes, signed_at: dat
     try:
         crm_client = get_crm_client()
         file_url = _upload_signed_pdf(crm_client, deal_id, address, pdf_bytes, signed_at)
-        fecha = signed_at.strftime("%d/%m/%Y %H:%M")
-        comment = f"El cliente firmó la Autorización de Corretaje el {fecha}."
+        comment = "El cliente firmó la Autorización de Corretaje."
         if file_url:
             comment += f" Documento firmado: {file_url}"
         crm_client.add_comment(deal_id, comment)
