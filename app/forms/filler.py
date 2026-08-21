@@ -51,24 +51,26 @@ class _Field:
 # mueve un campo, cambia el texto y corre los subrayados), hay que volver a
 # sacar estas coordenadas con `get_text("rawdict")` sobre el PDF nuevo.
 _FIELDS: dict[str, _Field] = {
-    "interested_party": _Field(0, (150.3, 99.2, 318.1, 109.0), (150.26, 107.30), 8),
-    "id_number": _Field(0, (120.6, 108.9, 252.8, 118.7), (120.62, 117.02), 8),
-    "email": _Field(0, (128.4, 118.7, 296.4, 128.4), (128.42, 126.74), 8),
-    "property_type": _Field(0, (160.7, 239.7, 293.1, 249.5), (160.70, 247.82), 8),
-    "address": _Field(0, (128.5, 249.5, 260.9, 259.2), (128.53, 257.54), 8),
-    "municipality": _Field(0, (307.6, 249.5, 378.8, 259.2), (307.59, 257.54), 8),
-    "registration_number": _Field(0, (177.6, 259.2, 289.6, 268.9), (177.60, 267.26), 8),
-    "sale_price": _Field(0, (208.7, 268.9, 295.2, 278.6), (208.73, 276.98), 8),
-    "mortgage_loan": _Field(0, (168.7, 278.6, 209.5, 288.4), (168.72, 286.73), 8),
-    "leasing": _Field(0, (249.3, 278.6, 289.9, 288.4), (249.29, 286.73), 8),
-    "outstanding_debt": _Field(0, (195.8, 288.4, 287.4, 298.1), (195.77, 296.45), 8),
-    "term_months": _Field(0, (261.5, 359.5, 276.5, 371.5), (263.33, 368.93), 8),
-    "signing_day": _Field(1, (256.2, 560.8, 276.6, 570.5), (256.25, 568.87), 8),
-    "signing_month": _Field(1, (345.3, 560.8, 396.2, 570.5), (345.31, 568.87), 8),
-    "signing_year": _Field(1, (431.4, 560.8, 470.0, 570.5), (431.35, 568.87), 8),
+    "interested_party": _Field(0, (150.26, 99.22, 328.30, 108.96), (150.26, 107.30), 8),
+    "id_number": _Field(0, (120.62, 108.94, 252.77, 118.68), (120.62, 117.02), 8),
+    "email": _Field(0, (128.42, 118.66, 306.60, 128.40), (128.42, 126.74), 8),
+    "property_type": _Field(0, (160.70, 239.74, 293.08, 249.48), (160.70, 247.82), 8),
+    "address": _Field(0, (128.53, 249.46, 281.28, 259.20), (128.53, 257.54), 8),
+    "municipality": _Field(0, (129.02, 259.18, 230.88, 268.92), (129.02, 267.26), 8),
+    "registration_number": _Field(0, (177.60, 268.90, 289.59, 278.64), (177.60, 276.98), 8),
+    # "$" es texto propio de la plantilla, pegado al subrayado (mismo span) —
+    # se deja intacto y el borrado empieza justo después, en el primer "_".
+    "sale_price": _Field(0, (208.64, 278.65, 295.20, 288.39), (208.64, 286.73), 8),
+    "mortgage_loan": _Field(0, (168.72, 288.37, 209.46, 298.11), (168.72, 296.45), 8),
+    "leasing": _Field(0, (122.06, 298.09, 162.69, 307.83), (122.06, 306.17), 8),
+    "outstanding_debt": _Field(0, (253.25, 307.81, 344.85, 317.55), (253.25, 315.89), 8),
+    "term_months": _Field(0, (263.33, 380.29, 274.68, 390.03), (263.33, 388.37), 8),
+    "signing_day": _Field(1, (256.25, 583.35, 276.60, 593.09), (256.25, 591.43), 8),
+    "signing_month": _Field(1, (345.31, 583.35, 396.24, 593.09), (345.31, 591.43), 8),
+    "signing_year": _Field(1, (431.35, 583.35, 471.98, 593.09), (431.35, 591.43), 8),
     # No hay subrayado tras "CC." (queda en blanco en el diseño); el punto
-    # base se calculó a partir del `origin` del último carácter de "CC. ".
-    "signer_id_number": _Field(1, (105.0, 670.5, 260.0, 682.6), (108.0, 680.5), 8),
+    # base se toma directo del `origin` de ese mismo renglón ("CC. ").
+    "signer_id_number": _Field(1, (105.29, 693.05, 270.0, 705.12), (108.3, 703.06), 8),
 }
 
 # Página (0-index) y rect (coords top-left de PyMuPDF) donde va la firma del interesado.
