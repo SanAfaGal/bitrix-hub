@@ -302,7 +302,7 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     clearButton.disabled = isProcessing;
     canvas.classList.toggle('signature-box--processing', isProcessing);
     processingOverlay.classList.toggle('signature-processing-overlay--hidden', !isProcessing);
-    // El placeholder de "Tocá para elegir una foto" no debe verse detrás del
+    // El placeholder de "Toca para elegir una foto" no debe verse detrás del
     // overlay mientras se procesa — refreshSignatureUI() lo vuelve a mostrar
     // si corresponde una vez termina.
     if (isProcessing) placeholder.classList.add('signature-placeholder--hidden');
@@ -646,7 +646,7 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
       return;
     }
     if (processingSignature) {
-      statusText.textContent = 'Esperá a que termine de procesar la firma antes de enviar.';
+      statusText.textContent = 'Espera a que termine de procesar la firma antes de enviar.';
       statusText.classList.add('signature-status-text--error');
       return;
     }
@@ -679,7 +679,7 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
           return Promise.reject({ validationDetail: (body && body.detail) || [] });
         });
       }
-      if (!resp.ok) throw new Error('No se pudo generar el documento. Intentá de nuevo en unos minutos.');
+      if (!resp.ok) throw new Error('No se pudo generar el documento. Intenta de nuevo en unos minutos.');
       return resp.blob();
     }).then(function (blob) {
       var url = URL.createObjectURL(blob);

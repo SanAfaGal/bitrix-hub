@@ -30,6 +30,6 @@ def rate_limit(request: Request, key: str, *, max_requests: int, window_seconds:
         if len(hits) >= max_requests:
             raise HTTPException(
                 status_code=429,
-                detail="Demasiadas solicitudes. Esperá un minuto e intentá de nuevo.",
+                detail="Demasiadas solicitudes. Espera un minuto e intenta de nuevo.",
             )
         hits.append(now)

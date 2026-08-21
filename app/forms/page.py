@@ -160,7 +160,7 @@ __FIELDS_HTML__
               </button>
             </div>
             <div class="signature-placeholder signature-placeholder--hidden" id="signature-placeholder">
-              Tocá para elegir una foto de tu firma
+              Toca para elegir una foto de tu firma
             </div>
             <div class="signature-processing-overlay signature-processing-overlay--hidden" id="signature-processing-overlay">
               <span class="spinner spinner--lg"></span>
