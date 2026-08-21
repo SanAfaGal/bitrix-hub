@@ -94,7 +94,8 @@ class BitrixClient:
             if not isinstance(entry, dict):
                 continue
             value = entry.get("VALUE")
-            value_type = entry.get("VALUE_TYPE")
+            value_type_raw = entry.get("VALUE_TYPE")
+            value_type = value_type_raw if isinstance(value_type_raw, str) else ""
             if isinstance(value, str) and value.strip():
                 by_type.setdefault(value_type, value)
 
