@@ -37,6 +37,7 @@ las de Waha: engine, TZ, dashboard, logging, media, etc.):
 ```env
 CRM_PROVIDER=bitrix
 BITRIX_WEBHOOK_URL=https://tu-dominio.bitrix24.com/rest/1/tu_token/
+FORM_LINK_SECRET=cambia-esto-por-un-secreto-largo-y-aleatorio
 XPOSURE_BASE_URL=https://tu-dominio-xposure.com
 XPOSURE_USERNAME=tu_usuario
 XPOSURE_PASSWORD=tu_password
@@ -229,18 +230,24 @@ Apuntar acá la regla de automatización de Bitrix de la etapa que dispara el
 envío. Le manda al contacto del deal, por WhatsApp, un mensaje de
 bienvenida y — tras una pausa aleatoria de 3-6s simulando comportamiento
 humano — el enlace al formulario público de Autorización de Corretaje
-(`/formularios/autorizacion-de-corretaje?deal_id=<id>`). Ver
-`app/flows/welcome_authorization.py`.
+(`/formularios/autorizacion-de-corretaje?deal_id=<id>&token=<hmac>`). El
+`token` es un HMAC del `deal_id` firmado con `FORM_LINK_SECRET` (sin
+expiración): sin él, o con el `deal_id` de otro deal, el formulario no se
+abre. Ver `app/flows/welcome_authorization.py` y `app/forms/link_token.py`.
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/webhook/deal-stage-broker-auth" \
   -d "data[FIELDS][ID]=42"
 ```
 
-Cuando el cliente completa y firma ese formulario, si llegó con `deal_id`
-en la URL, queda un comentario en el timeline del deal en Bitrix
-confirmando la firma (best-effort: si Bitrix falla, el cliente igual
-descarga su PDF firmado — ver `app/forms/router.py`).
+El estado de la firma se guarda en el campo `UF_CRM_1773864282733` del
+deal (`Pendiente envío` / `Pendiente firma` / `Firmada`): se marca
+`Pendiente firma` al enviar el link, y `Firmada` cuando el cliente
+completa y firma el formulario — a partir de ahí el mismo link solo
+muestra un aviso de "ya firmada", no deja reenviar el formulario. También
+queda un comentario en el timeline del deal confirmando la firma
+(best-effort: si Bitrix falla, el cliente igual descarga su PDF firmado —
+ver `app/forms/router.py`).
 
 ## Corte de producción pendiente (MLS -> bitrix-hub)
 

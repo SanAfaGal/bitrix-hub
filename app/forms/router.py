@@ -11,9 +11,18 @@ from fastapi.responses import HTMLResponse
 
 from app.crm.deps import get_crm_client
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
+from app.forms.link_token import verify_deal_id_token
 from app.forms.models import BrokerageAuthorizationPayload, CleanSignaturePhotoPayload
-from app.forms.page import CLEAN_SIGNATURE_PATH, FORM_PATH, TEMPLATE_PATH_URL, render_form_html
+from app.forms.page import (
+    CLEAN_SIGNATURE_PATH,
+    FORM_PATH,
+    TEMPLATE_PATH_URL,
+    render_already_signed_html,
+    render_form_html,
+    render_link_invalid_html,
+)
 from app.forms.rate_limit import rate_limit
+from app.forms.settings import load_form_link_secret
 from app.forms.signature_cleaner import clean_signature_photo
 
 logger = logging.getLogger(__name__)
@@ -83,13 +92,37 @@ def _content_disposition(filename: str, *, inline: bool = False) -> str:
     return f"{disposition}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
 
 
+def _is_valid_link(deal_id: str, token: str | None) -> bool:
+    """El link solo es válido para el `deal_id` que lo firmó (ver app/forms/link_token.py)."""
+    try:
+        secret = load_form_link_secret()
+    except RuntimeError:
+        logger.exception("Falta configuración para validar el link del formulario")
+        return False
+    return verify_deal_id_token(deal_id, token, secret)
+
+
+def _is_already_signed(deal_id: str) -> bool:
+    try:
+        crm_client = get_crm_client()
+    except (HTTPException, RuntimeError):
+        return False
+    deal = crm_client.get_deal(deal_id)
+    return crm_client.get_authorization_status(deal) == "firmada"
+
+
 @router.get(
     FORM_PATH,
     response_class=HTMLResponse,
     summary="Formulario de Autorización de Corretaje (llenar y firmar desde el celular)",
 )
-def get_brokerage_authorization_form(deal_id: str | None = None) -> HTMLResponse:
-    return HTMLResponse(render_form_html(deal_id=deal_id))
+def get_brokerage_authorization_form(deal_id: str | None = None, token: str | None = None) -> HTMLResponse:
+    if deal_id:
+        if not _is_valid_link(deal_id, token):
+            return HTMLResponse(render_link_invalid_html())
+        if _is_already_signed(deal_id):
+            return HTMLResponse(render_already_signed_html())
+    return HTMLResponse(render_form_html(deal_id=deal_id, token=token))
 
 
 @router.post(
@@ -135,6 +168,12 @@ def post_brokerage_authorization_form(
     if not payload.signature_png:
         raise HTTPException(status_code=400, detail="Falta la firma.")
 
+    if payload.deal_id:
+        if not _is_valid_link(payload.deal_id, payload.token):
+            raise HTTPException(status_code=403, detail="Enlace inválido.")
+        if _is_already_signed(payload.deal_id):
+            raise HTTPException(status_code=409, detail="Esta autorización ya fue firmada.")
+
     signature_png_bytes = _decode_image_data_url_or_400(payload.signature_png)
 
     values = _pdf_field_values(payload)
@@ -146,7 +185,7 @@ def post_brokerage_authorization_form(
         raise HTTPException(status_code=500, detail="No se pudo generar el documento.") from None
 
     if payload.deal_id:
-        _add_signed_authorization_comment(payload.deal_id)
+        _mark_as_signed(payload.deal_id)
 
     return Response(
         content=pdf_bytes,
@@ -155,11 +194,15 @@ def post_brokerage_authorization_form(
     )
 
 
-def _add_signed_authorization_comment(deal_id: str) -> None:
-    """Deja constancia en el timeline del deal de que el cliente firmó. Best-effort: nunca rompe la descarga del PDF."""
+def _mark_as_signed(deal_id: str) -> None:
+    """Deja constancia de la firma en el deal: comentario en el timeline + estado 'Firmada'.
+
+    Best-effort: nunca rompe la descarga del PDF si Bitrix falla.
+    """
     try:
         crm_client = get_crm_client()
         fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
         crm_client.add_comment(deal_id, f"El cliente firmó la Autorización de Corretaje el {fecha}.")
+        crm_client.set_authorization_status(deal_id, "firmada")
     except Exception:
-        logger.exception("Error dejando comentario de firma en el deal %s", deal_id)
+        logger.exception("Error marcando la firma de la Autorización de Corretaje en el deal %s", deal_id)

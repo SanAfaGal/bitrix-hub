@@ -121,6 +121,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     signer_id_number: str
     signature_png: str = Field(max_length=_MAX_IMAGE_DATA_URL_LENGTH)
     deal_id: str | None = None
+    token: str | None = None
 
     @field_validator("interested_party", mode="before")
     @classmethod

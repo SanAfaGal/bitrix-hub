@@ -9,9 +9,38 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.forms.rate_limit as rate_limit_module
+from app.forms.link_token import sign_deal_id
 from app.main import app
 
 client = TestClient(app)
+
+_LINK_SECRET = "test-secret"
+
+
+def _token_for(deal_id: str) -> str:
+    return sign_deal_id(deal_id, _LINK_SECRET)
+
+
+class FakeCrmClient:
+    """Fake mínimo para tests del router: deal sin estado de firma por defecto."""
+
+    def __init__(self, authorization_status: str | None = None) -> None:
+        self.authorization_status = authorization_status
+        self.comments: list[tuple[str, str]] = []
+        self.status_updates: list[tuple[str, str]] = []
+
+    def get_deal(self, deal_id):
+        return {"ID": deal_id}
+
+    def get_authorization_status(self, deal):
+        return self.authorization_status
+
+    def set_authorization_status(self, deal_id, status):
+        self.status_updates.append((deal_id, status))
+
+    def add_comment(self, deal_id, comment):
+        self.comments.append((deal_id, comment))
+        return 1
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +48,11 @@ def _reset_rate_limits():
     rate_limit_module._hits.clear()
     yield
     rate_limit_module._hits.clear()
+
+
+@pytest.fixture(autouse=True)
+def _form_link_secret(monkeypatch):
+    monkeypatch.setattr("app.forms.router.load_form_link_secret", lambda: _LINK_SECRET)
 
 
 def _signature_data_url() -> str:
@@ -73,11 +107,14 @@ def test_get_form_links_to_template_instead_of_embedding_pages():
     assert 'id="signature-processing-overlay"' in response.text
 
 
-def test_get_form_embeds_deal_id_as_hidden_field_when_present():
-    response = client.get("/formularios/autorizacion-de-corretaje?deal_id=42")
+def test_get_form_embeds_deal_id_and_token_as_hidden_fields_when_present(monkeypatch):
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FakeCrmClient())
+
+    response = client.get(f"/formularios/autorizacion-de-corretaje?deal_id=42&token={_token_for('42')}")
 
     assert response.status_code == 200
     assert '<input type="hidden" name="deal_id" value="42">' in response.text
+    assert f'<input type="hidden" name="token" value="{_token_for("42")}">' in response.text
 
 
 def test_get_form_has_no_deal_id_field_when_absent():
@@ -85,6 +122,37 @@ def test_get_form_has_no_deal_id_field_when_absent():
 
     assert response.status_code == 200
     assert 'name="deal_id"' not in response.text
+
+
+def test_get_form_rejects_deal_id_without_valid_token(monkeypatch):
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FakeCrmClient())
+
+    response = client.get("/formularios/autorizacion-de-corretaje?deal_id=42")
+
+    assert response.status_code == 200
+    assert "Enlace no válido" in response.text
+    assert 'name="deal_id"' not in response.text
+
+
+def test_get_form_rejects_token_for_a_different_deal(monkeypatch):
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FakeCrmClient())
+
+    response = client.get(f"/formularios/autorizacion-de-corretaje?deal_id=42&token={_token_for('99')}")
+
+    assert response.status_code == 200
+    assert "Enlace no válido" in response.text
+
+
+def test_get_form_shows_already_signed_message_when_deal_is_signed(monkeypatch):
+    monkeypatch.setattr(
+        "app.forms.router.get_crm_client", lambda: FakeCrmClient(authorization_status="firmada")
+    )
+
+    response = client.get(f"/formularios/autorizacion-de-corretaje?deal_id=42&token={_token_for('42')}")
+
+    assert response.status_code == 200
+    assert "ya fue firmada" in response.text
+    assert 'id="authorization-form"' not in response.text
 
 
 def test_get_template_pdf():
@@ -270,14 +338,26 @@ def test_post_form_is_rate_limited():
     assert any(r.status_code == 200 for r in responses)
 
 
-def test_post_form_with_deal_id_adds_bitrix_comment(monkeypatch):
-    calls = []
+def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch):
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
 
-    class FakeCrmClient:
-        def add_comment(self, deal_id, comment):
-            calls.append((deal_id, comment))
-            return 1
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
 
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+    assert len(fake_crm.comments) == 1
+    deal_id, comment = fake_crm.comments[0]
+    assert deal_id == "42"
+    assert "firm" in comment.lower()
+    assert fake_crm.status_updates == [("42", "firmada")]
+
+
+def test_post_form_rejects_deal_id_without_valid_token(monkeypatch):
     monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FakeCrmClient())
 
     payload = _valid_form_payload()
@@ -285,12 +365,21 @@ def test_post_form_with_deal_id_adds_bitrix_comment(monkeypatch):
 
     response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
 
-    assert response.status_code == 200
-    assert response.content.startswith(b"%PDF")
-    assert len(calls) == 1
-    deal_id, comment = calls[0]
-    assert deal_id == "42"
-    assert "firm" in comment.lower()
+    assert response.status_code == 403
+
+
+def test_post_form_rejects_already_signed_deal(monkeypatch):
+    monkeypatch.setattr(
+        "app.forms.router.get_crm_client", lambda: FakeCrmClient(authorization_status="firmada")
+    )
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 409
 
 
 def test_post_form_without_deal_id_does_not_touch_bitrix(monkeypatch):
@@ -306,7 +395,7 @@ def test_post_form_without_deal_id_does_not_touch_bitrix(monkeypatch):
 
 
 def test_post_form_still_returns_pdf_when_bitrix_comment_fails(monkeypatch):
-    class FailingCrmClient:
+    class FailingCrmClient(FakeCrmClient):
         def add_comment(self, deal_id, comment):
             raise RuntimeError("Bitrix caído")
 
@@ -314,6 +403,7 @@ def test_post_form_still_returns_pdf_when_bitrix_comment_fails(monkeypatch):
 
     payload = _valid_form_payload()
     payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
 
     response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
 

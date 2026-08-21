@@ -58,6 +58,7 @@ def test_webhook_deal_stage_broker_auth_sends_welcome_and_link(monkeypatch) -> N
     monkeypatch.setattr("app.flows.router.get_crm_client", lambda: fake_crm)
     monkeypatch.setattr("app.flows.router.get_waha_client", lambda: FakeWahaClient())
     monkeypatch.setattr("app.flows.router.load_public_base_url", lambda: "https://hub.example.com")
+    monkeypatch.setattr("app.flows.router.load_form_link_secret", lambda: "test-secret")
 
     response = client.post("/webhook/deal-stage-broker-auth", data={"data[FIELDS][ID]": "42"})
 

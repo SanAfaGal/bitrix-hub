@@ -12,6 +12,7 @@ from app.flows.deal_duplicado import process_deal_event
 from app.flows.notify_contact import process_notify_contact
 from app.flows.settings import load_public_base_url
 from app.flows.welcome_authorization import process_welcome_and_authorization
+from app.forms.settings import load_form_link_secret
 from app.waha.deps import get_waha_client
 from app.xposure.deps import get_xposure_client
 
@@ -205,11 +206,18 @@ async def webhook_deal_stage_broker_auth(
     try:
         waha_client = get_waha_client()
         public_base_url = load_public_base_url()
+        link_secret = load_form_link_secret()
     except (HTTPException, RuntimeError) as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         logger.error("Evento de deal-stage-broker-auth %s no se pudo procesar: %s", deal_id, detail)
         return {"ok": False, "error": str(detail)}
 
     return await asyncio.to_thread(
-        process_welcome_and_authorization, deal_id, crm_client, waha_client, public_base_url, session=session
+        process_welcome_and_authorization,
+        deal_id,
+        crm_client,
+        waha_client,
+        public_base_url,
+        link_secret,
+        session=session,
     )

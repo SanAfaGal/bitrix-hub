@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from app.flows.welcome_authorization import process_welcome_and_authorization
+from app.forms.link_token import sign_deal_id
 from tests.fakes import FakeCrmClient
+
+_LINK_SECRET = "test-secret"
 
 
 class FakeWahaClient:
@@ -22,7 +25,7 @@ def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
     waha = FakeWahaClient()
 
     result = process_welcome_and_authorization(
-        "42", crm, waha, public_base_url="https://hub.example.com", session="default"
+        "42", crm, waha, public_base_url="https://hub.example.com", link_secret=_LINK_SECRET, session="default"
     )
 
     assert result == {"ok": True, "deal_id": "42", "contact_id": "7", "chat_id": "573001112233@c.us"}
@@ -31,14 +34,21 @@ def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
     assert chat_id == "573001112233@c.us"
     assert session == "default"
     assert len(messages) == 2
-    assert "https://hub.example.com/formularios/autorizacion-de-corretaje?deal_id=42" in messages[1]
+    expected_token = sign_deal_id("42", _LINK_SECRET)
+    assert (
+        f"https://hub.example.com/formularios/autorizacion-de-corretaje?deal_id=42&token={expected_token}"
+        in messages[1]
+    )
+    assert crm.authorization_status_updates == [("42", "pendiente_firma")]
 
 
 def test_returns_error_when_deal_has_no_contact() -> None:
     crm = FakeCrmClient(deals={"42": {"ID": "42"}})
     waha = FakeWahaClient()
 
-    result = process_welcome_and_authorization("42", crm, waha, public_base_url="https://hub.example.com")
+    result = process_welcome_and_authorization(
+        "42", crm, waha, public_base_url="https://hub.example.com", link_secret=_LINK_SECRET
+    )
 
     assert result == {"ok": False, "deal_id": "42", "error": "El deal no tiene contacto vinculado"}
     assert waha.calls == []
@@ -51,7 +61,9 @@ def test_returns_error_when_phone_cannot_be_normalized() -> None:
     )
     waha = FakeWahaClient()
 
-    result = process_welcome_and_authorization("42", crm, waha, public_base_url="https://hub.example.com")
+    result = process_welcome_and_authorization(
+        "42", crm, waha, public_base_url="https://hub.example.com", link_secret=_LINK_SECRET
+    )
 
     assert result == {
         "ok": False,
@@ -69,7 +81,9 @@ def test_propagates_waha_failure() -> None:
     )
     waha = FakeWahaClient(sent=False)
 
-    result = process_welcome_and_authorization("42", crm, waha, public_base_url="https://hub.example.com")
+    result = process_welcome_and_authorization(
+        "42", crm, waha, public_base_url="https://hub.example.com", link_secret=_LINK_SECRET
+    )
 
     assert result["ok"] is False
     assert result["chat_id"] == "573001112233@c.us"

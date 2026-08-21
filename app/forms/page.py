@@ -152,6 +152,7 @@ __STYLE__
       </div>
       <form id="authorization-form" novalidate>
 __DEAL_ID_FIELD__
+__TOKEN_FIELD__
 __FIELDS_HTML__
         <div class="field-group">
           <div class="signature-group__header">
@@ -213,6 +214,68 @@ __SCRIPT__
 """
 
 
+_MESSAGE_HTML = """<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ — Alberto Álvarez</title>
+<link rel="icon" href="__FAVICON_URL__">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+__STYLE__
+</head>
+<body>
+<div class="page">
+  <div class="frame">
+    <div class="brand">
+      <img class="brand__logo" src="__LOGO_URL__" alt="Alberto Álvarez">
+      <span class="brand__name">Alberto Álvarez</span>
+      <span class="brand__tagline">Servicios Integrales Inmobiliarios</span>
+    </div>
+    <div class="card success-view">
+      <span class="success-view__icon">__ICON__</span>
+      <h2 class="success-view__title">__TITLE__</h2>
+      <p class="success-view__text">__MESSAGE__</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>
+"""
+
+
+def _render_message_page(*, icon: str, title: str, message: str) -> str:
+    return (
+        _MESSAGE_HTML.replace("__ICON__", icon)
+        .replace("__TITLE__", escape(title))
+        .replace("__MESSAGE__", escape(message))
+        .replace("__FAVICON_URL__", FAVICON_URL)
+        .replace("__LOGO_URL__", LOGO_URL)
+        .replace("__STYLE__", FORM_STYLE)
+    )
+
+
+def render_link_invalid_html() -> str:
+    return _render_message_page(
+        icon="⚠",
+        title="Enlace no válido",
+        message="Este enlace no es válido. Pídele a tu asesor que te comparta uno nuevo.",
+    )
+
+
+def render_already_signed_html() -> str:
+    return _render_message_page(
+        icon="✓",
+        title="Autorización ya firmada",
+        message=(
+            "Esta autorización ya fue firmada. Si necesitas hacer algún cambio, "
+            "contacta a tu asesor."
+        ),
+    )
+
+
 def _render_text_input(field: dict) -> str:
     placeholder = field.get("placeholder")
     return (
@@ -272,13 +335,15 @@ def _render_fields_with_sections(fields: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def render_form_html(deal_id: str | None = None) -> str:
+def render_form_html(deal_id: str | None = None, token: str | None = None) -> str:
     deal_id_field_html = (
         f'        <input type="hidden" name="deal_id" value="{escape(deal_id)}">' if deal_id else ""
     )
+    token_field_html = f'        <input type="hidden" name="token" value="{escape(token)}">' if token else ""
     fields_html = _render_fields_with_sections(_FIELDS)
     return (
         _HTML.replace("__DEAL_ID_FIELD__", deal_id_field_html)
+        .replace("__TOKEN_FIELD__", token_field_html)
         .replace("__FIELDS_HTML__", fields_html)
         .replace("__TEMPLATE_PATH_URL__", TEMPLATE_PATH_URL)
         .replace("__FAVICON_URL__", FAVICON_URL)

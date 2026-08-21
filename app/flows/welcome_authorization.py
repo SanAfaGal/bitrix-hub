@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from app.crm.protocol import CrmClient
+from app.forms.link_token import sign_deal_id
 from app.forms.page import FORM_PATH
 from app.waha.client import WahaClient
 from app.waha.phone import to_chat_id
@@ -25,6 +26,7 @@ def process_welcome_and_authorization(
     crm_client: CrmClient,
     waha_client: WahaClient,
     public_base_url: str,
+    link_secret: str,
     session: str | None = None,
 ) -> dict[str, Any]:
     """Busca el contacto vinculado al deal y le envía bienvenida + enlace de Autorización de Corretaje.
@@ -55,8 +57,11 @@ def process_welcome_and_authorization(
             "error": f"Teléfono inválido: {raw_phone}",
         }
 
-    link = f"{public_base_url}{FORM_PATH}?deal_id={deal_id}"
+    token = sign_deal_id(deal_id, link_secret)
+    link = f"{public_base_url}{FORM_PATH}?deal_id={deal_id}&token={token}"
     messages = [WELCOME_MESSAGE, _AUTHORIZATION_LINK_MESSAGE.format(link=link)]
 
     sent = waha_client.send_text_sequence(chat_id, messages, session=session)
+    if sent:
+        crm_client.set_authorization_status(deal_id, "pendiente_firma")
     return {"ok": sent, "deal_id": deal_id, "contact_id": contact_id, "chat_id": chat_id}
