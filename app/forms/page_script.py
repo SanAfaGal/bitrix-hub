@@ -710,17 +710,18 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
       a.click();
       a.remove();
       stopAnimation();
-      status.className = '';
-      status.textContent = 'Documento firmado y descargado. Gracias.';
+      document.getElementById('form-flow').style.display = 'none';
+      document.getElementById('success-view').classList.remove('success-view--hidden');
     }).catch(function (err) {
       stopAnimation();
       submitButton.disabled = false;
       if (err && err.validationDetail) {
         var firstInvalid = applyServerValidationErrors(err.validationDetail);
         if (firstInvalid) {
+          clearFormError();
           firstInvalid.focus();
         } else {
-          showFormError('Alberto Álvarez: revisá tus datos, algo no tiene el formato correcto.');
+          showFormError('Alberto Álvarez: revisa tus datos, algo no tiene el formato correcto.');
         }
         return;
       }

@@ -10,6 +10,8 @@ FORM_STYLE = """<style>
     --color-teal-hover: #0a5578;
     --color-error: #b3453a;
     --color-error-bg: #fbeceb;
+    --color-success: #2f8f5b;
+    --color-success-bg: #e9f6ee;
     --color-info-bg: #e8f1f5;
     --color-bg: #f3f3fb;
     --color-card: #ffffff;
@@ -53,6 +55,12 @@ FORM_STYLE = """<style>
   .frame {
     width: 100%;
     max-width: 560px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  #form-flow {
     display: flex;
     flex-direction: column;
     gap: var(--space-6);
@@ -104,6 +112,37 @@ FORM_STYLE = """<style>
     color: var(--color-navy);
   }
   .card__subtitle {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0;
+    color: var(--color-text-muted);
+  }
+
+  .success-view {
+    align-items: center;
+    text-align: center;
+    gap: var(--space-3);
+  }
+  .success-view--hidden { display: none; }
+  .success-view__icon {
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--color-success-bg);
+    color: var(--color-success);
+    font-size: 28px;
+    font-weight: 700;
+  }
+  .success-view__title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--color-navy);
+  }
+  .success-view__text {
     font-size: 14px;
     font-weight: 500;
     margin: 0;

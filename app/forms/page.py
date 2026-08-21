@@ -130,6 +130,7 @@ __STYLE__
       <span class="brand__name">Alberto Álvarez</span>
       <span class="brand__tagline">Servicios Integrales Inmobiliarios</span>
     </div>
+    <div id="form-flow">
     <div class="card">
       <div class="card__header">
         <h1 class="card__title">Autorización de Corretaje Inmobiliario</h1>
@@ -195,6 +196,14 @@ __FIELDS_HTML__
         <button type="submit" class="btn btn--primary" id="submit-button">Enviar autorización</button>
         <div id="form-status"></div>
       </form>
+    </div>
+    </div>
+    <div class="card success-view success-view--hidden" id="success-view">
+      <span class="success-view__icon">✓</span>
+      <h2 class="success-view__title">Autorización enviada</h2>
+      <p class="success-view__text">
+        Tu documento firmado se descargó en este dispositivo. Gracias por confiar en Alberto Álvarez.
+      </p>
     </div>
   </div>
 </div>
