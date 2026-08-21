@@ -27,7 +27,7 @@ def process_deal_event(
     if not matricula:
         logger.warning("Deal %s sin matrícula registrada", deal_id)
         crm_client.add_comment(
-            deal_id, "Este negocio no tiene matrícula registrada, así que no se pudo validar en Xposure."
+            deal_id, "Este negocio no tiene matrícula registrada, así que no se pudo validar en la MLS."
         )
         # No se tocó el campo Duplicado/Sin duplicado: no se pudo validar nada,
         # así que no hay resultado real que reflejar ahí (ver comentario).
