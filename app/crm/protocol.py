@@ -44,6 +44,10 @@ class CrmClient(Protocol):
         """Marca en el CRM el estado de firma de la Autorización de Corretaje del deal."""
         ...
 
+    def set_welcome_sent(self, deal_id: str) -> None:
+        """Marca en el CRM que el mensaje de bienvenida ya se envió para este deal."""
+        ...
+
     def add_comment(self, deal_id: str, comment: str) -> int | None:
         """Agrega un comentario al deal. Retorna el ID del comentario, o None si falla."""
         ...

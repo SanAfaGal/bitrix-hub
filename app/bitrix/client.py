@@ -126,6 +126,10 @@ class BitrixClient:
         """Marca el estado de firma de la Autorización de Corretaje (UF_CRM_1773864282733) del deal."""
         self.update_deal(deal_id, {fields.FIELD_AUTHORIZATION_STATUS: fields.AUTHORIZATION_VALUE_BY_STATUS[status]})
 
+    def set_welcome_sent(self, deal_id: str) -> None:
+        """Marca el checkbox "V_Bienvenida negocio enviada" (UF_CRM_1776879856695) del deal."""
+        self.update_deal(deal_id, {fields.FIELD_WELCOME_SENT: 1})
+
     def add_comment(self, deal_id: str, comment: str) -> int | None:
         """Agrega un comentario al timeline de un deal.
 

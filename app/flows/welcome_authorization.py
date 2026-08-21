@@ -64,4 +64,5 @@ def process_welcome_and_authorization(
     sent = waha_client.send_text_sequence(chat_id, messages, session=session)
     if sent:
         crm_client.set_authorization_status(deal_id, "pendiente_firma")
+        crm_client.set_welcome_sent(deal_id)
     return {"ok": sent, "deal_id": deal_id, "contact_id": contact_id, "chat_id": chat_id}

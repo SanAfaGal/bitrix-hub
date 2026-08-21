@@ -40,6 +40,7 @@ def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
         in messages[1]
     )
     assert crm.authorization_status_updates == [("42", "pendiente_firma")]
+    assert crm.welcome_sent_updates == ["42"]
 
 
 def test_returns_error_when_deal_has_no_contact() -> None:
@@ -87,3 +88,5 @@ def test_propagates_waha_failure() -> None:
 
     assert result["ok"] is False
     assert result["chat_id"] == "573001112233@c.us"
+    assert crm.authorization_status_updates == []
+    assert crm.welcome_sent_updates == []
