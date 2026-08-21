@@ -47,6 +47,8 @@ def _valid_form_payload() -> dict:
         "municipality": "Medellín",
         "registration_number": "001-12345",
         "sale_price": "500000000",
+        "mortgage_loan": "no",
+        "leasing": "no",
         "term_months": "6",
         "signer_id_number": "1234567890",
         "signature_png": _signature_data_url(),
@@ -141,6 +143,104 @@ def test_post_form_generates_signed_pdf():
     assert response.headers["content-type"] == "application/pdf"
     assert "Firmada" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF")
+
+
+def test_post_form_cleans_dirty_input():
+    payload = _valid_form_payload()
+    payload["interested_party"] = "  juan   PÉREZ gómez  "
+    payload["id_number"] = "1.234.567.890"
+    payload["email"] = "  Juan@Example.COM "
+    payload["sale_price"] = "$ 500.000.000"
+    payload["registration_number"] = "  001 12345  "
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "field", ["interested_party", "id_number", "email", "address", "municipality", "signer_id_number"]
+)
+def test_post_form_rejects_missing_required_field(field):
+    payload = _valid_form_payload()
+    del payload[field]
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "field,bad_value", [("sale_price", -5), ("outstanding_debt", -1), ("term_months", 0), ("term_months", 200)]
+)
+def test_post_form_rejects_out_of_range_amount_sent_as_raw_json_number(field, bad_value):
+    payload = _valid_form_payload()
+    payload[field] = bad_value
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_form_rejects_invalid_id_number():
+    payload = _valid_form_payload()
+    payload["id_number"] = "abc123"
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "bad_email",
+    ["no-es-un-correo", "juan@", "@example.com", "juan@example", "juan@@example.com",
+     "juan example.com", "juan@example..com", "juan@example.c", "juan@.com"],
+)
+def test_post_form_rejects_invalid_email(bad_email):
+    payload = _valid_form_payload()
+    payload["email"] = bad_email
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_form_rejects_letters_in_registration_number():
+    payload = _valid_form_payload()
+    payload["registration_number"] = "ABC-12345"
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_form_rejects_unknown_property_type():
+    payload = _valid_form_payload()
+    payload["property_type"] = "Bicicleta"
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_form_requires_mortgage_loan_and_leasing_choice():
+    payload = _valid_form_payload()
+    del payload["mortgage_loan"]
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_form_accepts_blank_optional_fields():
+    payload = _valid_form_payload()
+    payload["registration_number"] = ""
+    payload["sale_price"] = ""
+    payload["term_months"] = ""
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
 
 
 def test_post_form_without_signature_is_rejected():

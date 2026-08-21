@@ -34,6 +34,18 @@ def _limit_submit_form(request: Request) -> None:
     rate_limit(request, "enviar-formulario", **_SUBMIT_FORM_RATE_LIMIT)
 
 
+_YES_NO_LABELS = {"si": "Sí", "no": "No"}
+
+
+def _pdf_field_values(payload: BrokerageAuthorizationPayload) -> dict[str, str]:
+    """`model_dump()` trae ints/None (sale_price, outstanding_debt, term_months) y
+    "si"/"no" (mortgage_loan, leasing) — el AcroForm solo acepta texto."""
+    values = payload.model_dump(exclude={"signature_png"})
+    values["mortgage_loan"] = _YES_NO_LABELS[values["mortgage_loan"]]
+    values["leasing"] = _YES_NO_LABELS[values["leasing"]]
+    return {key: ("" if value is None else str(value)) for key, value in values.items()}
+
+
 def _decode_image_data_url_or_400(data_url: str) -> bytes:
     try:
         return decode_signature_png(data_url)
@@ -103,7 +115,7 @@ def post_brokerage_authorization_form(
 
     signature_png_bytes = _decode_image_data_url_or_400(payload.signature_png)
 
-    values = payload.model_dump(exclude={"signature_png"})
+    values = _pdf_field_values(payload)
 
     try:
         pdf_bytes = fill_and_sign(values, signature_png_bytes)
