@@ -31,20 +31,21 @@ def test_decode_signature_png_invalid():
         decode_signature_png("not-a-data-url")
 
 
-def test_build_blank_template_has_no_field_values():
+def test_build_blank_template_has_no_widgets():
+    # Ya no se usa AcroForm (el texto de un widget no siempre queda incluido
+    # en la selección/copiado del visor de PDF) — la plantilla sin diligenciar
+    # es el PDF de Word tal cual, sin campos interactivos.
     pdf_bytes = build_blank_template()
 
     doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
     try:
         for page in doc:
-            for widget in page.widgets() or []:
-                assert not widget.field_value
-                assert not widget.field_flags & fitz.PDF_FIELD_IS_READ_ONLY
+            assert list(page.widgets() or []) == []
     finally:
         doc.close()
 
 
-def test_fill_and_sign_writes_field_values_and_signature():
+def test_fill_and_sign_writes_field_values_as_real_text_and_signature():
     values = {
         "interested_party": "Juan Pérez",
         "id_number": "1234567890",
@@ -63,15 +64,13 @@ def test_fill_and_sign_writes_field_values_and_signature():
 
     doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
     try:
-        filled = {}
-        for page in doc:
-            for widget in page.widgets() or []:
-                filled[widget.field_name] = widget.field_value
-                assert widget.field_flags & fitz.PDF_FIELD_IS_READ_ONLY
-
-        assert filled["Text2"] == "Juan Pérez"
-        assert filled["Text3"] == "1234567890"
-        assert filled["Text17"] == "1234567890"
+        # Sin widgets: el valor tiene que quedar como texto normal de la
+        # página (así queda seleccionable/copiable en cualquier visor).
+        page0_text = doc[0].get_text()
+        page1_text = doc[1].get_text()
+        assert "Juan Pérez" in page0_text
+        assert "1234567890" in page0_text
+        assert "1234567890" in page1_text
 
         signature_page = doc[1]
         images = signature_page.get_images(full=True)
@@ -101,10 +100,36 @@ def test_fill_and_sign_leaves_margin_around_signature():
             if SIGNATURE_RECT.contains(page.get_image_bbox(img))
         )
 
-        assert bbox.x0 >= SIGNATURE_RECT.x0 + _MIN_EXPECTED_MARGIN
+        # Sin margen a la izquierda a propósito: ese borde tiene que quedar
+        # pegado al arranque de "EL INTERESADO", no centrado en el recuadro.
+        assert bbox.x0 == pytest.approx(SIGNATURE_RECT.x0, abs=0.01)
         assert bbox.y0 >= SIGNATURE_RECT.y0 + _MIN_EXPECTED_MARGIN
         assert bbox.x1 <= SIGNATURE_RECT.x1 - _MIN_EXPECTED_MARGIN
         assert bbox.y1 <= SIGNATURE_RECT.y1 - _MIN_EXPECTED_MARGIN
+    finally:
+        doc.close()
+
+
+def test_fill_and_sign_aligns_signature_left_even_when_narrower_than_box():
+    # Firma angosta (mucho más ancha que alta) — si se centrara en el
+    # recuadro (ancho) quedaría corrida hacia la derecha en vez de arrancar
+    # junto a "EL INTERESADO".
+    img = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 300, 20))
+    img.set_rect(img.irect, (0, 0, 0))
+    b64 = base64.b64encode(img.tobytes("png")).decode()
+    signature_png_bytes = decode_signature_png(f"data:image/png;base64,{b64}")
+
+    pdf_bytes = fill_and_sign({}, signature_png_bytes)
+
+    doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    try:
+        page = doc[1]
+        bbox = next(
+            page.get_image_bbox(img)
+            for img in page.get_images(full=True)
+            if SIGNATURE_RECT.contains(page.get_image_bbox(img))
+        )
+        assert bbox.x0 == pytest.approx(SIGNATURE_RECT.x0, abs=0.01)
     finally:
         doc.close()
 
@@ -117,14 +142,8 @@ def test_fill_and_sign_sets_signing_date_from_server_ignoring_client_input():
 
     doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
     try:
-        filled = {}
-        for page in doc:
-            for widget in page.widgets() or []:
-                filled[widget.field_name] = widget.field_value
-
-        assert filled["Text16"] != "2000"
-        assert filled["Text16"]
-        assert filled["Text15"]
-        assert filled["Text14"]
+        page1_text = doc[1].get_text()
+        assert "2000" not in page1_text
+        assert "enero" not in page1_text
     finally:
         doc.close()
