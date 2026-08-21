@@ -529,6 +529,26 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     el.addEventListener('change', function () { clearFieldError(el); });
   });
 
+  // "Saldo actual de la deuda" solo aplica si hay crédito hipotecario o
+  // leasing vigente — se mantiene oculto (no solo deshabilitado) mientras
+  // ninguno de los dos esté en "Sí", y se limpia al ocultarse para no
+  // enviar un saldo de una deuda que la persona ya dijo que no tiene.
+  var mortgageSelect = document.getElementById('field-mortgage_loan');
+  var leasingSelect = document.getElementById('field-leasing');
+  var debtWrap = document.getElementById('field-wrap-outstanding_debt');
+  var debtInput = document.getElementById('field-outstanding_debt');
+  function refreshDebtFieldVisibility() {
+    var show = mortgageSelect.value === 'si' || leasingSelect.value === 'si';
+    debtWrap.classList.toggle('field--hidden', !show);
+    if (!show) {
+      debtInput.value = '';
+      clearFieldError(debtInput);
+    }
+  }
+  mortgageSelect.addEventListener('change', refreshDebtFieldVisibility);
+  leasingSelect.addEventListener('change', refreshDebtFieldVisibility);
+  refreshDebtFieldVisibility();
+
   // Spinner + frases que van rotando mientras se espera al backend, para
   // que la espera no se sienta larga aunque tarde unos segundos. Devuelve
   // una función para pararla al terminar (éxito o error).

@@ -239,8 +239,9 @@ def _render_field(field: dict) -> str:
     else:
         body = _render_text_input(field)
     required_mark = ' <span class="field__required">*</span>' if field["required"] else ""
+    wrapper_class = "field field--hidden" if field.get("hidden") else "field"
     return (
-        '        <div class="field">\n'
+        f'        <div class="{wrapper_class}" id="field-wrap-{field["name"]}">\n'
         f'          <label class="field__label" for="field-{field["name"]}">'
         f"{escape(field['label'])}{required_mark}</label>\n"
         f'          <span class="field__hint">{escape(field["hint"])}</span>\n'

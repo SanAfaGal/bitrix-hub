@@ -164,6 +164,7 @@ FORM_STYLE = """<style>
   }
 
   .field { display: flex; flex-direction: column; gap: var(--space-1); }
+  .field--hidden { display: none; }
   .field__label {
     font-size: 11px;
     font-weight: 700;
