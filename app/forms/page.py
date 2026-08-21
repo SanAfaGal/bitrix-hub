@@ -22,6 +22,14 @@ CLEAN_SIGNATURE_PATH = f"{FORM_PATH}/limpiar-firma"
 FAVICON_URL = "/static/imgs/favicon.ico"
 LOGO_URL = "/static/imgs/logo_short.webp"
 
+# Agrupación visual de los campos en el formulario (no son pasos separados,
+# solo subtítulos dentro de la misma página para que se sienta más corto).
+SECTION_TITLES = {
+    "interested": "Datos del interesado",
+    "property": "Datos del inmueble",
+    "financial": "Condiciones financieras",
+}
+
 # Campos que ve y llena el cliente. `id_number` se reutiliza para el campo de
 # cédula que va junto a la firma (`signer_id_number`), no se pide dos veces.
 # `kind` decide cómo se renderiza: "text" -> <input>, "select" -> <select>
@@ -29,63 +37,75 @@ LOGO_URL = "/static/imgs/logo_short.webp"
 _FIELDS = [
     dict(
         name="interested_party", label="Nombre completo del interesado", kind="text",
-        input_type="text", required=True,
-        hint="Escríbelo completo, tal como aparece en tu cédula.",
+        input_type="text", required=True, section="interested",
+        hint="Persona que autoriza la venta del inmueble.",
         placeholder="Ej: Juan Pérez Gómez",
     ),
     dict(
-        name="id_number", label="Cédula (CC)", kind="text", input_type="text", required=True,
-        hint="Solo números, sin puntos ni espacios.",
+        name="id_number", label="Cédula de ciudadanía", kind="text", input_type="text", required=True,
+        section="interested",
+        hint="Documento de identidad del interesado.",
         placeholder="Ej: 1234567890", inputmode="numeric",
     ),
     dict(
         name="email", label="Correo electrónico", kind="text", input_type="email", required=True,
-        hint="Un correo donde te podamos contactar.",
+        section="interested",
+        hint="Correo de contacto del interesado.",
         placeholder="Ej: nombre@correo.com",
     ),
     dict(
         name="property_type", label="Tipo de inmueble", kind="select", required=True,
-        hint="Selecciona el tipo de inmueble que vas a autorizar.",
+        section="property",
+        hint="Categoría del inmueble que se va a autorizar.",
     ),
     dict(
         name="address", label="Dirección del inmueble", kind="text", input_type="text", required=True,
-        hint="Incluye número, apartamento o detalles que ayuden a ubicarlo.",
+        section="property",
+        hint="Ubicación del inmueble que se va a promocionar.",
         placeholder="Ej: Cra 7 # 12-34, Apto 302",
     ),
     dict(
         name="municipality", label="Municipio", kind="text", input_type="text", required=True,
+        section="property",
         hint="Municipio donde está ubicado el inmueble.",
         placeholder="Ej: Envigado",
     ),
     dict(
         name="registration_number", label="Matrícula inmobiliaria", kind="text", input_type="text",
-        required=False,
-        hint="Solo números y guion. Déjala en blanco si no la tienes.",
+        required=False, section="property",
+        hint="Número de identificación del inmueble en el registro de instrumentos públicos. "
+        "Puedes dejarlo en blanco si no lo tienes a la mano.",
         placeholder="Ej: 050-123456",
     ),
     dict(
-        name="sale_price", label="Precio de venta ($)", kind="text", input_type="text", required=False,
-        hint="Valor aproximado, en pesos colombianos. Déjalo en blanco si no aplica.",
+        name="sale_price", label="Precio de venta", kind="text", input_type="text", required=False,
+        section="financial",
+        hint="Precio al que te gustaría ofertar el inmueble, no el precio final de venta. "
+        "Puedes dejarlo en blanco si aún no lo tienes claro.",
         placeholder="Ej: $ 350.000.000", inputmode="numeric",
     ),
     dict(
         name="mortgage_loan", label="Crédito hipotecario", kind="yesno", required=True,
-        hint="Indica si el inmueble tiene un crédito hipotecario vigente.",
+        section="financial",
+        hint="Si el inmueble tiene un crédito hipotecario vigente.",
     ),
     dict(
         name="leasing", label="Leasing", kind="yesno", required=True,
-        hint="Indica si el inmueble está bajo leasing habitacional.",
+        section="financial",
+        hint="Si el inmueble está bajo leasing habitacional.",
     ),
     dict(
-        name="outstanding_debt", label="Saldo actual de la deuda ($, aprox.)", kind="text",
-        input_type="text", required=False,
-        hint="Saldo aproximado de la deuda. Déjalo en blanco si no aplica.",
+        name="outstanding_debt", label="Saldo actual de la deuda (aprox.)", kind="text",
+        input_type="text", required=False, section="financial", hidden=True,
+        hint="Saldo pendiente del crédito hipotecario o leasing. "
+        "Puedes dejarlo en blanco si no conoces el monto exacto.",
         placeholder="Ej: $ 50.000.000", inputmode="numeric",
     ),
     dict(
         name="term_months", label="Duración del acuerdo (meses)", kind="text", input_type="text",
-        required=False,
-        hint="Tiempo en meses que Alberto Álvarez administrará el inmueble. Déjalo en blanco si no aplica.",
+        required=False, section="financial",
+        hint="Plazo en meses durante el cual Alberto Álvarez administrará el inmueble. "
+        "Puedes dejarlo en blanco si aún no lo has definido.",
         placeholder="Ej: 12", inputmode="numeric",
     ),
 ]
@@ -126,8 +146,8 @@ __STYLE__
     </div>
     <div class="card">
       <div class="card__header">
-        <h2 class="card__title">Completa tus datos</h2>
-        <p class="card__subtitle">Llena tus datos y firma al final.</p>
+        <h2 class="card__title">Completa la información</h2>
+        <p class="card__subtitle">Datos del interesado, del inmueble y firma al final.</p>
       </div>
       <form id="authorization-form" novalidate>
 __DEAL_ID_FIELD__
@@ -230,11 +250,23 @@ def _render_field(field: dict) -> str:
     )
 
 
+def _render_fields_with_sections(fields: list[dict]) -> str:
+    parts = []
+    last_section = None
+    for field in fields:
+        if field.get("section") and field["section"] != last_section:
+            title = escape(SECTION_TITLES[field["section"]])
+            parts.append(f'        <h3 class="form-section__title">{title}</h3>')
+            last_section = field["section"]
+        parts.append(_render_field(field))
+    return "\n".join(parts)
+
+
 def render_form_html(deal_id: str | None = None) -> str:
     deal_id_field_html = (
         f'        <input type="hidden" name="deal_id" value="{escape(deal_id)}">' if deal_id else ""
     )
-    fields_html = "\n".join(_render_field(field) for field in _FIELDS)
+    fields_html = _render_fields_with_sections(_FIELDS)
     return (
         _HTML.replace("__DEAL_ID_FIELD__", deal_id_field_html)
         .replace("__FIELDS_HTML__", fields_html)

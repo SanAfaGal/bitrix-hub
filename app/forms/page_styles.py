@@ -144,6 +144,25 @@ FORM_STYLE = """<style>
 
   form { display: flex; flex-direction: column; gap: var(--space-4); }
 
+  .form-section__title {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--color-on-accent);
+    background: var(--color-teal);
+    border-radius: var(--radius-pill);
+    padding: 7px 16px;
+    margin-top: var(--space-5);
+    box-shadow: 0 6px 14px rgba(4, 76, 124, 0.28);
+  }
+  .form-section__title:first-of-type {
+    margin-top: 0;
+  }
+
   .field { display: flex; flex-direction: column; gap: var(--space-1); }
   .field__label {
     font-size: 11px;
