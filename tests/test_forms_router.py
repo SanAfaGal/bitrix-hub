@@ -24,10 +24,12 @@ def _token_for(deal_id: str) -> str:
 class FakeCrmClient:
     """Fake mínimo para tests del router: deal sin estado de firma por defecto."""
 
-    def __init__(self, authorization_status: str | None = None) -> None:
+    def __init__(self, authorization_status: str | None = None, upload_file_result: str | None = "https://example.bitrix24.com/docs/file/firmado.pdf") -> None:
         self.authorization_status = authorization_status
         self.comments: list[tuple[str, str]] = []
         self.status_updates: list[tuple[str, str]] = []
+        self.uploaded_files: list[tuple[str, str, bytes]] = []
+        self.upload_file_result = upload_file_result
 
     def get_deal(self, deal_id):
         return {"ID": deal_id}
@@ -42,6 +44,10 @@ class FakeCrmClient:
         self.comments.append((deal_id, comment))
         return 1
 
+    def upload_file(self, folder_id, filename, content):
+        self.uploaded_files.append((folder_id, filename, content))
+        return self.upload_file_result
+
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limits():
@@ -53,6 +59,11 @@ def _reset_rate_limits():
 @pytest.fixture(autouse=True)
 def _form_link_secret(monkeypatch):
     monkeypatch.setattr("app.forms.router.load_form_link_secret", lambda: _LINK_SECRET)
+
+
+@pytest.fixture(autouse=True)
+def _drive_folder_id(monkeypatch):
+    monkeypatch.setattr("app.forms.router.load_signed_form_drive_folder_id", lambda: "595608")
 
 
 def _signature_data_url() -> str:
@@ -355,6 +366,55 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
     assert deal_id == "42"
     assert "firm" in comment.lower()
     assert fake_crm.status_updates == [("42", "firmada")]
+
+
+def test_post_form_with_deal_id_uploads_pdf_to_drive_and_links_it_in_comment(monkeypatch):
+    fake_crm = FakeCrmClient(upload_file_result="https://example.bitrix24.com/docs/file/firmado.pdf")
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert len(fake_crm.uploaded_files) == 1
+    folder_id, filename, content = fake_crm.uploaded_files[0]
+    assert folder_id == "595608"
+    assert filename.startswith("Autorizacion_42_")
+    assert filename.endswith(".pdf")
+    assert content == response.content
+
+    _, comment = fake_crm.comments[0]
+    assert "https://example.bitrix24.com/docs/file/firmado.pdf" in comment
+
+
+def test_post_form_without_deal_id_does_not_upload_to_drive(monkeypatch):
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=_valid_form_payload())
+
+    assert response.status_code == 200
+    assert fake_crm.uploaded_files == []
+
+
+def test_post_form_still_marks_signed_when_drive_upload_fails(monkeypatch):
+    fake_crm = FakeCrmClient(upload_file_result=None)
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+    assert fake_crm.status_updates == [("42", "firmada")]
+    _, comment = fake_crm.comments[0]
+    assert "http" not in comment
 
 
 def test_post_form_rejects_deal_id_without_valid_token(monkeypatch):

@@ -166,6 +166,69 @@ def test_get_matricula_returns_none_when_absent() -> None:
     assert client.get_matricula({}) is None
 
 
+def test_upload_file_returns_detail_url(monkeypatch) -> None:
+    calls = []
+
+    def fake_post(url: str, timeout: int, data: dict | None = None, files: dict | None = None) -> FakeResponse:
+        calls.append({"url": url, "data": data, "files": files})
+        if url.endswith("disk.folder.uploadfile.json"):
+            return FakeResponse({"result": {"uploadUrl": "https://example.bitrix24.com/upload/?token=abc"}})
+        return FakeResponse(
+            {
+                "result": {
+                    "ID": 596274,
+                    "NAME": "Autorizacion_42.pdf",
+                    "DETAIL_URL": "https://example.bitrix24.com/docs/file/Autorizaciones de corretaje/Autorizacion_42.pdf",
+                }
+            }
+        )
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    result = client.upload_file("595608", "Autorizacion_42.pdf", b"%PDF-1.4 contenido")
+
+    # Los espacios del path (nombres de carpeta) van codificados: si no, Bitrix
+    # corta el link al pegarlo como texto plano en un comentario del timeline.
+    assert result == "https://example.bitrix24.com/docs/file/Autorizaciones%20de%20corretaje/Autorizacion_42.pdf"
+    assert calls[0]["url"] == "https://example.bitrix24.com/rest/1/token/disk.folder.uploadfile.json"
+    assert calls[0]["data"] == {"id": "595608", "generateUniqueName": "Y"}
+    assert calls[1]["url"] == "https://example.bitrix24.com/upload/?token=abc"
+    assert calls[1]["files"] == {"file": ("Autorizacion_42.pdf", b"%PDF-1.4 contenido")}
+
+
+def test_upload_file_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_post(url: str, timeout: int, data: dict | None = None, files: dict | None = None) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.upload_file("595608", "Autorizacion_42.pdf", b"contenido") is None
+
+
+def test_upload_file_returns_none_when_upload_url_missing(monkeypatch) -> None:
+    def fake_post(url: str, timeout: int, data: dict | None = None, files: dict | None = None) -> FakeResponse:
+        return FakeResponse({"result": {}})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.upload_file("595608", "Autorizacion_42.pdf", b"contenido") is None
+
+
+def test_upload_file_returns_none_when_detail_url_missing(monkeypatch) -> None:
+    def fake_post(url: str, timeout: int, data: dict | None = None, files: dict | None = None) -> FakeResponse:
+        if url.endswith("disk.folder.uploadfile.json"):
+            return FakeResponse({"result": {"uploadUrl": "https://example.bitrix24.com/upload/?token=abc"}})
+        return FakeResponse({"result": {"ID": 1}})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.upload_file("595608", "Autorizacion_42.pdf", b"contenido") is None
+
+
 def test_set_duplicado_status_updates_custom_field(monkeypatch) -> None:
     captured = {}
 

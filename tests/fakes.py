@@ -22,6 +22,8 @@ class FakeCrmClient:
         self.pins: list[tuple[int, str]] = []
         self.duplicado_updates: list[tuple[str, bool]] = []
         self.authorization_status_updates: list[tuple[str, str]] = []
+        self.uploaded_files: list[tuple[str, str, bytes]] = []
+        self.upload_file_result: str | None = "https://example.bitrix24.com/docs/file/sample.pdf"
 
     def get_deal(self, deal_id: str) -> dict[str, Any]:
         return self._deals.get(deal_id, {})
@@ -58,3 +60,7 @@ class FakeCrmClient:
 
     def pin_comment(self, comment_id: int, deal_id: str) -> None:
         self.pins.append((comment_id, deal_id))
+
+    def upload_file(self, folder_id: str, filename: str, content: bytes) -> str | None:
+        self.uploaded_files.append((folder_id, filename, content))
+        return self.upload_file_result

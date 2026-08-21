@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import requests
 
@@ -164,6 +165,49 @@ class BitrixClient:
             logger.info("Comentario %s fijado en el timeline", comment_id)
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error("Error fijando comentario %s: %s", comment_id, exc)
+
+    def upload_file(self, folder_id: str, filename: str, content: bytes) -> str | None:
+        """Sube un archivo a una carpeta de Bitrix Drive (flujo Disk en dos pasos).
+
+        Retorna el link de visualización dentro del portal (DETAIL_URL), o
+        None si falla.
+        """
+        try:
+            response = requests.post(
+                f"{self.webhook_url}disk.folder.uploadfile.json",
+                # generateUniqueName evita el error DISK_OBJ_22000 si ya existe un
+                # archivo con el mismo nombre (Bitrix le agrega un sufijo " (1)").
+                data={"id": folder_id, "generateUniqueName": "Y"},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            upload_url = (payload.get("result") or {}).get("uploadUrl") if isinstance(payload, dict) else None
+            if not upload_url:
+                logger.error("Bitrix no devolvió uploadUrl para la carpeta %s", folder_id)
+                return None
+
+            upload_response = requests.post(
+                upload_url,
+                files={"file": (filename, content)},
+                timeout=REQUEST_TIMEOUT,
+            )
+            upload_response.raise_for_status()
+            upload_payload = upload_response.json()
+            file_info = upload_payload.get("result") if isinstance(upload_payload, dict) else None
+            detail_url = file_info.get("DETAIL_URL") if isinstance(file_info, dict) else None
+            if not isinstance(detail_url, str) or not detail_url:
+                logger.error("Bitrix no devolvió DETAIL_URL al subir %s", filename)
+                return None
+
+            logger.info("Archivo %s subido a Bitrix Drive (carpeta %s)", filename, folder_id)
+            # DETAIL_URL trae la ruta con espacios/acentos sin codificar (ej. nombres de
+            # carpeta como "Autorizaciones de corretaje"); si se pega tal cual en texto
+            # plano (comentario del timeline), Bitrix corta el link en el primer espacio.
+            return quote(detail_url, safe=":/?&=%")
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error subiendo archivo %s a Bitrix Drive: %s", filename, exc)
+            return None
 
     def update_deal(self, deal_id: str, fields: dict[str, Any]) -> None:
         """Actualiza campos de un deal de Bitrix. No lanza si falla."""

@@ -244,10 +244,18 @@ El estado de la firma se guarda en el campo `UF_CRM_1773864282733` del
 deal (`Pendiente envío` / `Pendiente firma` / `Firmada`): se marca
 `Pendiente firma` al enviar el link, y `Firmada` cuando el cliente
 completa y firma el formulario — a partir de ahí el mismo link solo
-muestra un aviso de "ya firmada", no deja reenviar el formulario. También
-queda un comentario en el timeline del deal confirmando la firma
-(best-effort: si Bitrix falla, el cliente igual descarga su PDF firmado —
-ver `app/forms/router.py`).
+muestra un aviso de "ya firmada", no deja reenviar el formulario. El PDF
+firmado también se sube a la carpeta "Autorizaciones de corretaje"
+(configurada en `BITRIX_DRIVE_FOLDER_ID`) dentro del Drive del grupo de
+trabajo "Ventas" (workgroup id 184), con el nombre
+`Autorizacion_{deal_id}_{direccion}_{fecha}.pdf`, y queda un comentario en
+el timeline del deal confirmando la firma con el link al documento
+(best-effort: si Bitrix falla —incluida la subida a Drive—, el cliente
+igual descarga su PDF firmado — ver `app/forms/router.py`). El webhook de
+Bitrix necesita el scope "disk" habilitado y su usuario debe ser miembro
+del grupo "Ventas" para poder subir archivos ahí. Si la carpeta cambia
+(se borra y se recrea), resuelve el nuevo ID con
+`uv run python scripts/resolve_bitrix_drive_folder.py <texto>`.
 
 ## Corte de producción pendiente (MLS -> bitrix-hub)
 

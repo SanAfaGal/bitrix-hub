@@ -16,3 +16,15 @@ def load_form_link_secret() -> str:
         raise RuntimeError("Falta variable de entorno: FORM_LINK_SECRET")
 
     return secret
+
+
+def load_signed_form_drive_folder_id() -> str:
+    """Carga el ID de la carpeta del drive del CRM donde se guardan los PDFs firmados."""
+    load_dotenv()
+
+    folder_id = (os.getenv("BITRIX_DRIVE_FOLDER_ID") or "").strip()
+
+    if not folder_id:
+        raise RuntimeError("Falta variable de entorno: BITRIX_DRIVE_FOLDER_ID")
+
+    return folder_id

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 
 from app.crm.deps import get_crm_client
+from app.forms.cleaning import slugify_filename
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
 from app.forms.link_token import verify_deal_id_token
 from app.forms.models import BrokerageAuthorizationPayload, CleanSignaturePhotoPayload
@@ -22,7 +23,7 @@ from app.forms.page import (
     render_link_invalid_html,
 )
 from app.forms.rate_limit import rate_limit
-from app.forms.settings import load_form_link_secret
+from app.forms.settings import load_form_link_secret, load_signed_form_drive_folder_id
 from app.forms.signature_cleaner import clean_signature_photo
 
 logger = logging.getLogger(__name__)
@@ -184,25 +185,51 @@ def post_brokerage_authorization_form(
         logger.exception("Error generando el PDF de Autorización de Corretaje")
         raise HTTPException(status_code=500, detail="No se pudo generar el documento.") from None
 
+    signed_at = datetime.now()
+
     if payload.deal_id:
-        _mark_as_signed(payload.deal_id)
+        _mark_as_signed(payload.deal_id, payload.address, pdf_bytes, signed_at)
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": _content_disposition("Autorización de Corretaje - Firmada.pdf")},
+        headers={"Content-Disposition": _content_disposition(_client_download_filename(signed_at))},
     )
 
 
-def _mark_as_signed(deal_id: str) -> None:
-    """Deja constancia de la firma en el deal: comentario en el timeline + estado 'Firmada'.
+def _client_download_filename(signed_at: datetime) -> str:
+    return f"Autorización de Corretaje - Firmada {signed_at.strftime('%d-%m-%Y %H-%M')}.pdf"
+
+
+def _signed_pdf_filename(deal_id: str, address: str, signed_at: datetime) -> str:
+    fecha = signed_at.strftime("%Y%m%d_%H%M%S")
+    return f"Autorizacion_{deal_id}_{slugify_filename(address)}_{fecha}.pdf"
+
+
+def _upload_signed_pdf(crm_client, deal_id: str, address: str, pdf_bytes: bytes, signed_at: datetime) -> str | None:
+    try:
+        folder_id = load_signed_form_drive_folder_id()
+    except RuntimeError:
+        logger.exception("Falta configuración para subir el PDF firmado al drive")
+        return None
+    filename = _signed_pdf_filename(deal_id, address, signed_at)
+    return crm_client.upload_file(folder_id, filename, pdf_bytes)
+
+
+def _mark_as_signed(deal_id: str, address: str, pdf_bytes: bytes, signed_at: datetime) -> None:
+    """Deja constancia de la firma en el deal: sube el PDF al drive, comenta en el timeline
+    (con el link al documento si la subida funcionó) y marca el estado 'Firmada'.
 
     Best-effort: nunca rompe la descarga del PDF si Bitrix falla.
     """
     try:
         crm_client = get_crm_client()
-        fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
-        crm_client.add_comment(deal_id, f"El cliente firmó la Autorización de Corretaje el {fecha}.")
+        file_url = _upload_signed_pdf(crm_client, deal_id, address, pdf_bytes, signed_at)
+        fecha = signed_at.strftime("%d/%m/%Y %H:%M")
+        comment = f"El cliente firmó la Autorización de Corretaje el {fecha}."
+        if file_url:
+            comment += f" Documento firmado: {file_url}"
+        crm_client.add_comment(deal_id, comment)
         crm_client.set_authorization_status(deal_id, "firmada")
     except Exception:
         logger.exception("Error marcando la firma de la Autorización de Corretaje en el deal %s", deal_id)

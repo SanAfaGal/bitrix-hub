@@ -6,6 +6,7 @@ de la validación de formato que hace Pydantic.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 
 def collapse_whitespace(value: str) -> str:
@@ -40,6 +41,13 @@ def clean_id_number(value: str) -> str:
     del número (ej. un dígito verificador separado), no solo formato.
     """
     return re.sub(r"[.\s]+", "", value.strip().upper())
+
+
+def slugify_filename(value: str, max_length: int = 60) -> str:
+    """Normaliza texto libre para usarlo en un nombre de archivo (sin tildes/ñ, solo [a-zA-Z0-9-])."""
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-")
+    return slug[:max_length].strip("-")
 
 
 def blank_to_none(value: str | None) -> str | None:

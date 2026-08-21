@@ -51,3 +51,7 @@ class CrmClient(Protocol):
     def pin_comment(self, comment_id: int, deal_id: str) -> None:
         """Fija un comentario en el deal (best-effort, no lanza si falla)."""
         ...
+
+    def upload_file(self, folder_id: str, filename: str, content: bytes) -> str | None:
+        """Sube un archivo a una carpeta del drive del CRM. Retorna el link de visualización, o None si falla."""
+        ...
