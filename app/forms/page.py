@@ -78,9 +78,9 @@ _FIELDS = [
         placeholder="Ej: 050-123456",
     ),
     dict(
-        name="sale_price", label="Precio de venta", kind="text", input_type="text", required=False,
+        name="sale_price", label="Precio de venta (COP)", kind="text", input_type="text", required=False,
         section="financial",
-        hint="Precio al que te gustaría ofertar el inmueble, no el precio final de venta. "
+        hint="Precio al que te gustaría ofertar el inmueble, en pesos colombianos. No es el precio final de venta. "
         "Puedes dejarlo en blanco si aún no lo tienes claro.",
         placeholder="Ej: $ 350.000.000", inputmode="numeric",
     ),
@@ -95,9 +95,9 @@ _FIELDS = [
         hint="Si el inmueble está bajo leasing habitacional.",
     ),
     dict(
-        name="outstanding_debt", label="Saldo actual de la deuda (aprox.)", kind="text",
+        name="outstanding_debt", label="Saldo actual de la deuda (aprox., COP)", kind="text",
         input_type="text", required=False, section="financial", hidden=True,
-        hint="Saldo pendiente del crédito hipotecario o leasing. "
+        hint="Saldo pendiente del crédito hipotecario o leasing, en pesos colombianos. "
         "Puedes dejarlo en blanco si no conoces el monto exacto.",
         placeholder="Ej: $ 50.000.000", inputmode="numeric",
     ),

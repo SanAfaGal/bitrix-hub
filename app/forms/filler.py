@@ -36,15 +36,35 @@ class _Field:
     depender de su ancho exacto) y `baseline` es el `origin` del primer
     carácter de ese mismo subrayado — así el texto insertado queda sobre el
     mismo renglón que el resto del documento, no centrado en el rect.
+
+    `align="center"` centra el valor dentro de `erase` en vez de pegarlo al
+    `baseline` (el borde izquierdo del blanco original) — para blancos
+    cortos donde un valor chico se ve mejor centrado que pegado a un lado
+    (ej. "(6)", "los 21 días", "de agosto del").
+
+    `case`: todo el documento va en mayúscula por defecto ("upper"), salvo
+    la fecha de firma ("lower") — en español las fechas se escriben en
+    minúscula ("21 días del mes de agosto"), a diferencia del resto del
+    contrato que sí va en mayúscula sostenida.
     """
 
-    __slots__ = ("page", "erase", "baseline", "fontsize")
+    __slots__ = ("page", "erase", "baseline", "fontsize", "align", "case")
 
-    def __init__(self, page: int, erase: tuple[float, float, float, float], baseline: tuple[float, float], fontsize: int):
+    def __init__(
+        self,
+        page: int,
+        erase: tuple[float, float, float, float],
+        baseline: tuple[float, float],
+        fontsize: int,
+        align: str = "left",
+        case: str = "upper",
+    ):
         self.page = page
         self.erase = fitz.Rect(*erase)
         self.baseline = fitz.Point(*baseline)
         self.fontsize = fontsize
+        self.align = align
+        self.case = case
 
 
 # Campo lógico -> posición en la plantilla. Si el diseño de Word cambia (se
@@ -64,18 +84,30 @@ _FIELDS: dict[str, _Field] = {
     "mortgage_loan": _Field(0, (168.72, 288.37, 209.46, 298.11), (168.72, 296.45), 8),
     "leasing": _Field(0, (122.06, 298.09, 162.69, 307.83), (122.06, 306.17), 8),
     "outstanding_debt": _Field(0, (253.25, 307.81, 344.85, 317.55), (253.25, 315.89), 8),
-    "term_months": _Field(0, (263.33, 380.29, 274.68, 390.03), (263.33, 388.37), 8),
-    "signing_day": _Field(1, (256.25, 583.35, 276.60, 593.09), (256.25, 591.43), 8),
-    "signing_month": _Field(1, (345.31, 583.35, 396.24, 593.09), (345.31, 591.43), 8),
-    "signing_year": _Field(1, (431.35, 583.35, 471.98, 593.09), (431.35, 591.43), 8),
+    # Estos 4 tienen texto de la plantilla pegado justo después en el mismo
+    # renglón ("(6) meses", "los 21 días", "de agosto del", "2026 .") —
+    # centrados en vez de pegados al borde izquierdo del blanco original.
+    # Ver `_Field.align`.
+    "term_months": _Field(0, (263.33, 380.29, 274.68, 390.03), (263.33, 388.37), 8, align="center"),
+    # Fecha de firma: en español va en minúscula ("21 días del mes de
+    # agosto"), a diferencia del resto del documento.
+    "signing_day": _Field(1, (256.25, 583.35, 276.60, 593.09), (256.25, 591.43), 8, align="center", case="lower"),
+    "signing_month": _Field(
+        1, (345.31, 583.35, 396.24, 593.09), (345.31, 591.43), 8, align="center", case="lower"
+    ),
+    "signing_year": _Field(1, (431.35, 583.35, 471.98, 593.09), (431.35, 591.43), 8, align="center", case="lower"),
     # No hay subrayado tras "CC." (queda en blanco en el diseño); el punto
     # base se toma directo del `origin` de ese mismo renglón ("CC. ").
-    "signer_id_number": _Field(1, (105.29, 693.05, 270.0, 705.12), (108.3, 703.06), 8),
+    "signer_id_number": _Field(1, (105.29, 693.05, 270.0, 705.12), (108.3, 703.06), 10),
 }
 
-# Página (0-index) y rect (coords top-left de PyMuPDF) donde va la firma del interesado.
+# Página (0-index) y rect (coords top-left de PyMuPDF) donde va la firma del
+# interesado. Alto ajustado al espacio real disponible en la plantilla: entre
+# el renglón "Para constancia..." (termina en y≈593) y la etiqueta "EL
+# INTERESADO" (empieza en y≈681) — antes solo usaba 45pt de los ~75pt libres,
+# lo que hacía ver la firma más chica de lo necesario.
 SIGNATURE_PAGE = 1
-SIGNATURE_RECT = fitz.Rect(84, 606, 266, 651)
+SIGNATURE_RECT = fitz.Rect(84, 606, 266, 676)
 
 # Aire alrededor de la firma dentro de ese rect: sin esto, una firma que
 # llena bien el recuadro queda pegada a las líneas del documento (renglón de
@@ -145,6 +177,7 @@ def fill_and_sign(values: dict[str, str], signature_png_bytes: bytes) -> bytes:
         for name, field in _FIELDS.items():
             value = values.get(name)
             if value:
+                value = value.upper() if field.case == "upper" else value.lower()
                 by_page.setdefault(field.page, []).append((field, value))
 
         for page_index, items in by_page.items():
@@ -153,7 +186,11 @@ def fill_and_sign(values: dict[str, str], signature_png_bytes: bytes) -> bytes:
                 page.add_redact_annot(field.erase, fill=(1, 1, 1), cross_out=False)
             page.apply_redactions()
             for field, value in items:
-                page.insert_text(field.baseline, value, fontsize=field.fontsize, fontname="helv", color=(0, 0, 0))
+                origin = field.baseline
+                if field.align == "center":
+                    width = fitz.get_text_length(value, fontname="helv", fontsize=field.fontsize)
+                    origin = fitz.Point(field.erase.x0 + (field.erase.width - width) / 2, field.baseline.y)
+                page.insert_text(origin, value, fontsize=field.fontsize, fontname="helv", color=(0, 0, 0))
 
         # Sin margen a la izquierda: ese borde ya coincide con el arranque de
         # "EL INTERESADO" en la plantilla, y la firma se alinea ahí (ver

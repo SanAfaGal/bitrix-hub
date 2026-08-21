@@ -68,7 +68,9 @@ def test_fill_and_sign_writes_field_values_as_real_text_and_signature():
         # página (así queda seleccionable/copiable en cualquier visor).
         page0_text = doc[0].get_text()
         page1_text = doc[1].get_text()
-        assert "Juan Pérez" in page0_text
+        # Todo lo que se escribe en la plantilla va en mayúscula (ver
+        # fill_and_sign), sin importar cómo venga el valor de entrada.
+        assert "JUAN PÉREZ" in page0_text
         assert "1234567890" in page0_text
         assert "1234567890" in page1_text
 

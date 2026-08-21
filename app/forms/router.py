@@ -36,6 +36,19 @@ def _limit_submit_form(request: Request) -> None:
 
 _YES_NO_LABELS = {"si": "Sí", "no": "No"}
 
+# Campos de plata: la plantilla ya trae el "$" impreso antes del blanco (ver
+# app/forms/filler.py), así que el valor va sin signo — con separador de
+# miles (formato colombiano, punto) y la moneda explícita al final.
+_MONEY_FIELDS = {"sale_price", "outstanding_debt"}
+
+
+def _format_field_value(key: str, value: object) -> str:
+    if value is None:
+        return ""
+    if key in _MONEY_FIELDS:
+        return f"{value:,}".replace(",", ".") + " COP"
+    return str(value)
+
 
 def _pdf_field_values(payload: BrokerageAuthorizationPayload) -> dict[str, str]:
     """`model_dump()` trae ints/None (sale_price, outstanding_debt, term_months) y
@@ -43,7 +56,7 @@ def _pdf_field_values(payload: BrokerageAuthorizationPayload) -> dict[str, str]:
     values = payload.model_dump(exclude={"signature_png"})
     values["mortgage_loan"] = _YES_NO_LABELS[values["mortgage_loan"]]
     values["leasing"] = _YES_NO_LABELS[values["leasing"]]
-    return {key: ("" if value is None else str(value)) for key, value in values.items()}
+    return {key: _format_field_value(key, value) for key, value in values.items()}
 
 
 def _decode_image_data_url_or_400(data_url: str) -> bytes:

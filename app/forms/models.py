@@ -177,7 +177,9 @@ class BrokerageAuthorizationPayload(BaseModel):
     @field_validator("term_months", mode="before")
     @classmethod
     def _validate_term_months(cls, value: object) -> int | None:
-        return _clean_optional_amount(value, field_label="Duración del acuerdo", minimum=1, maximum=120)
+        # Tope en 99 (no 120): el blanco "(__)" de la plantilla solo tiene
+        # espacio físico para 2 dígitos (ver app/forms/filler.py).
+        return _clean_optional_amount(value, field_label="Duración del acuerdo", minimum=1, maximum=99)
 
 
 class CleanSignaturePhotoPayload(BaseModel):
