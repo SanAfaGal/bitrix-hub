@@ -42,10 +42,10 @@ _FIELDS = [
         placeholder="Ej: Juan Pérez Gómez",
     ),
     dict(
-        name="id_number", label="Cédula de ciudadanía", kind="text", input_type="text", required=True,
+        name="id_number", label="Documento de identidad", kind="text", input_type="text", required=True,
         section="interested",
-        hint="Documento de identidad del interesado.",
-        placeholder="Ej: 1234567890", inputmode="numeric",
+        hint="Cédula, cédula de extranjería o pasaporte del interesado, sin puntos ni espacios.",
+        placeholder="Ej: 1234567890",
     ),
     dict(
         name="email", label="Correo electrónico", kind="text", input_type="email", required=True,

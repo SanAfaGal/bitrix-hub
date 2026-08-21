@@ -184,11 +184,20 @@ def test_post_form_rejects_out_of_range_amount_sent_as_raw_json_number(field, ba
 
 def test_post_form_rejects_invalid_id_number():
     payload = _valid_form_payload()
-    payload["id_number"] = "abc123"
+    payload["id_number"] = "AB#123456"  # símbolo no permitido (letras/números/guion sí)
 
     response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
 
     assert response.status_code == 422
+
+
+def test_post_form_accepts_alphanumeric_id_number_with_hyphen():
+    payload = _valid_form_payload()
+    payload["id_number"] = "ab-123456"  # pasaporte/CE extranjero: letras + guion
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
 
 
 @pytest.mark.parametrize(

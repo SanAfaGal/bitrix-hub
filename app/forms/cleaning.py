@@ -31,6 +31,17 @@ def clean_uppercase_alnum(value: str) -> str:
     return re.sub(r"\s+", "", value.strip().upper())
 
 
+def clean_id_number(value: str) -> str:
+    """Trim + mayúsculas + sin puntos ni espacios (separadores puramente visuales).
+
+    Para documento de identidad: cédula ("1.234.567.890" -> "1234567890"),
+    cédula de extranjería o pasaporte (puede traer letras, ej. "AB 123456").
+    El guion se deja tal cual (no se borra): en varios países es parte real
+    del número (ej. un dígito verificador separado), no solo formato.
+    """
+    return re.sub(r"[.\s]+", "", value.strip().upper())
+
+
 def blank_to_none(value: str | None) -> str | None:
     if value is None:
         return None

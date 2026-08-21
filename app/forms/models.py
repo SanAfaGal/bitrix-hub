@@ -10,6 +10,7 @@ from app.forms.cleaning import (
     blank_to_none,
     clean_digits,
     clean_email,
+    clean_id_number,
     clean_name,
     clean_uppercase_alnum,
     collapse_whitespace,
@@ -52,6 +53,10 @@ _NAME_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-\s]+$")
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[a-zA-Z]{2,}$")
 # Solo números y guion — la matrícula inmobiliaria no lleva letras.
 _REGISTRATION_NUMBER_RE = re.compile(r"^[0-9-]+$")
+# Letras, números y guion — cédula, cédula de extranjería o pasaporte (puede
+# traer letras); el guion se permite porque en varios países es parte real
+# del número, no solo formato (ver clean_id_number).
+_ID_NUMBER_RE = re.compile(r"^[A-Z0-9-]+$")
 
 
 def _clean_and_check_name(value: str, *, field_label: str, min_length: int) -> str:
@@ -62,10 +67,10 @@ def _clean_and_check_name(value: str, *, field_label: str, min_length: int) -> s
 
 
 def _clean_and_check_id_number(value: str, *, field_label: str) -> str:
-    digits = clean_digits(value)
-    if not (6 <= len(digits) <= 10):
-        raise ValueError(f"{field_label} debe tener entre 6 y 10 dígitos.")
-    return digits
+    cleaned = clean_id_number(value)
+    if not (5 <= len(cleaned) <= 20) or not _ID_NUMBER_RE.match(cleaned):
+        raise ValueError(f"{field_label} inválido.")
+    return cleaned
 
 
 def _clean_optional_amount(
@@ -125,7 +130,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     @field_validator("id_number", "signer_id_number", mode="before")
     @classmethod
     def _validate_id_number(cls, value: str) -> str:
-        return _clean_and_check_id_number(value, field_label="Cédula")
+        return _clean_and_check_id_number(value, field_label="Documento de identidad")
 
     @field_validator("email", mode="before")
     @classmethod
