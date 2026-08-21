@@ -21,6 +21,7 @@ class FakeCrmClient:
         self.comments: list[tuple[str, str]] = []
         self.pins: list[tuple[int, str]] = []
         self.duplicado_updates: list[tuple[str, bool]] = []
+        self.authorization_status_updates: list[tuple[str, str]] = []
 
     def get_deal(self, deal_id: str) -> dict[str, Any]:
         return self._deals.get(deal_id, {})
@@ -42,6 +43,12 @@ class FakeCrmClient:
 
     def set_duplicado_status(self, deal_id: str, has_duplicate: bool) -> None:
         self.duplicado_updates.append((deal_id, has_duplicate))
+
+    def get_authorization_status(self, deal: dict[str, Any]) -> str | None:
+        return deal.get("AUTHORIZATION_STATUS")
+
+    def set_authorization_status(self, deal_id: str, status: str) -> None:
+        self.authorization_status_updates.append((deal_id, status))
 
     def add_comment(self, deal_id: str, comment: str) -> int | None:
         self.comments.append((deal_id, comment))

@@ -14,18 +14,15 @@ from typing import Any
 
 import requests
 
+from app.bitrix import fields
+from app.crm.protocol import AuthorizationStatus
+
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 10
 
 _CRM_ENTITY_TYPE_DEAL = 2
 _ENTITY_TYPE_DEAL = "deal"
-
-_FIELD_CONTACT_ID = "CONTACT_ID"
-_FIELD_MATRICULA = "UF_CRM_1773860489786"
-_FIELD_DUPLICADO = "UF_CRM_1773861337167"
-_VALUE_SIN_DUPLICADO = 89296
-_VALUE_DUPLICADO = 89298
 
 # Tipos de teléfono de Bitrix, en orden de preferencia para notificar por WhatsApp.
 _PREFERRED_PHONE_TYPES = ("MOBILE", "WORK", "HOME", "OTHER")
@@ -75,7 +72,7 @@ class BitrixClient:
 
     def get_deal_contact_id(self, deal: dict[str, Any]) -> str | None:
         """Extrae el ID del contacto vinculado a un deal (campo CONTACT_ID de Bitrix)."""
-        contact_id = deal.get(_FIELD_CONTACT_ID)
+        contact_id = deal.get(fields.FIELD_CONTACT_ID)
         return str(contact_id) if contact_id else None
 
     def get_contact_phone(self, contact: dict[str, Any]) -> str | None:
@@ -107,13 +104,26 @@ class BitrixClient:
 
     def get_matricula(self, deal: dict[str, Any]) -> str | None:
         """Extrae la matrícula del inmueble de un deal (campo UF_CRM_1773860489786)."""
-        matricula = deal.get(_FIELD_MATRICULA)
+        matricula = deal.get(fields.FIELD_MATRICULA)
         return str(matricula) if matricula else None
 
     def set_duplicado_status(self, deal_id: str, has_duplicate: bool) -> None:
         """Marca el campo Duplicado/Sin duplicado (UF_CRM_1773861337167) del deal."""
-        value = _VALUE_DUPLICADO if has_duplicate else _VALUE_SIN_DUPLICADO
-        self.update_deal(deal_id, {_FIELD_DUPLICADO: value})
+        value = fields.VALUE_DUPLICADO if has_duplicate else fields.VALUE_SIN_DUPLICADO
+        self.update_deal(deal_id, {fields.FIELD_DUPLICADO: value})
+
+    def get_authorization_status(self, deal: dict[str, Any]) -> AuthorizationStatus | None:
+        """Extrae el estado de firma de la Autorización de Corretaje (UF_CRM_1773864282733)."""
+        value = deal.get(fields.FIELD_AUTHORIZATION_STATUS)
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return None
+        return fields.AUTHORIZATION_STATUS_BY_VALUE.get(value)
+
+    def set_authorization_status(self, deal_id: str, status: AuthorizationStatus) -> None:
+        """Marca el estado de firma de la Autorización de Corretaje (UF_CRM_1773864282733) del deal."""
+        self.update_deal(deal_id, {fields.FIELD_AUTHORIZATION_STATUS: fields.AUTHORIZATION_VALUE_BY_STATUS[status]})
 
     def add_comment(self, deal_id: str, comment: str) -> int | None:
         """Agrega un comentario al timeline de un deal.

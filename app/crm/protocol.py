@@ -6,7 +6,9 @@ implementando esta clase (duck typing: no hace falta heredar de ella).
 """
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+AuthorizationStatus = Literal["pendiente_envio", "pendiente_firma", "firmada"]
 
 
 class CrmClient(Protocol):
@@ -32,6 +34,14 @@ class CrmClient(Protocol):
 
     def set_duplicado_status(self, deal_id: str, has_duplicate: bool) -> None:
         """Marca en el CRM si el inmueble del deal resultó duplicado en Xposure."""
+        ...
+
+    def get_authorization_status(self, deal: dict[str, Any]) -> AuthorizationStatus | None:
+        """Extrae el estado de firma de la Autorización de Corretaje de un deal ya obtenido con get_deal."""
+        ...
+
+    def set_authorization_status(self, deal_id: str, status: AuthorizationStatus) -> None:
+        """Marca en el CRM el estado de firma de la Autorización de Corretaje del deal."""
         ...
 
     def add_comment(self, deal_id: str, comment: str) -> int | None:
