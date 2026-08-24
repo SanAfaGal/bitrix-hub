@@ -7,12 +7,16 @@ consulta externa). No importa nada de app.waha ni de otras integraciones.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Callable
 
 from app.crm.protocol import CrmClient
 from app.xposure.client import XposureClient
 
 logger = logging.getLogger(__name__)
+
+# [Código de Oficina (ORIP)]-[Número de Folio], ej. 50C-1945945 o 001-123456.
+MATRICULA_PATTERN = re.compile(r"^\d{2,3}[A-Za-z]?-\d{4,10}$")
 
 
 def process_deal_event(
@@ -32,6 +36,17 @@ def process_deal_event(
         # No se tocó el campo Duplicado/Sin duplicado: no se pudo validar nada,
         # así que no hay resultado real que reflejar ahí (ver comentario).
         return {"ok": True, "deal_id": deal_id, "matricula": None}
+
+    matricula = matricula.strip()
+    if not MATRICULA_PATTERN.match(matricula):
+        logger.warning("Deal %s matrícula con formato inválido: %s", deal_id, matricula)
+        crm_client.add_comment(
+            deal_id,
+            f'La matrícula inmobiliaria "{matricula}" no tiene el formato requerido '
+            "([Código de Oficina]-[Número de Folio], ej. 50C-1945945). No se pudo validar en la MLS.",
+        )
+        # Igual que sin matrícula: no se pudo validar nada, no se toca Duplicado/Sin duplicado.
+        return {"ok": True, "deal_id": deal_id, "matricula": matricula}
 
     logger.info("Deal %s matrícula: %s", deal_id, matricula)
 
