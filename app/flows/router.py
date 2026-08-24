@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Form, HTTPException, Request
 
 from app.crm.deps import get_crm_client
-from app.flows.deal_duplicado import process_deal_event
+from app.flows.registry_duplicate_check import process_deal_event
 from app.flows.notify_contact import process_notify_contact
 from app.flows.settings import load_public_base_url
 from app.flows.welcome_authorization import process_welcome_and_authorization
@@ -75,7 +75,7 @@ async def webhook_deal_event(
         examples=["42"],
     ),
 ) -> dict[str, Any]:
-    """Recibe un evento de deal de Bitrix y delega el procesamiento a app.flows.deal_duplicado.
+    """Recibe un evento de deal de Bitrix y delega el procesamiento a app.flows.registry_duplicate_check.
 
     Lee la matrícula del deal (campo `UF_CRM_1773860489786`); si está
     presente, consulta Xposure y deja el resultado como comentario en el

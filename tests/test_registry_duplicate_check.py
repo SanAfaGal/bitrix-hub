@@ -1,7 +1,7 @@
 """Pruebas de las reglas de negocio de process_deal_event, sin pasar por HTTP."""
 from __future__ import annotations
 
-from app.flows.deal_duplicado import process_deal_event
+from app.flows.registry_duplicate_check import process_deal_event
 from app.xposure.models import PropertySearchResult
 from tests.fakes import FakeCrmClient
 

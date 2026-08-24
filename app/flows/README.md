@@ -40,5 +40,5 @@ integración sigue siendo testeable de forma aislada (mock de su propio
 cliente); el flujo se testea con todos los clientes mockeados usando
 `tests/fakes.py::FakeCrmClient`, igual que `MLS/tests/test_deal_event.py`.
 
-Flujos reales existentes: `deal_duplicado.py` (CRM + Xposure),
+Flujos reales existentes: `registry_duplicate_check.py` (CRM + Xposure),
 `notify_contact.py` y `welcome_authorization.py` (CRM + Waha).

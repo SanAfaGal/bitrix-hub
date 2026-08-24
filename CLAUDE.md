@@ -35,7 +35,7 @@ docker compose -f docker-compose.yml up -d # prod: same stack, no hot-reload ove
 
 **One webhook endpoint per Bitrix trigger, no generic rule engine.** Bitrix's own automation config already decides what fires when; each automation rule points at its own URL here. Don't build a dispatcher — add a new route instead.
 
-**Flows that touch more than one integration live in `app/flows/`, not inside an integration package.** Integration packages never import each other. A multi-integration flow (e.g. `app/flows/deal_duplicado.py`: Bitrix + Xposure) is a plain function that takes already-constructed clients as arguments; its `router.py` in the same directory wires the actual Bitrix-facing endpoint. See `app/flows/README.md` for the expected shape of a new one.
+**Flows that touch more than one integration live in `app/flows/`, not inside an integration package.** Integration packages never import each other. A multi-integration flow (e.g. `app/flows/registry_duplicate_check.py`: Bitrix + Xposure) is a plain function that takes already-constructed clients as arguments; its `router.py` in the same directory wires the actual Bitrix-facing endpoint. See `app/flows/README.md` for the expected shape of a new one.
 
 **`app/main.py` only assembles**: creates the `FastAPI()` app, sets `openapi_tags`, calls `app.include_router(...)` for each package's router, and owns `/health`. No business-logic endpoints belong there.
 

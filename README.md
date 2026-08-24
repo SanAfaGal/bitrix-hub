@@ -7,7 +7,7 @@ a futuro. Un deploy, un `.env`, modular por integración por dentro.
 
 `MLS` (repo aparte, `../Ventas/MLS`) sigue siendo el servicio en producción
 hasta que el webhook de Bitrix se repunte a este hub. Su lógica de Xposure
-ya está migrada acá (`app/xposure/` + `app/flows/deal_duplicado.py`), pero
+ya está migrada acá (`app/xposure/` + `app/flows/registry_duplicate_check.py`), pero
 la automatización de Bitrix todavía apunta al endpoint de `MLS` — ver nota
 de corte en la sección de despliegue más abajo.
 
@@ -125,7 +125,7 @@ app/
     deps.py                # get_waha_client()
     router.py               # POST /webhook/waha-test (tag "Waha", scaffolding)
   flows/
-    deal_duplicado.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
+    registry_duplicate_check.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
     router.py              # POST /webhook/deal-event (tag "Bitrix Webhooks")
     README.md               # Patrón para flujos que combinan >1 integración
   main.py                 # FastAPI(), openapi_tags, include_router(...), GET /health
@@ -134,7 +134,7 @@ tests/
   test_bitrix_client.py
   test_waha_client.py
   test_phone.py
-  test_deal_duplicado.py
+  test_registry_duplicate_check.py
   test_main.py
 ```
 
@@ -151,7 +151,7 @@ http://127.0.0.1:8000/docs
 2. Si el flujo de negocio solo usa esa integración: las funciones van en
    `app/<integracion>/events.py`.
 3. Si el flujo combina esta integración con otra(s): va en
-   `app/flows/<nombre>.py` (ver `app/flows/README.md`; `deal_duplicado.py`
+   `app/flows/<nombre>.py` (ver `app/flows/README.md`; `registry_duplicate_check.py`
    es un ejemplo real ya cableado).
 4. Agregar el endpoint correspondiente en `app/<integracion>/router.py` (o
    `app/flows/<nombre>/router.py` si es un flow multi-integración), con su
@@ -165,7 +165,7 @@ http://127.0.0.1:8000/docs
    código.
 5. Tests unitarios del cliente (mock de `requests`) + tests del flujo con
    los clientes mockeados, siguiendo `tests/test_bitrix_client.py` y
-   `tests/test_deal_duplicado.py`.
+   `tests/test_registry_duplicate_check.py`.
 
 Para agregar (o reemplazar) el CRM en vez de una integración externa, ver
 `app/crm/README.md` — el resto del hub depende de `app.crm.protocol.CrmClient`,
@@ -202,7 +202,7 @@ Recibe un evento de deal de Bitrix, obtiene el deal completo y lee el campo
 `UF_CRM_1773860489786` (matrícula). Si está presente, consulta Xposure y
 comenta el resultado en el timeline del deal; actualiza el campo
 `UF_CRM_1773861337167` (Duplicado/Sin duplicado) siempre. Ver
-`app/flows/deal_duplicado.py`.
+`app/flows/registry_duplicate_check.py`.
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/webhook/deal-event" \

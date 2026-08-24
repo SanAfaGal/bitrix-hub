@@ -1,7 +1,7 @@
 """Flujo: deal del CRM -> contacto vinculado -> teléfono -> mensaje de WhatsApp.
 
 Combina app.crm (leer el deal y su contacto) con app.waha (formatear el
-chatId y enviar el mensaje) — mismo patrón que app.flows.deal_duplicado,
+chatId y enviar el mensaje) — mismo patrón que app.flows.registry_duplicate_check,
 pero con Waha en vez de Xposure.
 """
 from __future__ import annotations
