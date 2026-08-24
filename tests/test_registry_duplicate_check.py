@@ -10,9 +10,11 @@ class FakeXposureClient:
     def __init__(self, result: PropertySearchResult) -> None:
         self._result = result
         self.called_with: str | None = None
+        self.called_with_area_code: str | None = None
 
-    def search_property(self, tax_roll: str) -> PropertySearchResult:
+    def search_property(self, tax_roll: str, tax_roll_area_code: str | None = None) -> PropertySearchResult:
         self.called_with = tax_roll
+        self.called_with_area_code = tax_roll_area_code
         return self._result
 
 
@@ -25,7 +27,8 @@ def test_process_deal_event_found_marks_duplicado() -> None:
     result = process_deal_event("42", fake_crm, lambda: fake_xposure)
 
     assert result == {"ok": True, "deal_id": "42", "matricula": "50C-1945945"}
-    assert fake_xposure.called_with == "50C-1945945"
+    assert fake_xposure.called_with == "1945945"
+    assert fake_xposure.called_with_area_code == "50C"
     assert fake_crm.comments == [
         ("42", "Inmueble encontrado en Xposure. MLS: 999. Ver: https://example.com/999")
     ]
@@ -42,6 +45,8 @@ def test_process_deal_event_not_found_marks_sin_duplicado() -> None:
     result = process_deal_event("42", fake_crm, lambda: fake_xposure)
 
     assert result == {"ok": True, "deal_id": "42", "matricula": "001-123456"}
+    assert fake_xposure.called_with == "123456"
+    assert fake_xposure.called_with_area_code == "001"
     assert fake_crm.duplicado_updates == [("42", False)]
     assert fake_crm.pins == []  # solo se fija cuando hay duplicado
 
@@ -55,8 +60,24 @@ def test_process_deal_event_found_without_mls_does_not_pin() -> None:
     result = process_deal_event("42", fake_crm, lambda: fake_xposure)
 
     assert result == {"ok": True, "deal_id": "42", "matricula": "001-123456"}
+    assert fake_xposure.called_with == "123456"
+    assert fake_xposure.called_with_area_code == "001"
     assert fake_crm.duplicado_updates == [("42", False)]
     assert fake_crm.pins == []
+
+
+def test_process_deal_event_found_marks_duplicado_sin_oficina() -> None:
+    fake_crm = FakeCrmClient(deals={"42": {"ID": "42", "MATRICULA": "1945945"}})
+    fake_xposure = FakeXposureClient(
+        PropertySearchResult(tax_roll="1945945", exists=True, mls="999", url="https://example.com/999")
+    )
+
+    result = process_deal_event("42", fake_crm, lambda: fake_xposure)
+
+    assert result == {"ok": True, "deal_id": "42", "matricula": "1945945"}
+    assert fake_xposure.called_with == "1945945"
+    assert fake_xposure.called_with_area_code is None
+    assert fake_crm.duplicado_updates == [("42", True)]
 
 
 def test_process_deal_event_without_matricula_skips_xposure() -> None:
@@ -74,12 +95,12 @@ def test_process_deal_event_without_matricula_skips_xposure() -> None:
 
 
 def test_process_deal_event_with_invalid_matricula_format_skips_xposure() -> None:
-    fake_crm = FakeCrmClient(deals={"42": {"ID": "42", "MATRICULA": "5322493"}})
+    fake_crm = FakeCrmClient(deals={"42": {"ID": "42", "MATRICULA": "ABC1234"}})
     fake_xposure = FakeXposureClient(PropertySearchResult(tax_roll="", exists=False))
 
     result = process_deal_event("42", fake_crm, lambda: fake_xposure)
 
-    assert result == {"ok": True, "deal_id": "42", "matricula": "5322493"}
+    assert result == {"ok": True, "deal_id": "42", "matricula": "ABC1234"}
     assert fake_xposure.called_with is None
     assert fake_crm.duplicado_updates == []
     assert fake_crm.pins == []

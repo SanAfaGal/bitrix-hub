@@ -15,8 +15,9 @@ from app.xposure.client import XposureClient
 
 logger = logging.getLogger(__name__)
 
-# [Código de Oficina (ORIP)]-[Número de Folio], ej. 50C-1945945 o 001-123456.
-MATRICULA_PATTERN = re.compile(r"^\d{2,3}[A-Za-z]?-\d{4,10}$")
+# [Código de Oficina (ORIP)]-[Número de Folio], ej. 50C-1945945 o 001-123456;
+# también válido solo el folio, sin código de oficina, ej. 1945945.
+MATRICULA_PATTERN = re.compile(r"^\d{2,3}[A-Za-z]?-\d{4,10}$|^\d{4,10}$")
 
 
 def process_deal_event(
@@ -51,7 +52,11 @@ def process_deal_event(
     logger.info("Deal %s matrícula: %s", deal_id, matricula)
 
     xposure_client = get_xposure_client()
-    resultado = xposure_client.search_property(matricula)
+    if "-" in matricula:
+        area_code, _, tax_roll = matricula.partition("-")
+        resultado = xposure_client.search_property(tax_roll, tax_roll_area_code=area_code)
+    else:
+        resultado = xposure_client.search_property(matricula)
     logger.info(
         "Consulta Xposure para deal %s: exists=%s mls=%s url=%s",
         deal_id, resultado.exists, resultado.mls, resultado.url,
