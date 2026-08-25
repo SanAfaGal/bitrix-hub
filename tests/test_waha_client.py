@@ -7,12 +7,16 @@ from app.waha.settings import WahaSettings
 
 
 class FakeResponse:
-    def __init__(self, status_code: int = 200) -> None:
+    def __init__(self, status_code: int = 200, json_data: dict | None = None) -> None:
         self.status_code = status_code
+        self._json_data = json_data
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise requests.exceptions.HTTPError(f"status {self.status_code}")
+
+    def json(self) -> dict:
+        return self._json_data or {}
 
 
 def test_send_text_posts_expected_payload_and_returns_true(monkeypatch) -> None:
@@ -145,3 +149,58 @@ def test_send_text_sequence_does_not_sleep_after_last_message(monkeypatch) -> No
     client.send_text_sequence("573001112233@c.us", ["hola"])
 
     assert sleeps == []
+
+
+def test_resolve_lid_to_phone_returns_pn_when_mapped(monkeypatch) -> None:
+    captured = {}
+
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse(json_data={"lid": "123456789012345@lid", "pn": "573001112233@c.us"})
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.resolve_lid_to_phone("123456789012345") == "573001112233@c.us"
+    assert captured["url"] == "http://localhost:3000/api/default/lids/123456789012345"
+
+
+def test_resolve_lid_to_phone_uses_given_session_over_default(monkeypatch) -> None:
+    captured = {}
+
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse(json_data={"pn": None})
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+    client.resolve_lid_to_phone("123456789012345", session="linea-ventas")
+
+    assert captured["url"] == "http://localhost:3000/api/linea-ventas/lids/123456789012345"
+
+
+def test_resolve_lid_to_phone_returns_none_when_not_mapped_yet(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.waha.client.requests.get", lambda url, headers, timeout: FakeResponse(json_data={"pn": None})
+    )
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.resolve_lid_to_phone("123456789012345") is None
+
+
+def test_resolve_lid_to_phone_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.resolve_lid_to_phone("123456789012345") is None

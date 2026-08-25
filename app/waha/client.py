@@ -46,6 +46,31 @@ class WahaClient:
             logger.error("Error enviando mensaje a %s vía Waha: %s", chat_id, exc)
             return False
 
+    def resolve_lid_to_phone(self, lid: str, session: str | None = None) -> str | None:
+        """Resuelve un identificador `@lid` (número oculto) al chatId real, si Waha ya lo conoce.
+
+        `lid` va sin el sufijo `@lid` (solo el identificador, ver
+        `app.waha.phone.lid_from_chat_id`). Usa `GET /api/{session}/lids/{lid}`
+        — Waha mapea LID a número real (`pn`) cuando ya lo aprendió
+        (comparten grupo, chat directo previo, etc.); si no hay mapeo
+        todavía responde 200 con `"pn": null` (no 404). Retorna el chatId
+        (`"<teléfono>@c.us"`) si hay mapeo, o `None` si no hay o falla la
+        llamada.
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/{session or self.session}/lids/{lid}",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            pn = payload.get("pn") if isinstance(payload, dict) else None
+            return pn if isinstance(pn, str) and pn else None
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error resolviendo lid %s vía Waha: %s", lid, exc)
+            return None
+
     def send_text_sequence(
         self,
         chat_id: str,

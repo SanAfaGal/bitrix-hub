@@ -125,7 +125,7 @@ app/
     deps.py              # get_xposure_client() — atrapa errores de login y los traduce a HTTPException(502)
     router.py             # GET /properties/{tax_roll}, POST /properties/bulk (tag "Xposure")
   waha/
-    client.py         # WahaClient — send_text(chat_id, text, session=None)
+    client.py         # WahaClient — send_text(chat_id, text, session=None), resolve_lid_to_phone(lid, session=None)
     settings.py        # WAHA_BASE_URL, WAHA_API_KEY, WAHA_SESSION
     phone.py             # to_chat_id() / from_chat_id() / lid_from_chat_id() — conversión chatId <-> teléfono (genérico, cualquier CRM)
     inbound.py             # parse_inbound_message() — parsea el webhook `message` entrante de Waha
@@ -264,16 +264,21 @@ para no perder información — ver "Limitaciones" abajo.
 
 Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
 manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un
-teléfono real. En ese caso se busca (no se crea) un contacto ya existente
-por ese identificador opaco (`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`,
-`app.waha.phone.lid_from_chat_id`) — esta instancia de Bitrix exige
+teléfono real. En ese caso primero se intenta resolver el teléfono real
+con `GET /api/{session}/lids/{lid}` de Waha (`WahaClient.resolve_lid_to_phone`)
+— Waha mapea LID a número real cuando ya lo aprendió (compartió un grupo
+o chat directo con ese número antes); si Waha responde con el mapeo, se
+usa ese teléfono normal para crear/buscar el contacto. Si Waha **todavía**
+no tiene el mapeo (`"pn": null`, no es un error), se busca — pero no se
+crea — un contacto ya existente por el identificador `@lid` como
+respaldo (`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`,
+`app.waha.phone.lid_from_chat_id`): esta instancia de Bitrix exige
 teléfono para crear un contacto (`crm.contact.add` rechaza con 400 sin
 ese campo), así que sin teléfono real el bot igual responde por WhatsApp
-pero no queda nada guardado en el CRM, hasta que ese cliente escriba
-también desde un chat con teléfono visible o un asesor vincule el
-identificador a mano. Si además Waha manda el nombre de perfil del
-remitente, se usa como nombre del contacto nuevo (cuando sí hay teléfono)
-en vez del placeholder genérico — ver "Limitaciones".
+pero no queda nada guardado en el CRM esa vez. Si además Waha manda el
+nombre de perfil del remitente, se usa como nombre del contacto nuevo
+(cuando sí hay teléfono) en vez del placeholder genérico — ver
+"Limitaciones".
 
 El cliente LLM (`app/llm/`) usa el SDK de OpenAI apuntado a `LLM_BASE_URL`
 — funciona con OpenAI y con cualquier otro proveedor que hable el mismo

@@ -9,13 +9,19 @@ from tests.fakes import FakeCrmClient
 
 
 class FakeWahaClient:
-    def __init__(self, send_result: bool = True) -> None:
+    def __init__(self, send_result: bool = True, resolved_lids: dict[str, str] | None = None) -> None:
         self.send_result = send_result
         self.calls: list[tuple[str, str, str | None]] = []
+        self._resolved_lids = resolved_lids or {}
+        self.resolve_lid_to_phone_calls: list[tuple[str, str | None]] = []
 
     def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
         self.calls.append((chat_id, text, session))
         return self.send_result
+
+    def resolve_lid_to_phone(self, lid: str, session: str | None = None) -> str | None:
+        self.resolve_lid_to_phone_calls.append((lid, session))
+        return self._resolved_lids.get(lid)
 
 
 class FakeLlmClient:
@@ -164,6 +170,29 @@ def test_process_reuses_existing_contact_found_by_lid_username() -> None:
         store=store,
     )
 
+    assert store.get_deal_id("123456789012345@lid") == "6000"
+
+
+def test_process_resolves_lid_to_phone_via_waha_and_creates_contact() -> None:
+    # Waha ya conoce el teléfono real detrás del @lid (compartió grupo/chat
+    # antes) — se debe usar ese teléfono, no quedarse solo con el username.
+    waha = FakeWahaClient(resolved_lids={"123456789012345": "573001112233@c.us"})
+    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(
+        _inbound(chat_id="123456789012345@lid"),
+        waha,
+        llm,
+        crm,
+        config=_enabled_config(),
+        store=store,
+    )
+
+    assert waha.resolve_lid_to_phone_calls == [("123456789012345", "default")]
+    assert crm.contact_by_phone == {"573001112233": "5000"}
+    assert crm.contact_by_username == {"123456789012345": "5000"}
     assert store.get_deal_id("123456789012345@lid") == "6000"
 
 
