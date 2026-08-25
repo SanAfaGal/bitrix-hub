@@ -50,3 +50,40 @@ def to_chat_id(raw_phone: str, default_country_code: str = DEFAULT_COUNTRY_CODE)
         return None
 
     return f"{digits}@c.us"
+
+
+def from_chat_id(chat_id: str) -> str | None:
+    """Extrae el teléfono (con código de país, sin `+`) de un chatId de Waha.
+
+    Inverso de `to_chat_id`: `"573001112233@c.us"` -> `"573001112233"`.
+    Retorna `None` si `chat_id` no tiene la forma esperada (ej. un chat de
+    grupo, que termina en `@g.us` en vez de `@c.us`).
+    """
+    if not chat_id or "@" not in chat_id:
+        return None
+
+    digits, _, suffix = chat_id.partition("@")
+    if suffix != "c.us" or not digits.isdigit():
+        return None
+
+    return digits
+
+
+def lid_from_chat_id(chat_id: str) -> str | None:
+    """Extrae el identificador `@lid` de un chatId, cuando el remitente ocultó su número.
+
+    WhatsApp permite ocultar el número de teléfono (username/privacidad); en
+    ese caso Waha manda el chat como `"<id opaco>@lid"` en vez de
+    `"<teléfono>@c.us"`. Ese identificador **no es un teléfono** — es un ID
+    interno de WhatsApp, estable para un mismo remitente pero inútil para
+    buscar por teléfono en el CRM. Retorna `None` si `chat_id` no es un chat
+    `@lid` (ej. es `@c.us` o `@g.us`, o viene vacío).
+    """
+    if not chat_id or "@" not in chat_id:
+        return None
+
+    identifier, _, suffix = chat_id.partition("@")
+    if suffix != "lid" or not identifier:
+        return None
+
+    return identifier

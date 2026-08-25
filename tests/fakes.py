@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.crm.protocol import PropertyListing
+
 
 class FakeCrmClient:
     def __init__(
@@ -25,6 +27,17 @@ class FakeCrmClient:
         self.welcome_sent_updates: list[str] = []
         self.uploaded_files: list[tuple[str, str, bytes]] = []
         self.upload_file_result: str | None = "https://example.bitrix24.com/docs/file/sample.pdf"
+
+        # Bot de WhatsApp (experimental) — datos de inmueble por deal_id, y
+        # contacto/deal por teléfono, configurables para simular ya-existe.
+        self.property_listings: dict[str, PropertyListing] = {}
+        self.property_listing_updates: list[tuple[str, PropertyListing]] = []
+        self.contact_by_phone: dict[str, str] = {}
+        self.contact_by_username: dict[str, str] = {}
+        self.find_or_create_property_seller_contact_calls: list[tuple[str | None, str | None, str | None]] = []
+        self.deal_by_contact: dict[str, str] = {}
+        self._next_contact_id = 5000
+        self._next_deal_id = 6000
 
     def get_deal(self, deal_id: str) -> dict[str, Any]:
         return self._deals.get(deal_id, {})
@@ -68,3 +81,54 @@ class FakeCrmClient:
     def upload_file(self, folder_id: str, filename: str, content: bytes) -> str | None:
         self.uploaded_files.append((folder_id, filename, content))
         return self.upload_file_result
+
+    def find_or_create_property_seller_contact(
+        self, phone: str | None, username: str | None = None, display_name: str | None = None
+    ) -> str | None:
+        self.find_or_create_property_seller_contact_calls.append((phone, username, display_name))
+        if phone and phone in self.contact_by_phone:
+            return self.contact_by_phone[phone]
+        if username and username in self.contact_by_username:
+            return self.contact_by_username[username]
+        if not phone and not username:
+            return None
+
+        contact_id = str(self._next_contact_id)
+        self._next_contact_id += 1
+        if phone:
+            self.contact_by_phone[phone] = contact_id
+        if username:
+            self.contact_by_username[username] = contact_id
+        return contact_id
+
+    def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
+        if contact_id in self.deal_by_contact:
+            return self.deal_by_contact[contact_id]
+        deal_id = str(self._next_deal_id)
+        self._next_deal_id += 1
+        self.deal_by_contact[contact_id] = deal_id
+        return deal_id
+
+    def get_property_listing(self, deal_id: str) -> PropertyListing:
+        return self.property_listings.get(deal_id, PropertyListing())
+
+    def update_property_listing(self, deal_id: str, listing: PropertyListing) -> None:
+        self.property_listing_updates.append((deal_id, listing))
+        current = self.property_listings.get(deal_id, PropertyListing())
+        self.property_listings[deal_id] = PropertyListing(
+            property_type=listing.property_type if listing.property_type is not None else current.property_type,
+            address=listing.address if listing.address is not None else current.address,
+            sector_zone_city=(
+                listing.sector_zone_city if listing.sector_zone_city is not None else current.sector_zone_city
+            ),
+            expected_sale_price=(
+                listing.expected_sale_price
+                if listing.expected_sale_price is not None
+                else current.expected_sale_price
+            ),
+            registration_number=(
+                listing.registration_number
+                if listing.registration_number is not None
+                else current.registration_number
+            ),
+        )

@@ -30,3 +30,24 @@ AUTHORIZATION_VALUE_BY_STATUS = {
     "pendiente_firma": VALUE_AUTHORIZATION_PENDIENTE_FIRMA,
     "firmada": VALUE_AUTHORIZATION_FIRMADA,
 }
+
+# Campos del inmueble que un cliente quiere vender (bot de WhatsApp,
+# experimental — ver app/flows/whatsapp_bot.py).
+FIELD_PROPERTY_TYPE = "UF_CRM_1773860139420"
+FIELD_ADDRESS = "UF_CRM_1773860692300"
+FIELD_SECTOR_ZONE_CITY = "UF_CRM_1773861181680"
+FIELD_EXPECTED_SALE_PRICE = "UF_CRM_1773861238965"
+FIELD_FIRST_CONTACT = "UF_CRM_1773860044607"
+
+# Identificador de respaldo cuando WhatsApp oculta el teléfono del remitente
+# (chat "@lid" en vez de "@c.us" — ver app.waha.phone.lid_from_chat_id).
+FIELD_USERNAME = "UF_CRM_1786458989056"
+
+# Pipeline "Consignación" donde caen los deals nuevos creados por el bot.
+CONSIGNACION_CATEGORY_ID = 34
+
+# TODO: llenar corriendo `scripts/list_bitrix_picklist_values.py UF_CRM_1773860139420`
+# contra el Bitrix real — no se puede adivinar el VALUE ID de cada tipo de
+# inmueble. Mientras esté vacío, `BitrixClient.update_property_listing`
+# ignora `property_type` (loguea un warning, no rompe el resto del update).
+PROPERTY_TYPE_VALUE_BY_NAME: dict[str, int] = {}

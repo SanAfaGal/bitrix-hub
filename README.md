@@ -47,6 +47,12 @@ WAHA_SESSION=default
 WHATSAPP_DEFAULT_ENGINE=GOWS
 TZ=America/Bogota
 HUB_PUBLIC_BASE_URL=https://tu-dominio-bitrix-hub.com
+
+# Bot conversacional de WhatsApp (experimental, apagado por defecto)
+WHATSAPP_BOT_ENABLED=false
+LLM_API_KEY=sk-tu-api-key
+LLM_BASE_URL=
+LLM_MODEL=gpt-4o-mini
 ```
 
 ## Ejecución local
@@ -104,11 +110,12 @@ Cada integración es dueña de su router y sus dependencias de FastAPI —
 ```
 app/
   crm/
-    protocol.py      # CrmClient (Protocol) — contrato que implementa cada CRM soportado
+    protocol.py      # CrmClient (Protocol) + PropertyListing — contrato que implementa cada CRM soportado
     deps.py            # get_crm_client() — único punto que cambia si se swapea de CRM
     README.md            # Cómo agregar un CRM nuevo
   bitrix/
-    client.py       # BitrixClient — implementa CrmClient (get_deal, get_contact, add_comment, pin_comment, update_deal, ...)
+    client.py       # BitrixClient — implementa CrmClient (get_deal, get_contact, add_comment, pin_comment, update_deal, find_or_create_property_seller_*, ...)
+    fields.py        # IDs UF_CRM_* y VALUE de picklists de esta instancia (incluye los del bot de WhatsApp)
     settings.py      # BITRIX_WEBHOOK_URL
     deps.py           # get_bitrix_client() — construye el BitrixClient concreto
   xposure/
@@ -120,19 +127,31 @@ app/
   waha/
     client.py         # WahaClient — send_text(chat_id, text, session=None)
     settings.py        # WAHA_BASE_URL, WAHA_API_KEY, WAHA_SESSION
-    phone.py             # to_chat_id() — limpieza y formato del teléfono para WhatsApp (genérico, cualquier CRM)
+    phone.py             # to_chat_id() / from_chat_id() / lid_from_chat_id() — conversión chatId <-> teléfono (genérico, cualquier CRM)
+    inbound.py             # parse_inbound_message() — parsea el webhook `message` entrante de Waha
     events.py             # Reglas de negocio Waha-solo (vacío por ahora)
     deps.py                # get_waha_client()
-    router.py               # POST /webhook/waha-test (tag "Waha", scaffolding)
+    router.py               # POST /webhook/waha-test (scaffolding) y /webhook/waha-message (bot, tag "Waha")
+  llm/
+    client.py         # LlmClient — reply(system_prompt, history, user_text), SDK de OpenAI (cualquier proveedor compatible)
+    settings.py        # LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+    deps.py              # get_llm_client()
   flows/
     registry_duplicate_check.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
+    whatsapp_bot.py                  # Waha + LLM + CRM: bot conversacional (experimental) — ver sección Endpoints
     router.py              # POST /webhook/deal-event (tag "Bitrix Webhooks")
     README.md               # Patrón para flujos que combinan >1 integración
   main.py                 # FastAPI(), openapi_tags, include_router(...), GET /health
+scripts/
+  resolve_bitrix_drive_folder.py     # Busca carpetas de Bitrix Drive por nombre
+  list_bitrix_picklist_values.py     # Lista los VALUE ID de un campo picklist del deal (ej. Tipo de inmueble)
 tests/
   fakes.py               # FakeCrmClient — fake compartido de app.crm.protocol.CrmClient
   test_bitrix_client.py
   test_waha_client.py
+  test_waha_inbound.py
+  test_llm_client.py
+  test_whatsapp_bot.py
   test_phone.py
   test_registry_duplicate_check.py
   test_main.py
@@ -223,6 +242,113 @@ curl -X POST "http://127.0.0.1:8000/webhook/waha-test?chat_id=573001112233@c.us&
 
 Sirve para confirmar que `WahaClient` llega a la instancia de Waha
 configurada.
+
+### Bot conversacional de WhatsApp (experimental)
+
+`POST /webhook/waha-message` recibe el evento `message` que Waha reenvía
+por su propio webhook saliente (no lo llamás vos directamente por curl —
+lo dispara Waha en cada mensaje entrante). Responde con un LLM y, a
+diferencia de un chatbot de FAQ genérico, **guarda lo que el cliente
+cuenta directo en Bitrix**: al primer mensaje de un número busca (o crea)
+el contacto y un deal de consignación (pipeline `CATEGORY_ID=34`), y en
+cada turno actualiza los campos del inmueble que el LLM haya identificado
+(tipo, dirección, sector/zona/ciudad, precio de venta esperado, matrícula
+— `app.crm.protocol.PropertyListing`). Ver `app/flows/whatsapp_bot.py`.
+
+La fuente de verdad de esos datos es el deal de Bitrix, no la memoria del
+proceso — si el bot se reinicia, en el peor caso repite una pregunta ya
+respondida (se resuelve leyendo el deal de nuevo), pero nunca pierde lo ya
+guardado. El historial de turnos y el dedup de mensajes sí siguen en
+memoria del proceso (se pierden en cada restart), pero eso ya no importa
+para no perder información — ver "Limitaciones" abajo.
+
+Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
+manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un
+teléfono real. En ese caso el contacto se busca/crea por ese identificador
+opaco (`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`) en vez de por
+teléfono (`app.waha.phone.lid_from_chat_id`, `CrmClient.find_or_create_property_seller_contact`),
+así que tampoco se pierde el hilo con esos clientes. Si además Waha manda
+el nombre de perfil de WhatsApp del remitente, se usa como nombre del
+contacto nuevo en vez del placeholder genérico — ver "Limitaciones".
+
+El cliente LLM (`app/llm/`) usa el SDK de OpenAI apuntado a `LLM_BASE_URL`
+— funciona con OpenAI y con cualquier otro proveedor que hable el mismo
+protocolo (Groq, Together, DeepSeek, OpenRouter, Azure OpenAI, un modelo
+local con Ollama/vLLM, etc.), solo cambiando `LLM_BASE_URL`/`LLM_MODEL` en
+`.env`, sin tocar código. El LLM responde en JSON estricto
+(`{"reply": "...", "fields": {...}}`, ver `_OUTPUT_FORMAT_INSTRUCTIONS` en
+`app/flows/whatsapp_bot.py`) — si algún proveedor no respeta el formato,
+`_parse_llm_output` cae a modo seguro: manda el texto tal cual como
+respuesta y no actualiza ningún campo, nunca rompe la conversación.
+
+**Apagado por defecto** (`WHATSAPP_BOT_ENABLED=false`) — con el flag
+apagado el endpoint sigue existiendo y respondiendo `200`, pero ignora todo
+sin llamar al LLM ni al CRM. Para activarlo:
+
+1. `LLM_API_KEY` en `.env` (obligatoria si se activa) y, si no es OpenAI,
+   `LLM_BASE_URL`/`LLM_MODEL` del proveedor elegido.
+2. `BITRIX_WEBHOOK_URL` configurado (ya necesario para el resto del hub) —
+   el bot usa el mismo `CrmClient`.
+3. `WHATSAPP_BOT_ENABLED=true`.
+4. Que Waha esté mandando el webhook saliente a este hub —
+   `WHATSAPP_HOOK_URL=http://api:8000/webhook/waha-message` y
+   `WHATSAPP_HOOK_EVENTS=message` en `.env` (ver `.env.example`); tras
+   cambiar estas variables hay que recrear la sesión de Waha
+   (`docker compose restart waha`, y si la sesión ya estaba escaneada,
+   confirmar en el dashboard de Waha que el webhook quedó configurado —
+   `WAHA_DASHBOARD_ENABLED=true`).
+
+Limitaciones conocidas, por ser experimental:
+
+- **`V_Tipo Inmueble` no se guarda todavía** — es un picklist y
+  `app/bitrix/fields.py::PROPERTY_TYPE_VALUE_BY_NAME` está vacío (no se
+  puede adivinar el VALUE ID de cada opción). Correr
+  `uv run python scripts/list_bitrix_picklist_values.py UF_CRM_1773860139420`
+  y llenar el dict activa este campo; mientras tanto se ignora con un log
+  de warning, el resto de campos sí se guardan normal.
+- **`V_Canal de Origen` / `V_Canal de Contacto` no se tocan** — mismo
+  motivo (picklist sin VALUE ID confirmado), fuera de esta primera versión.
+- **`V_Precio Venta Esperado` se escribe como número plano** — falta
+  confirmar si en Bitrix es un campo `money` (necesitaría formato
+  `"123456|COP"`); si Bitrix lo rechaza, ajustar `update_property_listing`
+  en `app/bitrix/client.py`.
+- **Historial de conversación y dedup de mensajes en memoria del
+  proceso** — se pierden en cada restart del contenedor `api` (los datos
+  del inmueble no, esos ya quedaron en Bitrix). No se comparten si algún
+  día corre con más de un worker.
+- **Nombre de perfil del remitente (`sender_name`) es best-effort** — Waha
+  no documenta un nombre de campo estable para esto (vive dentro de
+  `_data`, que "puede variar según el engine" según sus propias docs).
+  `app/waha/inbound.py::_extract_sender_name` prueba varias rutas
+  conocidas (`notifyName`, `_data.pushName`, `_data.Info.PushName` para
+  GOWS/whatsmeow); si ninguna aplica en tu engine real, el contacto nuevo
+  se crea igual, solo con el placeholder genérico en vez del nombre real
+  — no bloquea nada, ajustar `_SENDER_NAME_PATHS` cuando se confirme el
+  campo real con un payload de producción.
+- **Sin soporte de audio/imagen** — un mensaje con media se ignora
+  (`app/waha/inbound.py`).
+- **Sin botones/listas interactivas** — solo texto plano (`WahaClient.send_text`).
+- **Riesgo de baneo de Waha** — es WhatsApp Web no oficial. No usar este
+  canal para mandar mensajes masivos no solicitados.
+- **Crea contacto/deal automáticamente para cualquier número que escriba**
+  — sin verificación humana; un número equivocado o un mensaje de spam
+  también genera un deal en el pipeline 34.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/webhook/waha-message" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "message",
+    "session": "default",
+    "payload": {
+      "id": "test123",
+      "from": "573001112233@c.us",
+      "fromMe": false,
+      "hasMedia": false,
+      "body": "hola, quiero vender mi apartamento en el poblado"
+    }
+  }'
+```
 
 ### Cambio de etapa de deal -> bienvenida + Autorización de Corretaje por WhatsApp
 

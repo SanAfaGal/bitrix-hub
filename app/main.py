@@ -36,7 +36,11 @@ tags_metadata = [
     },
     {
         "name": "Waha",
-        "description": "Envío de WhatsApp vía Waha. Flujos de negocio en app/flows/ — ver app/flows/README.md.",
+        "description": (
+            "Envío y recepción de WhatsApp vía Waha, incluye el bot "
+            "conversacional experimental (apagado por defecto). Flujos de "
+            "negocio en app/flows/ — ver app/flows/README.md."
+        ),
     },
     {
         "name": "Formularios",

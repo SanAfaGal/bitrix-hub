@@ -21,9 +21,10 @@ Ejemplo de forma esperada, una vez que haya un flujo real:
 """
 from __future__ import annotations
 
-# Placeholder: sin flujos reales todavía (scaffolding únicamente).
+# Placeholder: sin flujos Waha-solo reales todavía (scaffolding únicamente).
 
-# Cuando exista el bot de WhatsApp (webhook entrante de Waha), su lógica de
-# negocio (mensaje recibido -> crear/actualizar entidad en Bitrix) va en un
-# módulo separado `app/waha/inbound.py`, con su propio endpoint en
-# `app/main.py` (`/webhook/waha-message`). No implementado todavía.
+# El parseo del webhook entrante de Waha vive en `app/waha/inbound.py`. La
+# lógica de negocio del bot conversacional (Waha + LLM, experimental) vive
+# en `app/flows/whatsapp_bot.py` porque combina dos integraciones — ver
+# `app/flows/README.md`. El endpoint es `POST /webhook/waha-message`
+# (`app/waha/router.py`).

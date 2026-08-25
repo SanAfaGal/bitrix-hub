@@ -6,9 +6,25 @@ implementando esta clase (duck typing: no hace falta heredar de ella).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 AuthorizationStatus = Literal["pendiente_envio", "pendiente_firma", "firmada"]
+
+
+@dataclass(frozen=True)
+class PropertyListing:
+    """Datos de un inmueble que un cliente quiere vender, ya recolectados en el CRM.
+
+    Un campo en `None` significa "todavía no se sabe" — no "vacío a propósito".
+    `property_type` es uno de los valores de `app.forms.models.PROPERTY_TYPES`.
+    """
+
+    property_type: str | None = None
+    address: str | None = None
+    sector_zone_city: str | None = None
+    expected_sale_price: int | None = None
+    registration_number: str | None = None
 
 
 class CrmClient(Protocol):
@@ -58,4 +74,31 @@ class CrmClient(Protocol):
 
     def upload_file(self, folder_id: str, filename: str, content: bytes) -> str | None:
         """Sube un archivo a una carpeta del drive del CRM. Retorna el link de visualización, o None si falla."""
+        ...
+
+    def find_or_create_property_seller_contact(
+        self, phone: str | None, username: str | None = None, display_name: str | None = None
+    ) -> str | None:
+        """Busca un contacto por teléfono (o por `username` si no hay teléfono); si no existe, lo crea.
+
+        `username` es el identificador que queda cuando WhatsApp oculta el
+        número del remitente (ver `app.waha.phone.lid_from_chat_id`) — se
+        guarda en un campo aparte, no reemplaza al teléfono. Al menos uno de
+        `phone`/`username` debe venir con valor. `display_name`, si se
+        conoce, se usa como nombre del contacto nuevo en vez de un
+        placeholder genérico. Retorna el contact_id, o None si falla o si no
+        se pasó ningún identificador.
+        """
+        ...
+
+    def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
+        """Busca un deal de consignación abierto para el contacto; si no existe, lo crea. Retorna el deal_id, o None si falla."""
+        ...
+
+    def get_property_listing(self, deal_id: str) -> PropertyListing:
+        """Lee los datos del inmueble ya guardados en el deal (lo que falta queda en None)."""
+        ...
+
+    def update_property_listing(self, deal_id: str, listing: PropertyListing) -> None:
+        """Actualiza en el CRM solo los campos de `listing` que no son None."""
         ...

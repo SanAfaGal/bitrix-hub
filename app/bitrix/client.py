@@ -10,13 +10,14 @@ hub solo conoce `CrmClient`.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
 import requests
 
 from app.bitrix import fields
-from app.crm.protocol import AuthorizationStatus
+from app.crm.protocol import AuthorizationStatus, PropertyListing
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,25 @@ _ENTITY_TYPE_DEAL = "deal"
 
 # Tipos de teléfono de Bitrix, en orden de preferencia para notificar por WhatsApp.
 _PREFERRED_PHONE_TYPES = ("MOBILE", "WORK", "HOME", "OTHER")
+
+
+class _BitrixLookupError(Exception):
+    """Interna: una búsqueda (no una creación) falló por red/HTTP. Nunca sale de este módulo."""
+
+
+def _error_detail(exc: Exception) -> str:
+    """Extrae el cuerpo de la respuesta de un HTTPError, si lo hay — Bitrix manda el motivo real ahí.
+
+    `raise_for_status()` lanza antes de poder leer el body, así que sin esto
+    un 400 de Bitrix se loguea sin decir *qué* campo rechazó.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return ""
+    try:
+        return f" | respuesta Bitrix: {response.json()}"
+    except ValueError:
+        return f" | respuesta Bitrix: {response.text}"
 
 
 class BitrixClient:
@@ -212,6 +232,220 @@ class BitrixClient:
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error("Error subiendo archivo %s a Bitrix Drive: %s", filename, exc)
             return None
+
+    def find_or_create_property_seller_contact(
+        self, phone: str | None, username: str | None = None, display_name: str | None = None
+    ) -> str | None:
+        """Busca un contacto por teléfono (o por `username` si no hay teléfono); si no existe, lo crea.
+
+        `username` cubre el caso de un remitente de WhatsApp con el número
+        oculto (chat `@lid`, ver `app.waha.phone.lid_from_chat_id`) — se
+        guarda en `fields.FIELD_USERNAME`, no reemplaza al teléfono. El
+        nombre real del contacto lo completa el asesor después si no se
+        pasa `display_name` — acá solo importa no perder el hilo con un
+        cliente que ya escribió antes.
+        """
+        if not phone and not username:
+            logger.error("find_or_create_property_seller_contact llamado sin teléfono ni username")
+            return None
+
+        try:
+            if phone:
+                contact_id = self._find_contact_by_phone(phone)
+                if contact_id is not None:
+                    return contact_id
+
+            if username:
+                contact_id = self._find_contact_by_username(username)
+                if contact_id is not None:
+                    return contact_id
+        except _BitrixLookupError:
+            return None
+
+        return self._create_contact(phone, username, display_name)
+
+    def _find_contact_by_phone(self, phone: str) -> str | None:
+        """Retorna el contact_id si hay match, o None si no hay ninguno. Lanza `_BitrixLookupError` si falla la llamada."""
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.duplicate.findbycomm.json",
+                json={"type": "PHONE", "values": [phone]},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            result = payload.get("result") if isinstance(payload, dict) else None
+            contact_ids = result.get("CONTACT") if isinstance(result, dict) else None
+            if isinstance(contact_ids, list) and contact_ids:
+                return str(contact_ids[0])
+            return None
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error buscando contacto por teléfono %s en Bitrix: %s%s", phone, exc, _error_detail(exc))
+            raise _BitrixLookupError from exc
+
+    def _find_contact_by_username(self, username: str) -> str | None:
+        """Retorna el contact_id si hay match, o None si no hay ninguno. Lanza `_BitrixLookupError` si falla la llamada."""
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.contact.list.json",
+                json={"filter": {fields.FIELD_USERNAME: username}, "select": ["ID"]},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            result = payload.get("result") if isinstance(payload, dict) else None
+            if isinstance(result, list) and result:
+                contact_id = result[0].get("ID")
+                if contact_id:
+                    return str(contact_id)
+            return None
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error(
+                "Error buscando contacto por username %s en Bitrix: %s%s", username, exc, _error_detail(exc)
+            )
+            raise _BitrixLookupError from exc
+
+    def _create_contact(self, phone: str | None, username: str | None, display_name: str | None) -> str | None:
+        contact_fields: dict[str, Any] = {"NAME": display_name or "Contacto WhatsApp"}
+        if phone:
+            contact_fields["PHONE"] = [{"VALUE": phone, "VALUE_TYPE": "MOBILE"}]
+        if username:
+            contact_fields[fields.FIELD_USERNAME] = username
+
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.contact.add.json",
+                json={"fields": contact_fields},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            contact_id = payload.get("result") if isinstance(payload, dict) else None
+            if not isinstance(contact_id, int) or isinstance(contact_id, bool):
+                return None
+            logger.info("Contacto creado en Bitrix para %s (id=%s)", phone or username, contact_id)
+            return str(contact_id)
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error(
+                "Error creando contacto para %s en Bitrix: %s%s", phone or username, exc, _error_detail(exc)
+            )
+            return None
+
+    def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
+        """Busca un deal de consignación abierto para el contacto; si no existe, lo crea."""
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.deal.list.json",
+                json={
+                    "filter": {"CONTACT_ID": contact_id, "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID},
+                    "select": ["ID"],
+                    "order": {"ID": "DESC"},
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            result = payload.get("result") if isinstance(payload, dict) else None
+            if isinstance(result, list) and result:
+                deal_id = result[0].get("ID")
+                if deal_id:
+                    return str(deal_id)
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error(
+                "Error buscando deal de consignación para contacto %s en Bitrix: %s%s",
+                contact_id,
+                exc,
+                _error_detail(exc),
+            )
+            return None
+
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.deal.add.json",
+                json={
+                    "fields": {
+                        "CONTACT_ID": contact_id,
+                        "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
+                        "TITLE": f"Consignación WhatsApp - contacto {contact_id}",
+                        fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            deal_id = payload.get("result") if isinstance(payload, dict) else None
+            if not isinstance(deal_id, int) or isinstance(deal_id, bool):
+                return None
+            logger.info("Deal de consignación creado en Bitrix para contacto %s (id=%s)", contact_id, deal_id)
+            return str(deal_id)
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error(
+                "Error creando deal de consignación para contacto %s en Bitrix: %s%s",
+                contact_id,
+                exc,
+                _error_detail(exc),
+            )
+            return None
+
+    def get_property_listing(self, deal_id: str) -> PropertyListing:
+        """Lee los datos del inmueble ya guardados en el deal (lo que falta queda en None)."""
+        deal = self.get_deal(deal_id)
+        return PropertyListing(
+            property_type=self._property_type_name(deal.get(fields.FIELD_PROPERTY_TYPE)),
+            address=self._as_text(deal.get(fields.FIELD_ADDRESS)),
+            sector_zone_city=self._as_text(deal.get(fields.FIELD_SECTOR_ZONE_CITY)),
+            expected_sale_price=self._as_int(deal.get(fields.FIELD_EXPECTED_SALE_PRICE)),
+            registration_number=self.get_matricula(deal),
+        )
+
+    def update_property_listing(self, deal_id: str, listing: PropertyListing) -> None:
+        """Actualiza en el deal solo los campos de `listing` que no son None."""
+        updates: dict[str, Any] = {}
+
+        if listing.property_type is not None:
+            value = fields.PROPERTY_TYPE_VALUE_BY_NAME.get(listing.property_type)
+            if value is not None:
+                updates[fields.FIELD_PROPERTY_TYPE] = value
+            else:
+                logger.warning(
+                    "Tipo de inmueble %r sin VALUE ID en PROPERTY_TYPE_VALUE_BY_NAME, no se actualiza en deal %s",
+                    listing.property_type,
+                    deal_id,
+                )
+        if listing.address is not None:
+            updates[fields.FIELD_ADDRESS] = listing.address
+        if listing.sector_zone_city is not None:
+            updates[fields.FIELD_SECTOR_ZONE_CITY] = listing.sector_zone_city
+        if listing.expected_sale_price is not None:
+            updates[fields.FIELD_EXPECTED_SALE_PRICE] = listing.expected_sale_price
+        if listing.registration_number is not None:
+            updates[fields.FIELD_MATRICULA] = listing.registration_number
+
+        if updates:
+            self.update_deal(deal_id, updates)
+
+    @staticmethod
+    def _as_text(value: Any) -> str | None:
+        return str(value) if value else None
+
+    @staticmethod
+    def _as_int(value: Any) -> int | None:
+        try:
+            return int(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _property_type_name(value: Any) -> str | None:
+        try:
+            value_int = int(value)
+        except (TypeError, ValueError):
+            return None
+        for name, mapped_value in fields.PROPERTY_TYPE_VALUE_BY_NAME.items():
+            if mapped_value == value_int:
+                return name
+        return None
 
     def update_deal(self, deal_id: str, fields: dict[str, Any]) -> None:
         """Actualiza campos de un deal de Bitrix. No lanza si falla."""
