@@ -236,22 +236,22 @@ def test_find_or_create_property_seller_contact_falls_back_to_username_lookup(mo
     assert client.find_or_create_property_seller_contact(None, "123456789012345") == "42"
 
 
-def test_find_or_create_property_seller_contact_creates_with_username_when_no_phone(monkeypatch) -> None:
+def test_find_or_create_property_seller_contact_does_not_create_without_phone(monkeypatch) -> None:
+    # Este Bitrix exige "Teléfono" para crear un contacto (crm.contact.add
+    # rechaza con 400 sin ese campo) — sin phone, si username no matchea
+    # nada, no hay forma correcta de crear el contacto todavía.
     calls = []
 
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         calls.append((url, json))
-        if url.endswith("crm.contact.list.json"):
-            return FakeResponse({"result": []})
-        assert url.endswith("crm.contact.add.json")
-        assert json == {"fields": {"NAME": "Contacto WhatsApp", "UF_CRM_1786458989056": "123456789012345"}}
-        return FakeResponse({"result": 77})
+        assert url.endswith("crm.contact.list.json")
+        return FakeResponse({"result": []})
 
     monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
-    assert client.find_or_create_property_seller_contact(None, "123456789012345") == "77"
-    assert len(calls) == 2
+    assert client.find_or_create_property_seller_contact(None, "123456789012345") is None
+    assert len(calls) == 1  # solo el lookup, nunca intenta crear
 
 
 def test_find_or_create_property_seller_contact_uses_display_name_when_creating(monkeypatch) -> None:

@@ -264,12 +264,16 @@ para no perder información — ver "Limitaciones" abajo.
 
 Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
 manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un
-teléfono real. En ese caso el contacto se busca/crea por ese identificador
-opaco (`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`) en vez de por
-teléfono (`app.waha.phone.lid_from_chat_id`, `CrmClient.find_or_create_property_seller_contact`),
-así que tampoco se pierde el hilo con esos clientes. Si además Waha manda
-el nombre de perfil de WhatsApp del remitente, se usa como nombre del
-contacto nuevo en vez del placeholder genérico — ver "Limitaciones".
+teléfono real. En ese caso se busca (no se crea) un contacto ya existente
+por ese identificador opaco (`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`,
+`app.waha.phone.lid_from_chat_id`) — esta instancia de Bitrix exige
+teléfono para crear un contacto (`crm.contact.add` rechaza con 400 sin
+ese campo), así que sin teléfono real el bot igual responde por WhatsApp
+pero no queda nada guardado en el CRM, hasta que ese cliente escriba
+también desde un chat con teléfono visible o un asesor vincule el
+identificador a mano. Si además Waha manda el nombre de perfil del
+remitente, se usa como nombre del contacto nuevo (cuando sí hay teléfono)
+en vez del placeholder genérico — ver "Limitaciones".
 
 El cliente LLM (`app/llm/`) usa el SDK de OpenAI apuntado a `LLM_BASE_URL`
 — funciona con OpenAI y con cualquier otro proveedor que hable el mismo

@@ -225,7 +225,16 @@ def _resolve_deal_id(chat_id: str, crm_client: CrmClient, sender_name: str | Non
 
     contact_id = crm_client.find_or_create_property_seller_contact(phone, username, sender_name)
     if contact_id is None:
-        logger.error("No se pudo resolver/crear contacto en Bitrix para %s", phone or username)
+        if phone is None:
+            # Esperado: sin teléfono no se puede crear el contacto (ver
+            # CrmClient.find_or_create_property_seller_contact) — el bot
+            # sigue respondiendo por WhatsApp, solo no queda nada en Bitrix.
+            logger.info(
+                "Chat %s sin teléfono (solo @lid) y sin contacto existente en Bitrix, no se vincula esta vez",
+                chat_id,
+            )
+        else:
+            logger.error("No se pudo resolver/crear contacto en Bitrix para %s", phone)
         return None
 
     deal_id = crm_client.find_or_create_property_seller_deal(contact_id)

@@ -90,7 +90,7 @@ class FakeCrmClient:
             return self.contact_by_phone[phone]
         if username and username in self.contact_by_username:
             return self.contact_by_username[username]
-        if not phone and not username:
+        if not phone:
             return None
 
         contact_id = str(self._next_contact_id)

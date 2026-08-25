@@ -145,10 +145,14 @@ def test_process_creates_contact_and_deal_on_first_message() -> None:
     assert store.get_deal_id("573001112233@c.us") == "6000"
 
 
-def test_process_uses_lid_username_fallback_when_phone_hidden() -> None:
+def test_process_reuses_existing_contact_found_by_lid_username() -> None:
+    # Un asesor ya vinculó ese identificador @lid a un contacto real (con
+    # teléfono agregado a mano) — el bot debe reusar ese deal, no crear otro.
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
     crm = FakeCrmClient()
+    crm.contact_by_username["123456789012345"] = "5000"
+    crm.deal_by_contact["5000"] = "6000"
     store = ConversationStore()
 
     process(
@@ -160,9 +164,30 @@ def test_process_uses_lid_username_fallback_when_phone_hidden() -> None:
         store=store,
     )
 
-    assert crm.contact_by_username == {"123456789012345": "5000"}
-    assert crm.contact_by_phone == {}
     assert store.get_deal_id("123456789012345@lid") == "6000"
+
+
+def test_process_still_replies_but_skips_crm_when_lid_has_no_existing_contact() -> None:
+    # Sin teléfono no se puede crear el contacto (Bitrix lo exige) — el bot
+    # igual debe responder por WhatsApp, solo sin guardar nada en el CRM.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(chat_id="123456789012345@lid"),
+        waha,
+        llm,
+        crm,
+        config=_enabled_config(),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": "123456789012345@lid", "reply": "hola!"}
+    assert waha.calls == [("123456789012345@lid", "hola!", "default")]
+    assert crm.contact_by_username == {}
+    assert store.get_deal_id("123456789012345@lid") is None
 
 
 def test_process_passes_sender_name_as_display_name_to_crm() -> None:

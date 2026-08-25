@@ -86,8 +86,11 @@ class CrmClient(Protocol):
         guarda en un campo aparte, no reemplaza al teléfono. Al menos uno de
         `phone`/`username` debe venir con valor. `display_name`, si se
         conoce, se usa como nombre del contacto nuevo en vez de un
-        placeholder genérico. Retorna el contact_id, o None si falla o si no
-        se pasó ningún identificador.
+        placeholder genérico.
+
+        Un contacto **solo se crea si hay `phone`** — el CRM puede tener el
+        teléfono como campo obligatorio del contacto; sin `phone`, si
+        `username` no matchea un contacto ya existente, retorna `None`.
         """
         ...
 

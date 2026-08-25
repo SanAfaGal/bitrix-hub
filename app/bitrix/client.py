@@ -244,6 +244,12 @@ class BitrixClient:
         nombre real del contacto lo completa el asesor después si no se
         pasa `display_name` — acá solo importa no perder el hilo con un
         cliente que ya escribió antes.
+
+        **Solo crea un contacto nuevo si hay `phone`** — esta instancia de
+        Bitrix tiene "Teléfono" como campo obligatorio del contacto
+        (`crm.contact.add` rechaza con 400 si no viene). Sin teléfono, si
+        `username` no matchea ningún contacto existente, retorna `None` —
+        no hay forma correcta de crear el contacto todavía.
         """
         if not phone and not username:
             logger.error("find_or_create_property_seller_contact llamado sin teléfono ni username")
@@ -260,6 +266,12 @@ class BitrixClient:
                 if contact_id is not None:
                     return contact_id
         except _BitrixLookupError:
+            return None
+
+        if not phone:
+            logger.info(
+                "Sin teléfono (username=%s) — Bitrix exige teléfono para crear contacto, se omite", username
+            )
             return None
 
         return self._create_contact(phone, username, display_name)
