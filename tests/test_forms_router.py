@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 
 import cv2
-import fitz
+import pymupdf as fitz
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient

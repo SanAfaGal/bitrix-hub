@@ -1,7 +1,7 @@
 import base64
 import io
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from app.forms.filler import SIGNATURE_RECT, build_blank_template, decode_signature_png, fill_and_sign

@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # `import fitz` está deprecado por PyMuPDF, usar `pymupdf`
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "AUTORIZACIÓN DE CORRETAJE INMOBILIARIO ALBERTO ÁLVAREZ.pdf"
 
