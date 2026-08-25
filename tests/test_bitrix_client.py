@@ -158,7 +158,7 @@ def test_get_contact_phone_returns_none_when_no_phone() -> None:
     assert client.get_contact_phone({}) is None
 
 
-def test_find_or_create_property_seller_contact_returns_existing_match(monkeypatch) -> None:
+def test_find_or_create_property_seller_contact_returns_existing_match(monkeypatch, caplog) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         assert url.endswith("crm.duplicate.findbycomm.json")
         assert json == {"type": "PHONE", "values": ["573001112233"]}
@@ -167,7 +167,10 @@ def test_find_or_create_property_seller_contact_returns_existing_match(monkeypat
     monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
-    assert client.find_or_create_property_seller_contact("573001112233") == "7"
+    with caplog.at_level("INFO"):
+        assert client.find_or_create_property_seller_contact("573001112233") == "7"
+
+    assert any("encontrado" in record.message and "id=7" in record.message for record in caplog.records)
 
 
 def test_find_or_create_property_seller_contact_creates_when_no_match(monkeypatch) -> None:
@@ -277,7 +280,7 @@ def test_find_or_create_property_seller_contact_returns_none_on_username_lookup_
     assert client.find_or_create_property_seller_contact(None, "123456789012345") is None
 
 
-def test_find_or_create_property_seller_deal_returns_existing_match(monkeypatch) -> None:
+def test_find_or_create_property_seller_deal_returns_existing_match(monkeypatch, caplog) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         assert url.endswith("crm.deal.list.json")
         assert json["filter"] == {"CONTACT_ID": "7", "CATEGORY_ID": 34}
@@ -286,7 +289,10 @@ def test_find_or_create_property_seller_deal_returns_existing_match(monkeypatch)
     monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
-    assert client.find_or_create_property_seller_deal("7") == "123"
+    with caplog.at_level("INFO"):
+        assert client.find_or_create_property_seller_deal("7") == "123"
+
+    assert any("encontrado" in record.message and "id=123" in record.message for record in caplog.records)
 
 
 def test_find_or_create_property_seller_deal_creates_when_no_match(monkeypatch) -> None:

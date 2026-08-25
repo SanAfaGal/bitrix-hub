@@ -289,7 +289,9 @@ class BitrixClient:
             result = payload.get("result") if isinstance(payload, dict) else None
             contact_ids = result.get("CONTACT") if isinstance(result, dict) else None
             if isinstance(contact_ids, list) and contact_ids:
-                return str(contact_ids[0])
+                contact_id = str(contact_ids[0])
+                logger.info("Contacto encontrado en Bitrix para %s (id=%s)", phone, contact_id)
+                return contact_id
             return None
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error("Error buscando contacto por teléfono %s en Bitrix: %s%s", phone, exc, _error_detail(exc))
@@ -309,6 +311,7 @@ class BitrixClient:
             if isinstance(result, list) and result:
                 contact_id = result[0].get("ID")
                 if contact_id:
+                    logger.info("Contacto encontrado en Bitrix para username %s (id=%s)", username, contact_id)
                     return str(contact_id)
             return None
         except (requests.exceptions.RequestException, ValueError) as exc:
@@ -361,6 +364,9 @@ class BitrixClient:
             if isinstance(result, list) and result:
                 deal_id = result[0].get("ID")
                 if deal_id:
+                    logger.info(
+                        "Deal de consignación encontrado en Bitrix para contacto %s (id=%s)", contact_id, deal_id
+                    )
                     return str(deal_id)
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error(
