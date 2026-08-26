@@ -41,6 +41,10 @@ def test_parse_inbound_message_ignores_media_messages() -> None:
     assert parse_inbound_message(_event(hasMedia=True)) is None
 
 
+def test_parse_inbound_message_ignores_status_broadcasts() -> None:
+    assert parse_inbound_message(_event(**{"from": "status@broadcast"})) is None
+
+
 def test_parse_inbound_message_ignores_empty_text() -> None:
     assert parse_inbound_message(_event(body="   ")) is None
 

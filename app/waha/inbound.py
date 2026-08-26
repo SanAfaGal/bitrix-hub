@@ -69,6 +69,12 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
     if payload.get("fromMe"):
         return None
 
+    # Actualizaciones de "Estado" de WhatsApp de los contactos (no un chat
+    # real) — llegan a cada rato como evento "message", inundarían el log si
+    # se trataran igual que un mensaje con media sin soporte.
+    if payload.get("from") == "status@broadcast":
+        return None
+
     if payload.get("hasMedia"):
         logger.info("Mensaje entrante con media (sin soporte todavía), ignorado: %s", payload.get("id"))
         return None
