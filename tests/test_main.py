@@ -155,7 +155,12 @@ def test_webhook_waha_message_creates_deal_and_updates_property_listing(monkeypa
     class FakeLlmClient:
         def reply(self, system_prompt: str, history: list[dict], user_text: str) -> str | None:
             return json_module.dumps(
-                {"reply": "listo, algo mas?", "fields": {"address": "Calle 10 # 20-30"}}
+                {
+                    "reply": "listo, algo mas?",
+                    "fields": {"address": "Calle 10 # 20-30"},
+                    "client_full_name": "Juan Pérez",
+                    "client_phone": "3009998877",
+                }
             )
 
     fake_crm = FakeCrmClient()

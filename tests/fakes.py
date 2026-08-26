@@ -45,8 +45,14 @@ class FakeCrmClient:
         self.bot_active: dict[str, bool] = {}
         self.bot_active_updates: list[tuple[str, bool]] = []
 
+        # deal_ids que se simulan borrados en el CRM (deal_exists -> False).
+        self.deleted_deals: set[str] = set()
+
     def get_deal(self, deal_id: str) -> dict[str, Any]:
         return self._deals.get(deal_id, {})
+
+    def deal_exists(self, deal_id: str) -> bool:
+        return deal_id not in self.deleted_deals
 
     def get_contact(self, contact_id: str) -> dict[str, Any]:
         return self._contacts.get(contact_id, {})

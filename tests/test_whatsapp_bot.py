@@ -138,67 +138,21 @@ def test_process_does_not_store_history_when_waha_send_fails() -> None:
 # ── Resolución de deal_id / CRM ──────────────────────────────────────────
 
 
-def test_process_creates_contact_and_deal_on_first_message() -> None:
+def test_process_does_not_create_contact_or_deal_before_identity_confirmed() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, config=_enabled_config(), store=store)
+    result = process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, config=_enabled_config(), store=store)
 
-    assert crm.contact_by_phone == {"573001112233": "5000"}
-    assert crm.deal_by_contact == {"5000": "6000"}
-    assert store.get_deal_id("573001112233@c.us") == "6000"
-
-
-def test_process_reuses_existing_contact_found_by_lid_username() -> None:
-    # Un asesor ya vinculó ese identificador @lid a un contacto real (con
-    # teléfono agregado a mano) — el bot debe reusar ese deal, no crear otro.
-    waha = FakeWahaClient()
-    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
-    crm = FakeCrmClient()
-    crm.contact_by_username["123456789012345"] = "5000"
-    crm.deal_by_contact["5000"] = "6000"
-    store = ConversationStore()
-
-    process(
-        _inbound(chat_id="123456789012345@lid"),
-        waha,
-        llm,
-        crm,
-        config=_enabled_config(),
-        store=store,
-    )
-
-    assert store.get_deal_id("123456789012345@lid") == "6000"
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola!"}
+    assert crm.contact_by_phone == {}
+    assert crm.deal_by_contact == {}
+    assert store.get_deal_id("573001112233@c.us") is None
 
 
-def test_process_resolves_lid_to_phone_via_waha_and_creates_contact() -> None:
-    # Waha ya conoce el teléfono real detrás del @lid (compartió grupo/chat
-    # antes) — se debe usar ese teléfono, no quedarse solo con el username.
-    waha = FakeWahaClient(resolved_lids={"123456789012345": "573001112233@c.us"})
-    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
-    crm = FakeCrmClient()
-    store = ConversationStore()
-
-    process(
-        _inbound(chat_id="123456789012345@lid"),
-        waha,
-        llm,
-        crm,
-        config=_enabled_config(),
-        store=store,
-    )
-
-    assert waha.resolve_lid_to_phone_calls == [("123456789012345", "default")]
-    assert crm.contact_by_phone == {"573001112233": "5000"}
-    assert crm.contact_by_username == {"123456789012345": "5000"}
-    assert store.get_deal_id("123456789012345@lid") == "6000"
-
-
-def test_process_still_replies_but_skips_crm_when_lid_has_no_existing_contact() -> None:
-    # Sin teléfono no se puede crear el contacto (Bitrix lo exige) — el bot
-    # igual debe responder por WhatsApp, solo sin guardar nada en el CRM.
+def test_process_still_replies_when_lid_unresolved_and_identity_not_confirmed() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
     crm = FakeCrmClient()
@@ -214,12 +168,111 @@ def test_process_still_replies_but_skips_crm_when_lid_has_no_existing_contact() 
     )
 
     assert result == {"ok": True, "chat_id": "123456789012345@lid", "reply": "hola!"}
-    assert waha.calls == [("123456789012345@lid", "hola!", "default")]
     assert crm.contact_by_username == {}
     assert store.get_deal_id("123456789012345@lid") is None
 
 
-def test_process_passes_sender_name_as_display_name_to_crm() -> None:
+def test_process_creates_contact_and_deal_once_name_and_phone_confirmed_same_turn() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {"reply": "gracias!", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+        )
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert crm.contact_by_phone == {"573001112233": "5000"}
+    assert crm.deal_by_contact == {"5000": "6000"}
+    assert store.get_deal_id("573001112233@c.us") == "6000"
+    assert crm.find_or_create_property_seller_contact_calls[-1] == ("573001112233", None, "Juan Pérez")
+
+
+def test_process_waits_for_both_name_and_phone_confirmed_across_turns() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=json.dumps({"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez"}))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_deal_id("573001112233@c.us") is None
+    assert crm.deal_by_contact == {}
+
+    store._last_message_time["573001112233@c.us"] = 0.0  # evita el rate limit entre los 2 turnos del test
+    llm.reply_text = json.dumps({"reply": "listo", "fields": {}, "client_phone": "3001112233"})
+    process(_inbound(message_id="m2", text="mi numero es ese"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_deal_id("573001112233@c.us") == "6000"
+    assert crm.deal_by_contact == {"5000": "6000"}
+
+
+def test_process_reuses_contact_already_linked_to_lid_username_when_identity_confirmed() -> None:
+    # Un asesor ya vinculó ese identificador @lid a un contacto real en
+    # Bitrix (con teléfono agregado a mano) — al confirmarse la identidad
+    # por el chat, se debe reusar ese contacto/deal, no crear otro.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {"reply": "gracias!", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+        )
+    )
+    crm = FakeCrmClient()
+    crm.contact_by_username["123456789012345"] = "5000"
+    crm.deal_by_contact["5000"] = "6000"
+    store = ConversationStore()
+
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_deal_id("123456789012345@lid") == "6000"
+    assert crm.find_or_create_property_seller_contact_calls[-1] == ("573001112233", "123456789012345", "Juan Pérez")
+
+
+def test_process_reuses_cached_deal_id_without_hitting_crm_lookup_twice() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {"reply": "gracias!", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+        )
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m2", text="otra vez"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    # Un solo contacto/deal creado, aunque hubo 2 mensajes.
+    assert len(crm.contact_by_phone) == 1
+    assert len(crm.deal_by_contact) == 1
+
+
+def test_process_recreates_deal_when_cached_deal_was_deleted_in_bitrix() -> None:
+    # Identidad ya confirmada de antes (conversación previa) — el self-heal
+    # no debe tener que pedirla de nuevo, solo recrear el deal.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
+    crm = FakeCrmClient()
+    crm.deal_by_contact["5000"] = "6000"
+    crm.contact_by_phone["573001112233"] = "5000"
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "40510")  # deal cacheado que ya no existe
+    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
+    store.set_confirmed_phone("573001112233@c.us", "573001112233")
+    crm.deleted_deals.add("40510")
+
+    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+
+    # El deal viejo (borrado) no se vuelve a consultar como si existiera; se
+    # resuelve/crea uno nuevo para el contacto y el cache se actualiza.
+    assert store.get_deal_id("573001112233@c.us") == "6000"
+
+
+# ── Candidatos de identidad (nombre de perfil / teléfono del chat) ──────
+
+
+def test_process_shows_candidate_name_and_phone_in_system_prompt_before_confirmed() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
     crm = FakeCrmClient()
@@ -230,21 +283,36 @@ def test_process_passes_sender_name_as_display_name_to_crm() -> None:
 
     process(inbound, waha, llm, crm, config=_enabled_config(), store=store)
 
-    assert crm.find_or_create_property_seller_contact_calls == [("573001112233", None, "Juan Pérez")]
+    system_prompt = llm.calls[0][0]
+    assert "Juan Pérez" in system_prompt
+    assert "573001112233" in system_prompt
 
 
-def test_process_reuses_cached_deal_id_without_hitting_crm_lookup_twice() -> None:
-    waha = FakeWahaClient()
+def test_process_shows_candidate_phone_resolved_from_lid_in_system_prompt() -> None:
+    waha = FakeWahaClient(resolved_lids={"123456789012345": "573001112233@c.us"})
     llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
-    process(_inbound(message_id="m2"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
 
-    # Un solo contacto/deal creado, aunque hubo 2 mensajes.
-    assert len(crm.contact_by_phone) == 1
-    assert len(crm.deal_by_contact) == 1
+    assert waha.resolve_lid_to_phone_calls == [("123456789012345", "default")]
+    system_prompt = llm.calls[0][0]
+    assert "573001112233" in system_prompt
+
+
+def test_process_does_not_resolve_candidate_phone_once_deal_exists() -> None:
+    waha = FakeWahaClient(resolved_lids={"123456789012345": "573001112233@c.us"})
+    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("123456789012345@lid", "6000")
+    store.set_confirmed_name("123456789012345@lid", "Juan Pérez")
+    store.set_confirmed_phone("123456789012345@lid", "573001112233")
+
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert waha.resolve_lid_to_phone_calls == []
 
 
 def test_process_sends_known_fields_to_llm_system_prompt() -> None:
@@ -343,9 +411,9 @@ def test_process_backfills_phone_on_contact_found_only_by_username() -> None:
     assert store.get_confirmed_identity("123456789012345@lid") == (None, "573001112233")
 
 
-def test_process_creates_contact_using_confirmed_phone_when_lid_unresolved() -> None:
+def test_process_creates_contact_using_confirmed_phone_and_name_when_lid_unresolved() -> None:
     # Waha no pudo resolver el @lid a teléfono, así que no había contacto
-    # creado todavía — el propio cliente lo confirma en el chat.
+    # creado todavía — el propio cliente confirma teléfono y nombre en el chat.
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps({"reply": "listo", "fields": {}, "client_phone": "3001112233"})
@@ -353,7 +421,20 @@ def test_process_creates_contact_using_confirmed_phone_when_lid_unresolved() -> 
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid", message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_deal_id("123456789012345@lid") is None  # falta el nombre
+
+    store._last_message_time["123456789012345@lid"] = 0.0  # evita el rate limit entre los 2 turnos del test
+    llm.reply_text = json.dumps({"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez"})
+    process(
+        _inbound(chat_id="123456789012345@lid", message_id="m2", text="Juan Pérez"),
+        waha,
+        llm,
+        crm,
+        config=_enabled_config(),
+        store=store,
+    )
 
     assert crm.contact_by_phone == {"573001112233": "5000"}
     assert crm.deal_by_contact == {"5000": "6000"}

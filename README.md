@@ -252,11 +252,21 @@ configurada.
 por su propio webhook saliente (no lo llamás vos directamente por curl —
 lo dispara Waha en cada mensaje entrante). Responde con un LLM y, a
 diferencia de un chatbot de FAQ genérico, **guarda lo que el cliente
-cuenta directo en Bitrix**: al primer mensaje de un número busca (o crea)
-el contacto y un deal de consignación (pipeline `CATEGORY_ID=34`), y en
-cada turno actualiza los campos del inmueble que el LLM haya identificado
-(tipo, dirección, sector/zona/ciudad, precio de venta esperado, matrícula
-— `app.crm.protocol.PropertyListing`). Ver `app/flows/whatsapp_bot.py`.
+cuenta directo en Bitrix** — pero recién cuando hay con quién asociarlo:
+el bot no crea contacto ni deal en Bitrix hasta que la persona confirmó
+en el chat su nombre completo y su teléfono (uno solo de los dos no
+alcanza, ni siquiera si se confirman en turnos distintos). Antes de eso,
+el bot conversa y responde normal por WhatsApp, pero nada queda en
+Bitrix — así un asesor nunca ve negociaciones a medio llenar de alguien
+que escribió una vez y no volvió. Apenas ambos datos están confirmados
+se busca (o crea) el contacto y el deal de consignación (pipeline
+`CATEGORY_ID=34`), y en cada turno siguiente se actualizan los campos del
+inmueble que el LLM haya identificado (tipo, dirección, sector/zona/
+ciudad, precio de venta esperado, matrícula —
+`app.crm.protocol.PropertyListing`). Si el cliente cuenta datos del
+inmueble antes de confirmar su identidad, esos datos no se guardan — el
+bot puede tener que volver a preguntarlos una vez creado el deal. Ver
+`app/flows/whatsapp_bot.py`.
 
 La fuente de verdad de los datos del inmueble es el deal de Bitrix. El
 historial de turnos y el `deal_id` por chat (`ConversationStore`) se
@@ -281,21 +291,26 @@ manualmente — no hay reactivación automática.
 
 Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
 manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un
-teléfono real. En ese caso primero se intenta resolver el teléfono real
-con `GET /api/{session}/lids/{lid}` de Waha (`WahaClient.resolve_lid_to_phone`)
-— Waha mapea LID a número real cuando ya lo aprendió (compartió un grupo
-o chat directo con ese número antes); si Waha responde con el mapeo, se
-usa ese teléfono normal para crear/buscar el contacto. Si Waha **todavía**
-no tiene el mapeo (`"pn": null`, no es un error), se busca — pero no se
-crea — un contacto ya existente por el identificador `@lid` como
-respaldo (`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`,
-`app.waha.phone.lid_from_chat_id`): esta instancia de Bitrix exige
-teléfono para crear un contacto (`crm.contact.add` rechaza con 400 sin
-ese campo), así que sin teléfono real el bot igual responde por WhatsApp
-pero no queda nada guardado en el CRM esa vez. Si además Waha manda el
-nombre de perfil del remitente, se usa como nombre del contacto nuevo
-(cuando sí hay teléfono) en vez del placeholder genérico — ver
-"Limitaciones".
+teléfono real. Mientras la identidad no esté confirmada, se intenta
+resolver el teléfono real con `GET /api/{session}/lids/{lid}` de Waha
+(`WahaClient.resolve_lid_to_phone`) — Waha mapea LID a número real cuando
+ya lo aprendió (compartió un grupo o chat directo con ese número antes)
+— solo para sugerírselo al LLM como candidato a confirmar con la persona
+(ver siguiente párrafo); nunca se usa solo para crear nada en Bitrix. Al
+confirmar la identidad en un chat `@lid`, se busca — antes de crear —
+un contacto ya existente vinculado a ese identificador
+(`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`,
+`app.waha.phone.lid_from_chat_id`), para no duplicar un contacto que un
+asesor ya vinculó a mano.
+
+**Candidatos de identidad sin confirmar**: para no interrogar de cero,
+el system prompt del LLM incluye — mientras el deal no exista — el
+nombre de perfil de WhatsApp del remitente y el teléfono detectado del
+chat (directo si es `@c.us`, resuelto vía Waha si es `@lid`) como datos
+"fáciles de conseguir pero sin confirmar"; el prompt le indica al LLM que
+se los proponga a la persona ("¿usted es Fulano, cierto?") en vez de
+pedirlos de cero. Ninguno de los dos se escribe en Bitrix hasta que la
+persona los confirma explícitamente en el chat — ver "Limitaciones".
 
 El cliente LLM (`app/llm/`) usa el SDK de OpenAI apuntado a `LLM_BASE_URL`
 — funciona con OpenAI y con cualquier otro proveedor que hable el mismo
@@ -360,10 +375,11 @@ Limitaciones conocidas, por ser experimental:
   `_data`, que "puede variar según el engine" según sus propias docs).
   `app/waha/inbound.py::_extract_sender_name` prueba varias rutas
   conocidas (`notifyName`, `_data.pushName`, `_data.Info.PushName` para
-  GOWS/whatsmeow); si ninguna aplica en tu engine real, el contacto nuevo
-  se crea igual, solo con el placeholder genérico en vez del nombre real
-  — no bloquea nada, ajustar `_SENDER_NAME_PATHS` cuando se confirme el
-  campo real con un payload de producción.
+  GOWS/whatsmeow); si ninguna aplica en tu engine real, el LLM
+  simplemente no tiene candidato de nombre para sugerirle a la persona y
+  se lo pide de cero — no bloquea nada (el contacto nunca se crea con
+  este valor sin confirmar, ver arriba), ajustar `_SENDER_NAME_PATHS`
+  cuando se confirme el campo real con un payload de producción.
 - **Sin soporte de audio/imagen** — un mensaje con media se ignora
   (`app/waha/inbound.py`).
 - **Sin botones/listas interactivas** — solo texto plano (`WahaClient.send_text`).

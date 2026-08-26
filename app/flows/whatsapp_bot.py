@@ -61,11 +61,14 @@ DEFAULT_SYSTEM_PROMPT = (
     "trámites específicos; si le preguntan, indique que un asesor lo "
     "puede orientar en eso. No invente información sobre inmuebles, "
     "disponibilidad ni la empresa.\n\n"
-    "Además del inmueble, en algún momento temprano de la conversación — "
-    "sin interrogar de golpe — pídale a la persona su nombre completo "
-    "(nombre y apellido) si todavía no lo tiene confirmado; el nombre de "
-    "perfil de WhatsApp no sirve, puede no ser el real. Si el sistema no "
-    "tiene un teléfono confirmado para esta persona, pídaselo también.\n\n"
+    "Antes de profundizar en el inmueble, confirme con la persona su nombre "
+    "completo (nombre y apellido) y su teléfono — sin esto no se puede "
+    "registrar su solicitud. Si el sistema le muestra un nombre de perfil "
+    "de WhatsApp o un teléfono detectado sin confirmar, no los dé por "
+    "buenos: pregúntele si son correctos (ej. \"¿usted es Juan Pérez, "
+    "cierto?\", \"¿y escribe desde su número personal?\") en vez de "
+    "pedírselos de cero. Una vez tenga nombre y teléfono confirmados, "
+    "continúe con calma recolectando los datos del inmueble.\n\n"
     "Si la persona pide hablar con alguien, si su solicitud se sale de lo "
     "anterior, o si usted no tiene certeza de la respuesta, dígale con "
     "amabilidad que la va a conectar con un asesor.\n\n"
@@ -111,22 +114,41 @@ def _known_fields_block(listing: PropertyListing) -> str:
     )
 
 
-def _identity_block(confirmed_name: str | None, confirmed_phone: str | None) -> str:
+def _identity_block(
+    confirmed_name: str | None,
+    confirmed_phone: str | None,
+    candidate_name: str | None = None,
+    candidate_phone: str | None = None,
+) -> str:
     def fmt(value: str | None) -> str:
         return value if value else "(no confirmado)"
 
-    return (
-        "Datos de contacto de la persona:\n"
-        f"- Nombre completo: {fmt(confirmed_name)}\n"
-        f"- Teléfono: {fmt(confirmed_phone)}"
-    )
+    lines = [
+        "Datos de contacto de la persona:",
+        f"- Nombre completo: {fmt(confirmed_name)}",
+        f"- Teléfono: {fmt(confirmed_phone)}",
+    ]
+    if confirmed_name is None and candidate_name:
+        lines.append(
+            f"- Nombre de perfil de WhatsApp (sin confirmar, pregúntele si es el suyo): {candidate_name}"
+        )
+    if confirmed_phone is None and candidate_phone:
+        lines.append(
+            f"- Teléfono detectado del chat (sin confirmar, pregúntele si es correcto): {candidate_phone}"
+        )
+    return "\n".join(lines)
 
 
 def _build_system_prompt(
-    base_prompt: str, listing: PropertyListing, confirmed_name: str | None, confirmed_phone: str | None
+    base_prompt: str,
+    listing: PropertyListing,
+    confirmed_name: str | None,
+    confirmed_phone: str | None,
+    candidate_name: str | None = None,
+    candidate_phone: str | None = None,
 ) -> str:
     return (
-        f"{base_prompt}\n\n{_identity_block(confirmed_name, confirmed_phone)}"
+        f"{base_prompt}\n\n{_identity_block(confirmed_name, confirmed_phone, candidate_name, candidate_phone)}"
         f"\n\n{_known_fields_block(listing)}{_OUTPUT_FORMAT_INSTRUCTIONS}"
     )
 
@@ -292,6 +314,9 @@ class ConversationStore:
     def set_deal_id(self, chat_id: str, deal_id: str) -> None:
         store_db.set_deal_id(self._conn, chat_id, deal_id)
 
+    def clear_deal_id(self, chat_id: str) -> None:
+        store_db.clear_deal_id(self._conn, chat_id)
+
     def get_confirmed_identity(self, chat_id: str) -> tuple[str | None, str | None]:
         return store_db.get_confirmed_identity(self._conn, chat_id)
 
@@ -330,39 +355,29 @@ def _resolve_phone(chat_id: str, waha_client: WahaClient, session: str) -> tuple
     return phone, username
 
 
-def _resolve_deal_id(
-    chat_id: str, crm_client: CrmClient, waha_client: WahaClient, session: str, sender_name: str | None
+def _create_deal_from_confirmed_identity(
+    chat_id: str, crm_client: CrmClient, store: ConversationStore
 ) -> str | None:
-    """Resuelve (o crea) el deal de consignación de Bitrix para este chat de WhatsApp.
+    """Crea el contacto/deal de consignación en Bitrix si el store ya tiene nombre Y teléfono confirmados.
 
-    Para no perder el hilo con clientes sin teléfono resuelto, usa el
-    identificador `@lid` como respaldo (guardado en `fields.FIELD_USERNAME`),
-    aunque no se pueda crear el contacto sin teléfono (ver
-    `CrmClient.find_or_create_property_seller_contact`).
+    No crea nada con solo uno de los dos — evita negociaciones a medio
+    llenar visibles para un asesor. Se usa tanto para la primera creación
+    como para el self-heal cuando un asesor borró el deal manualmente (la
+    identidad ya confirmada sigue en el store, no hace falta volver a
+    pedirla).
     """
-    phone, username = _resolve_phone(chat_id, waha_client, session)
-
-    if phone is None and username is None:
-        logger.warning("chat_id %s no es un chat @c.us ni @lid reconocible, no se vincula a Bitrix", chat_id)
+    confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
+    if confirmed_name is None or confirmed_phone is None:
         return None
 
-    contact_id = crm_client.find_or_create_property_seller_contact(phone, username, sender_name)
+    username = lid_from_chat_id(chat_id)
+    contact_id = crm_client.find_or_create_property_seller_contact(confirmed_phone, username, confirmed_name)
     if contact_id is None:
-        if phone is None:
-            # Esperado: sin teléfono no se puede crear el contacto (ver
-            # CrmClient.find_or_create_property_seller_contact) — el bot
-            # sigue respondiendo por WhatsApp, solo no queda nada en Bitrix.
-            logger.info(
-                "Chat %s sin teléfono (solo @lid) y sin contacto existente en Bitrix, no se vincula esta vez",
-                chat_id,
-            )
-        else:
-            logger.error("No se pudo resolver/crear contacto en Bitrix para %s", phone)
         return None
 
     deal_id = crm_client.find_or_create_property_seller_deal(contact_id)
-    if deal_id is None:
-        logger.error("No se pudo resolver/crear deal de consignación para contacto %s", contact_id)
+    if deal_id is not None:
+        store.set_deal_id(chat_id, deal_id)
     return deal_id
 
 
@@ -397,20 +412,36 @@ def process(
     store.mark_message_received(inbound.chat_id)
 
     deal_id = store.get_deal_id(inbound.chat_id)
-    if deal_id is None:
-        deal_id = _resolve_deal_id(inbound.chat_id, crm_client, waha_client, inbound.session, inbound.sender_name)
-        if deal_id is not None:
-            store.set_deal_id(inbound.chat_id, deal_id)
+    if deal_id is not None and not crm_client.deal_exists(deal_id):
+        logger.info("Deal cacheado %s (chat %s) ya no existe en el CRM, se resuelve uno nuevo", deal_id, inbound.chat_id)
+        store.clear_deal_id(inbound.chat_id)
+        deal_id = None
 
     if deal_id is not None and not crm_client.get_bot_active(deal_id):
         logger.info("Bot pausado para el deal %s (chat %s), no se responde", deal_id, inbound.chat_id)
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_paused"}
 
+    if deal_id is None:
+        deal_id = _create_deal_from_confirmed_identity(inbound.chat_id, crm_client, store)
+
     listing = crm_client.get_property_listing(deal_id) if deal_id is not None else PropertyListing()
     confirmed_name, confirmed_phone = store.get_confirmed_identity(inbound.chat_id)
 
+    # Sin deal todavía (identidad sin confirmar): se le muestran al LLM
+    # candidatos de nombre/teléfono "fáciles de conseguir" (perfil de
+    # WhatsApp, número del chat) para que los confirme con la persona en
+    # vez de pedirlos de cero — nunca se dan por buenos sin que la persona
+    # los confirme en el chat (eso sigue pasando en _apply_confirmed_identity).
+    candidate_name: str | None = None
+    candidate_phone: str | None = None
+    if deal_id is None:
+        candidate_name = inbound.sender_name
+        candidate_phone, _ = _resolve_phone(inbound.chat_id, waha_client, inbound.session)
+
     history = store.get_history(inbound.chat_id)
-    system_prompt = _build_system_prompt(config.system_prompt, listing, confirmed_name, confirmed_phone)
+    system_prompt = _build_system_prompt(
+        config.system_prompt, listing, confirmed_name, confirmed_phone, candidate_name, candidate_phone
+    )
     raw_output = llm_client.reply(system_prompt, history, inbound.text)
     if raw_output is None:
         logger.error("LLM no devolvió respuesta para %s, no se envía nada", inbound.chat_id)
@@ -439,12 +470,13 @@ def _apply_confirmed_identity(
 ) -> str | None:
     """Guarda el nombre/teléfono que la persona confirmó en este turno, en el store y en Bitrix.
 
-    Si todavía no había contacto (caso `@lid` sin resolver, ver
-    `_resolve_deal_id`) y ahora se confirmó un teléfono, crea el
-    contacto/deal con ese teléfono en vez de esperar a que Waha lo
-    resuelva solo. Si el contacto ya existe, actualiza lo confirmado sobre
-    él (backfill de un contacto creado antes solo con `username`, o
-    corrección del nombre placeholder). Retorna el `deal_id` vigente
+    Sin deal todavía, no crea nada en Bitrix hasta que el store tenga
+    nombre Y teléfono confirmados (no alcanza con uno de los dos, ni con
+    que se hayan confirmado en turnos distintos) — así no quedan
+    negociaciones a medio llenar visibles para un asesor. Si el contacto
+    ya existe (deal ya creado), en cambio, cualquier confirmación nueva se
+    aplica de una (backfill de un contacto creado antes solo con
+    `username`, o corrección del nombre). Retorna el `deal_id` vigente
     (puede ser uno nuevo, si se acaba de crear).
     """
     normalized_phone = None
@@ -461,15 +493,7 @@ def _apply_confirmed_identity(
         return deal_id
 
     if deal_id is None:
-        if normalized_phone is None:
-            return deal_id
-        contact_id = crm_client.find_or_create_property_seller_contact(normalized_phone, None, turn.client_full_name)
-        if contact_id is None:
-            return deal_id
-        new_deal_id = crm_client.find_or_create_property_seller_deal(contact_id)
-        if new_deal_id is not None:
-            store.set_deal_id(chat_id, new_deal_id)
-        return new_deal_id
+        return _create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
     contact_id = crm_client.get_deal_contact_id(crm_client.get_deal(deal_id))
     if contact_id is not None:
