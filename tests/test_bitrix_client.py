@@ -53,6 +53,41 @@ def test_get_deal_returns_empty_dict_on_request_error(monkeypatch) -> None:
     assert client.get_deal("42") == {}
 
 
+def test_deal_exists_returns_true_when_deal_found(monkeypatch) -> None:
+    def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
+        return FakeResponse({"result": {"ID": "42"}})
+
+    monkeypatch.setattr("app.bitrix.client.requests.get", fake_get)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.deal_exists("42") is True
+
+
+def test_deal_exists_returns_false_when_bitrix_confirms_not_found(monkeypatch) -> None:
+    def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
+        return FakeResponse(
+            {"error": "", "error_description": "Not found"}, status_code=400
+        )
+
+    monkeypatch.setattr("app.bitrix.client.requests.get", fake_get)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.deal_exists("40510") is False
+
+
+def test_deal_exists_returns_true_on_ambiguous_error(monkeypatch) -> None:
+    """Ante error de red/timeout no se puede confirmar que el deal no existe:
+    asumir que existe evita recrear deals de más por una falla transitoria."""
+
+    def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr("app.bitrix.client.requests.get", fake_get)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.deal_exists("42") is True
+
+
 def test_get_contact_returns_result(monkeypatch) -> None:
     captured = {}
 

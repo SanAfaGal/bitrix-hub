@@ -73,6 +73,36 @@ class BitrixClient:
             logger.error("Error consultando deal %s en Bitrix: %s", deal_id, exc)
             return {}
 
+    def deal_exists(self, deal_id: str) -> bool:
+        """Confirma si un deal existe en Bitrix (a diferencia de get_deal, distingue 'no existe' de una falla de red/timeout).
+
+        Ante un 400 con `error_description` "Not found" (lo que devuelve
+        Bitrix para un ID borrado o inválido), retorna False. Ante cualquier
+        otro error, asume que existe — no hay forma de confirmarlo, y
+        asumir que no existe llevaría a recrear el deal de más por una
+        falla transitoria.
+        """
+        try:
+            response = requests.get(
+                f"{self.webhook_url}crm.deal.get.json",
+                params={"id": deal_id},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except requests.exceptions.HTTPError as exc:
+            response = getattr(exc, "response", None)
+            if response is not None and response.status_code == 400:
+                try:
+                    body = response.json()
+                except ValueError:
+                    body = {}
+                if isinstance(body, dict) and body.get("error_description") == "Not found":
+                    return False
+            return True
+        except requests.exceptions.RequestException:
+            return True
+
     def get_contact(self, contact_id: str) -> dict[str, Any]:
         """Obtiene los campos de un contacto de Bitrix. Retorna {} si la llamada falla."""
         try:

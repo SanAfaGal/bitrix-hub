@@ -99,6 +99,11 @@ def set_deal_id(conn: sqlite3.Connection, chat_id: str, deal_id: str) -> None:
     conn.commit()
 
 
+def clear_deal_id(conn: sqlite3.Connection, chat_id: str) -> None:
+    conn.execute("DELETE FROM conversation_meta WHERE chat_id = ?", (chat_id,))
+    conn.commit()
+
+
 def get_confirmed_identity(conn: sqlite3.Connection, chat_id: str) -> tuple[str | None, str | None]:
     row = conn.execute(
         "SELECT confirmed_name, confirmed_phone FROM conversation_identity WHERE chat_id = ?", (chat_id,)

@@ -32,6 +32,10 @@ class CrmClient(Protocol):
         """Obtiene los campos de un deal/negocio. Retorna {} si falla o no existe."""
         ...
 
+    def deal_exists(self, deal_id: str) -> bool:
+        """Confirma si un deal existe en el CRM. Ante error ambiguo (red, timeout), asume que existe."""
+        ...
+
     def get_contact(self, contact_id: str) -> dict[str, Any]:
         """Obtiene los campos de un contacto. Retorna {} si falla o no existe."""
         ...
