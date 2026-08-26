@@ -300,16 +300,17 @@ def test_process_does_not_call_update_property_listing_when_no_fields_extracted(
 def test_parse_llm_output_extracts_reply_and_fields() -> None:
     raw = json.dumps({"reply": "hola", "fields": {"address": "Calle 10", "expected_sale_price": 350000000}})
 
-    reply, listing = _parse_llm_output(raw)
+    reply, listing, handoff = _parse_llm_output(raw)
 
     assert reply == "hola"
     assert listing == PropertyListing(address="Calle 10", expected_sale_price=350000000)
+    assert handoff is False
 
 
 def test_parse_llm_output_ignores_unknown_property_type() -> None:
     raw = json.dumps({"reply": "hola", "fields": {"property_type": "Yate"}})
 
-    _, listing = _parse_llm_output(raw)
+    _, listing, _ = _parse_llm_output(raw)
 
     assert listing.property_type is None
 
@@ -317,22 +318,23 @@ def test_parse_llm_output_ignores_unknown_property_type() -> None:
 def test_parse_llm_output_ignores_non_numeric_price() -> None:
     raw = json.dumps({"reply": "hola", "fields": {"expected_sale_price": "mucho"}})
 
-    _, listing = _parse_llm_output(raw)
+    _, listing, _ = _parse_llm_output(raw)
 
     assert listing.expected_sale_price is None
 
 
 def test_parse_llm_output_falls_back_to_plain_text_on_invalid_json() -> None:
-    reply, listing = _parse_llm_output("esto no es json")
+    reply, listing, handoff = _parse_llm_output("esto no es json")
 
     assert reply == "esto no es json"
     assert listing == PropertyListing()
+    assert handoff is False
 
 
 def test_parse_llm_output_recovers_json_surrounded_by_extra_text() -> None:
     raw = 'aca esta: {"reply": "hola", "fields": {}} gracias'
 
-    reply, listing = _parse_llm_output(raw)
+    reply, listing, _ = _parse_llm_output(raw)
 
     assert reply == "hola"
     assert listing == PropertyListing()
@@ -341,10 +343,66 @@ def test_parse_llm_output_recovers_json_surrounded_by_extra_text() -> None:
 def test_parse_llm_output_falls_back_when_reply_key_missing() -> None:
     raw = json.dumps({"fields": {"address": "Calle 10"}})
 
-    reply, listing = _parse_llm_output(raw)
+    reply, listing, _ = _parse_llm_output(raw)
 
     assert reply == raw
     assert listing == PropertyListing()
+
+
+def test_parse_llm_output_extracts_handoff_requested() -> None:
+    raw = json.dumps({"reply": "la conecto con un asesor", "fields": {}, "handoff_requested": True})
+
+    _, _, handoff = _parse_llm_output(raw)
+
+    assert handoff is True
+
+
+# ── Pausa manual / handoff automático ───────────────────────────────────
+
+
+def test_process_skips_when_bot_paused_for_deal() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    crm.bot_active["6000"] = False
+
+    result = process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_paused"}
+    assert waha.calls == []
+    assert llm.calls == []
+
+
+def test_process_pauses_bot_and_comments_when_llm_requests_handoff() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "la conecto con un asesor", "fields": {}, "handoff_requested": True})
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+
+    result = process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "la conecto con un asesor"}
+    assert waha.calls == [("573001112233@c.us", "la conecto con un asesor", "default")]
+    assert crm.bot_active_updates == [("6000", False)]
+    assert crm.comments == [("6000", "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")]
+
+
+def test_process_does_not_pause_when_handoff_not_requested() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("todo bien"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+
+    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert crm.bot_active_updates == []
+    assert crm.comments == []
 
 
 # ── Persistencia de historial (sobrevive a un "restart") ────────────────

@@ -105,3 +105,17 @@ class CrmClient(Protocol):
     def update_property_listing(self, deal_id: str, listing: PropertyListing) -> None:
         """Actualiza en el CRM solo los campos de `listing` que no son None."""
         ...
+
+    def get_bot_active(self, deal_id: str) -> bool:
+        """Indica si el bot de WhatsApp debe seguir respondiendo en este deal.
+
+        `True` (activo) es el default cuando el deal no tiene el campo
+        seteado — un asesor lo pausa marcándolo manualmente en el CRM, o el
+        propio bot lo pausa vía `set_bot_active` cuando detecta que la
+        persona pidió hablar con un humano.
+        """
+        ...
+
+    def set_bot_active(self, deal_id: str, active: bool) -> None:
+        """Marca en el CRM si el bot de WhatsApp debe seguir respondiendo en este deal."""
+        ...

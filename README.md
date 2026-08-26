@@ -267,6 +267,17 @@ pide datos y el cliente no vuelve a contestar hasta días después, al
 retomar el bot sigue teniendo el historial y no repite preguntas ya
 respondidas.
 
+**Pausa por conversación / handoff a un asesor**: un asesor puede pausar
+el bot para un deal puntual marcando el checkbox `fields.FIELD_BOT_ACTIVE`
+en Bitrix — mientras esté desmarcado, `POST /webhook/waha-message` deja de
+responder ese chat (`skipped: "bot_paused"`) y el asesor sigue la
+conversación manualmente por WhatsApp normal. El bot también se autopausa
+así cuando el LLM detecta que la persona pidió expresamente hablar con un
+humano (`handoff_requested` en su salida JSON): manda el mensaje de
+despedida, marca el checkbox y deja un comentario en el timeline del deal.
+Para reactivar el bot en ese deal, el asesor vuelve a marcar el checkbox
+manualmente — no hay reactivación automática.
+
 Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
 manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un
 teléfono real. En ese caso primero se intenta resolver el teléfono real
@@ -290,8 +301,9 @@ El cliente LLM (`app/llm/`) usa el SDK de OpenAI apuntado a `LLM_BASE_URL`
 protocolo (Groq, Together, DeepSeek, OpenRouter, Azure OpenAI, un modelo
 local con Ollama/vLLM, etc.), solo cambiando `LLM_BASE_URL`/`LLM_MODEL` en
 `.env`, sin tocar código. El LLM responde en JSON estricto
-(`{"reply": "...", "fields": {...}}`, ver `_OUTPUT_FORMAT_INSTRUCTIONS` en
-`app/flows/whatsapp_bot.py`) — si algún proveedor no respeta el formato,
+(`{"reply": "...", "fields": {...}, "handoff_requested": ...}`, ver
+`_OUTPUT_FORMAT_INSTRUCTIONS` en `app/flows/whatsapp_bot.py`) — si algún
+proveedor no respeta el formato,
 `_parse_llm_output` cae a modo seguro: manda el texto tal cual como
 respuesta y no actualiza ningún campo, nunca rompe la conversación.
 
@@ -332,6 +344,11 @@ Limitaciones conocidas, por ser experimental:
   `deal_id` por chat sí persisten en SQLite, pero en un solo archivo
   (`WHATSAPP_BOT_DB_PATH`) — no pensado para correr con más de un worker
   simultáneo escribiendo el mismo archivo.
+- **`fields.FIELD_BOT_ACTIVE` necesita crearse a mano en Bitrix** —
+  checkbox en el deal, mismo patrón que `FIELD_WELCOME_SENT`; hasta que se
+  reemplace el placeholder en `app/bitrix/fields.py` con el ID real, la
+  pausa manual/automática no tiene dónde escribir (el bot sigue
+  funcionando igual, solo sin este control).
 - **Nombre de perfil del remitente (`sender_name`) es best-effort** — Waha
   no documenta un nombre de campo estable para esto (vive dentro de
   `_data`, que "puede variar según el engine" según sus propias docs).

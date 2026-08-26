@@ -150,6 +150,22 @@ class BitrixClient:
         """Marca el checkbox "V_Bienvenida negocio enviada" (UF_CRM_1776879856695) del deal."""
         self.update_deal(deal_id, {fields.FIELD_WELCOME_SENT: 1})
 
+    def get_bot_active(self, deal_id: str) -> bool:
+        """Lee el checkbox de bot activo/pausado (`fields.FIELD_BOT_ACTIVE`) del deal.
+
+        Vacío/None (deal sin el campo, o creado antes de que existiera) se
+        interpreta como activo — no pausa deals viejos por omisión.
+        """
+        deal = self.get_deal(deal_id)
+        value = deal.get(fields.FIELD_BOT_ACTIVE)
+        if value in (None, ""):
+            return True
+        return str(value) not in ("0", "N", "false", "False")
+
+    def set_bot_active(self, deal_id: str, active: bool) -> None:
+        """Marca el checkbox de bot activo/pausado (`fields.FIELD_BOT_ACTIVE`) del deal."""
+        self.update_deal(deal_id, {fields.FIELD_BOT_ACTIVE: 1 if active else 0})
+
     def add_comment(self, deal_id: str, comment: str) -> int | None:
         """Agrega un comentario al timeline de un deal.
 

@@ -13,6 +13,11 @@ fuente de verdad. El historial de turnos y el `deal_id` por chat
 sobreviven a un restart/deploy — solo el dedup de mensajes reintentados
 por Waha queda en memoria del proceso (un TTL corto, sin problema si se
 pierde).
+
+Si un asesor pausa el bot para un deal puntual (checkbox en Bitrix,
+`fields.FIELD_BOT_ACTIVE`), o el bot mismo lo pausa al detectar que la
+persona pidió hablar con un humano, el webhook deja de responder para ese
+chat hasta que el campo se reactive manualmente.
 """
 from __future__ import annotations
 
@@ -65,12 +70,15 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
     'WhatsApp>", "fields": {"property_type": <uno de ' + repr(list(PROPERTY_TYPES)) + " o null>, "
     '"address": <string o null>, "sector_zone_city": <string o null>, '
     '"expected_sale_price": <número entero o null>, "registration_number": '
-    "<string o null>}}\n"
+    '<string o null>}, "handoff_requested": <true o false>}\n'
     'En "fields" solo van los datos que la persona haya mencionado o '
     'confirmado en ESTE turno — todo lo demás va en null, aunque ya lo '
     "sepamos de antes. No repita en \"fields\" un dato que ya aparece en la "
     'lista de "Datos que ya tenemos" salvo que la persona lo esté '
-    "corrigiendo."
+    "corrigiendo.\n"
+    '"handoff_requested" es true únicamente cuando "reply" es el mensaje en '
+    "el que usted le avisa a la persona que la va a conectar con un asesor "
+    '(según las condiciones ya indicadas) — en cualquier otro caso, false.'
 )
 
 
@@ -117,12 +125,13 @@ def _to_property_listing(data: dict[str, Any]) -> PropertyListing:
     )
 
 
-def _parse_llm_output(raw: str) -> tuple[str, PropertyListing]:
-    """Parsea la salida del LLM (JSON `{"reply": ..., "fields": ...}`).
+def _parse_llm_output(raw: str) -> tuple[str, PropertyListing, bool]:
+    """Parsea la salida del LLM (JSON `{"reply": ..., "fields": ..., "handoff_requested": ...}`).
 
     Si el LLM no devolvió JSON válido (algún proveedor puede ignorar la
-    instrucción), se trata todo el texto como la respuesta a mandar y no se
-    actualiza ningún campo — nunca se rompe la conversación por esto.
+    instrucción), se trata todo el texto como la respuesta a mandar, no se
+    actualiza ningún campo y no se pide handoff — nunca se rompe la
+    conversación por esto.
     """
     data: Any = None
     try:
@@ -136,16 +145,16 @@ def _parse_llm_output(raw: str) -> tuple[str, PropertyListing]:
                 data = None
 
     if not isinstance(data, dict):
-        return raw.strip(), PropertyListing()
+        return raw.strip(), PropertyListing(), False
 
     reply = data.get("reply")
     if not isinstance(reply, str) or not reply.strip():
-        return raw.strip(), PropertyListing()
+        return raw.strip(), PropertyListing(), False
 
     fields_data = data.get("fields")
     fields_data = fields_data if isinstance(fields_data, dict) else {}
 
-    return reply.strip(), _to_property_listing(fields_data)
+    return reply.strip(), _to_property_listing(fields_data), data.get("handoff_requested") is True
 
 
 SEEN_MESSAGE_TTL_SECONDS = 600
@@ -290,6 +299,10 @@ def process(
         if deal_id is not None:
             store.set_deal_id(inbound.chat_id, deal_id)
 
+    if deal_id is not None and not crm_client.get_bot_active(deal_id):
+        logger.info("Bot pausado para el deal %s (chat %s), no se responde", deal_id, inbound.chat_id)
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_paused"}
+
     listing = crm_client.get_property_listing(deal_id) if deal_id is not None else PropertyListing()
 
     history = store.get_history(inbound.chat_id)
@@ -299,7 +312,7 @@ def process(
         logger.error("LLM no devolvió respuesta para %s, no se envía nada", inbound.chat_id)
         return {"ok": False, "chat_id": inbound.chat_id, "error": "llm_failed"}
 
-    reply_text, extracted = _parse_llm_output(raw_output)
+    reply_text, extracted, handoff_requested = _parse_llm_output(raw_output)
 
     sent = waha_client.send_text(inbound.chat_id, reply_text, session=inbound.session)
     if sent:
@@ -307,5 +320,8 @@ def process(
         store.add_turn(inbound.chat_id, "assistant", reply_text)
         if deal_id is not None and extracted != PropertyListing():
             crm_client.update_property_listing(deal_id, extracted)
+        if deal_id is not None and handoff_requested:
+            crm_client.set_bot_active(deal_id, False)
+            crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
     return {"ok": sent, "chat_id": inbound.chat_id, "reply": reply_text}
