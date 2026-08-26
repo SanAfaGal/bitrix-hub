@@ -314,6 +314,22 @@ def test_find_or_create_property_seller_deal_creates_when_no_match(monkeypatch) 
     assert len(calls) == 2
 
 
+def test_find_or_create_property_seller_deal_creates_with_bot_active_checked(monkeypatch) -> None:
+    # Gobierno de datos: el checkbox no debe nacer vacío — se marca activo
+    # desde la creación en vez de depender del default implícito de
+    # BitrixClient.get_bot_active para deals sin el campo seteado.
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        if url.endswith("crm.deal.list.json"):
+            return FakeResponse({"result": []})
+        assert json["fields"]["UF_CRM_1787762476957"] == 1
+        return FakeResponse({"result": 456})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_or_create_property_seller_deal("7") == "456"
+
+
 def test_get_property_listing_reads_known_fields(monkeypatch) -> None:
     def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
         return FakeResponse(

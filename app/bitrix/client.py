@@ -402,6 +402,7 @@ class BitrixClient:
                         "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
                         "TITLE": f"Consignación WhatsApp - contacto {contact_id}",
                         fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
+                        fields.FIELD_BOT_ACTIVE: 1,
                     }
                 },
                 timeout=REQUEST_TIMEOUT,
