@@ -163,6 +163,7 @@ def _parse_llm_output(raw: str) -> tuple[str, PropertyListing, bool]:
 
 
 SEEN_MESSAGE_TTL_SECONDS = 600
+RATE_LIMIT_COOLDOWN_SECONDS = 5  # Max 1 msg every 5 seconds per chat
 
 
 @dataclass(frozen=True)
@@ -204,6 +205,7 @@ class ConversationStore:
     max_history_turns: int = 6
     db_path: str = ":memory:"
     _seen_message_ids: dict[str, float] = field(default_factory=dict)
+    _last_message_time: dict[str, float] = field(default_factory=dict)
     _conn: Any = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
@@ -215,6 +217,19 @@ class ConversationStore:
 
     def mark_processed(self, message_id: str) -> None:
         self._seen_message_ids[message_id] = time.monotonic()
+
+    def is_rate_limited(self, chat_id: str) -> bool:
+        """Retorna True si el chat está en cooldown (más de 1 msg en últimos 5 seg)."""
+        now = time.monotonic()
+        if chat_id in self._last_message_time:
+            elapsed = now - self._last_message_time[chat_id]
+            if elapsed < RATE_LIMIT_COOLDOWN_SECONDS:
+                return True
+        return False
+
+    def mark_message_received(self, chat_id: str) -> None:
+        """Registra que recibimos un mensaje de este chat para rate limiting."""
+        self._last_message_time[chat_id] = time.monotonic()
 
     def _purge_expired_seen(self) -> None:
         cutoff = time.monotonic() - SEEN_MESSAGE_TTL_SECONDS
@@ -323,6 +338,11 @@ def process(
     if store.already_processed(inbound.message_id):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "duplicate_message"}
     store.mark_processed(inbound.message_id)
+
+    if store.is_rate_limited(inbound.chat_id):
+        logger.info("Chat %s rate limited, no se responde", inbound.chat_id)
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "rate_limited"}
+    store.mark_message_received(inbound.chat_id)
 
     deal_id = store.get_deal_id(inbound.chat_id)
     if deal_id is None:

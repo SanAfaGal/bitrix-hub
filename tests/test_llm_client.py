@@ -19,8 +19,16 @@ class FakeChoice:
 
 
 @dataclass
+class FakeUsage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass
 class FakeCompletion:
     choices: list[FakeChoice]
+    usage: FakeUsage | None = None
 
 
 def _settings(**overrides: object) -> LlmSettings:
@@ -34,7 +42,10 @@ def test_reply_returns_text_and_sends_expected_request(monkeypatch) -> None:
 
     def fake_create(**kwargs):
         captured.update(kwargs)
-        return FakeCompletion(choices=[FakeChoice(message=FakeMessage(content="hola, en que te ayudo?"))])
+        return FakeCompletion(
+            choices=[FakeChoice(message=FakeMessage(content="hola, en que te ayudo?"))],
+            usage=FakeUsage(prompt_tokens=50, completion_tokens=20),
+        )
 
     client = LlmClient(_settings())
     monkeypatch.setattr(client._client.chat.completions, "create", fake_create)
