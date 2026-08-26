@@ -18,6 +18,11 @@ Si un asesor pausa el bot para un deal puntual (checkbox en Bitrix,
 `fields.FIELD_BOT_ACTIVE`), o el bot mismo lo pausa al detectar que la
 persona pidió hablar con un humano, el webhook deja de responder para ese
 chat hasta que el campo se reactive manualmente.
+
+Para pruebas en desarrollo, `WHATSAPP_BOT_ALLOWED_NUMBERS` (lista separada
+por comas, mismo formato que devuelve `app.waha.phone.from_chat_id` —
+código de país + número, sin `+`) restringe las respuestas a esos números
+únicamente; vacío (default) no restringe nada.
 """
 from __future__ import annotations
 
@@ -165,6 +170,7 @@ class BotConfig:
     enabled: bool
     max_history_turns: int
     system_prompt: str
+    allowed_numbers: frozenset[str] = frozenset()
 
 
 def load_bot_config() -> BotConfig:
@@ -172,7 +178,15 @@ def load_bot_config() -> BotConfig:
     enabled = (os.getenv("WHATSAPP_BOT_ENABLED") or "").strip().lower() in ("1", "true", "yes")
     max_history_turns = int((os.getenv("WHATSAPP_BOT_MAX_HISTORY_TURNS") or "6").strip())
     system_prompt = (os.getenv("WHATSAPP_BOT_SYSTEM_PROMPT") or "").strip() or DEFAULT_SYSTEM_PROMPT
-    return BotConfig(enabled=enabled, max_history_turns=max_history_turns, system_prompt=system_prompt)
+    allowed_numbers = frozenset(
+        n.strip() for n in (os.getenv("WHATSAPP_BOT_ALLOWED_NUMBERS") or "").split(",") if n.strip()
+    )
+    return BotConfig(
+        enabled=enabled,
+        max_history_turns=max_history_turns,
+        system_prompt=system_prompt,
+        allowed_numbers=allowed_numbers,
+    )
 
 
 DEFAULT_DB_PATH = os.getenv("WHATSAPP_BOT_DB_PATH", "data/whatsapp_bot.db")
@@ -288,6 +302,10 @@ def process(
 
     if not config.enabled:
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_disabled"}
+
+    if config.allowed_numbers and from_chat_id(inbound.chat_id) not in config.allowed_numbers:
+        logger.info("Chat %s fuera de WHATSAPP_BOT_ALLOWED_NUMBERS, no se responde", inbound.chat_id)
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "number_not_allowed"}
 
     if store.already_processed(inbound.message_id):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "duplicate_message"}

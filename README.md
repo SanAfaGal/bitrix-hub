@@ -54,6 +54,7 @@ LLM_API_KEY=sk-tu-api-key
 LLM_BASE_URL=
 LLM_MODEL=gpt-4o-mini
 WHATSAPP_BOT_DB_PATH=data/whatsapp_bot.db
+WHATSAPP_BOT_ALLOWED_NUMBERS=
 ```
 
 ## Ejecución local
@@ -316,7 +317,12 @@ sin llamar al LLM ni al CRM. Para activarlo:
 2. `BITRIX_WEBHOOK_URL` configurado (ya necesario para el resto del hub) —
    el bot usa el mismo `CrmClient`.
 3. `WHATSAPP_BOT_ENABLED=true`.
-4. Que Waha esté mandando el webhook saliente a este hub —
+4. Opcional, para probar en desarrollo sin exponer el bot a todo el mundo:
+   `WHATSAPP_BOT_ALLOWED_NUMBERS=573001112233,573004445566` (números
+   separados por comas, código de país + número, sin `+`) — el bot ignora
+   cualquier chat que no venga de esos números. Vacío (default) no
+   restringe nada.
+5. Que Waha esté mandando el webhook saliente a este hub —
    `WHATSAPP_HOOK_URL=http://api:8000/webhook/waha-message` y
    `WHATSAPP_HOOK_EVENTS=message` en `.env` (ver `.env.example`); tras
    cambiar estas variables hay que recrear la sesión de Waha
