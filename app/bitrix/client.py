@@ -493,3 +493,36 @@ class BitrixClient:
             logger.info("Deal %s actualizado: %s", deal_id, fields)
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error("Error actualizando deal %s: %s", deal_id, exc)
+
+    def update_contact(self, contact_id: str, fields: dict[str, Any]) -> None:
+        """Actualiza campos de un contacto de Bitrix. No lanza si falla."""
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.contact.update.json",
+                json={"id": contact_id, "fields": fields},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            logger.info("Contacto %s actualizado: %s", contact_id, fields)
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error actualizando contacto %s: %s", contact_id, exc)
+
+    def update_contact_identity(self, contact_id: str, *, phone: str | None = None, full_name: str | None = None) -> None:
+        """Actualiza nombre y/o teléfono de un contacto ya existente, solo lo que no es `None`.
+
+        `full_name` se parte en `NAME` (primera palabra) y `LAST_NAME` (el
+        resto) — es lo más cercano a "nombre y apellido" que la persona
+        escribe en un chat de WhatsApp, sin pedirle que los separe.
+        """
+        updates: dict[str, Any] = {}
+
+        if full_name:
+            first, _, rest = full_name.partition(" ")
+            updates["NAME"] = first
+            if rest.strip():
+                updates["LAST_NAME"] = rest.strip()
+        if phone:
+            updates["PHONE"] = [{"VALUE": phone, "VALUE_TYPE": "MOBILE"}]
+
+        if updates:
+            self.update_contact(contact_id, updates)

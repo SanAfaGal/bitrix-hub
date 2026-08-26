@@ -294,67 +294,175 @@ def test_process_does_not_call_update_property_listing_when_no_fields_extracted(
     assert crm.property_listing_updates == []
 
 
+# ── Identidad confirmada (nombre/teléfono pedidos por el bot) ───────────
+
+
+def test_process_sends_confirmed_identity_block_to_llm_system_prompt() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("ok"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
+
+    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+
+    system_prompt = llm.calls[0][0]
+    assert "Juan Pérez" in system_prompt
+    assert "(no confirmado)" in system_prompt  # teléfono todavía sin confirmar
+
+
+def test_process_stores_and_saves_confirmed_full_name_on_existing_contact() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez"})
+    )
+    crm = FakeCrmClient(deals={"6000": {"CONTACT_ID": "5000"}})
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+
+    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert crm.contact_identity_updates == [("5000", None, "Juan Pérez")]
+    assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", None)
+
+
+def test_process_backfills_phone_on_contact_found_only_by_username() -> None:
+    # Contacto ya vinculado por @lid pero sin teléfono; la persona lo
+    # confirma en el chat, hay que escribirlo sobre el contacto existente.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "listo", "fields": {}, "client_phone": "300 111 2233"})
+    )
+    crm = FakeCrmClient(deals={"6000": {"CONTACT_ID": "5000"}})
+    store = ConversationStore()
+    store.set_deal_id("123456789012345@lid", "6000")
+
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert crm.contact_identity_updates == [("5000", "573001112233", None)]
+    assert store.get_confirmed_identity("123456789012345@lid") == (None, "573001112233")
+
+
+def test_process_creates_contact_using_confirmed_phone_when_lid_unresolved() -> None:
+    # Waha no pudo resolver el @lid a teléfono, así que no había contacto
+    # creado todavía — el propio cliente lo confirma en el chat.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "listo", "fields": {}, "client_phone": "3001112233"})
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert crm.contact_by_phone == {"573001112233": "5000"}
+    assert crm.deal_by_contact == {"5000": "6000"}
+    assert store.get_deal_id("123456789012345@lid") == "6000"
+
+
+def test_process_ignores_unparseable_client_phone() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "listo", "fields": {}, "client_phone": "no tengo"})
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_confirmed_identity("123456789012345@lid") == (None, None)
+    assert store.get_deal_id("123456789012345@lid") is None
+
+
 # ── _parse_llm_output ────────────────────────────────────────────────────
 
 
 def test_parse_llm_output_extracts_reply_and_fields() -> None:
     raw = json.dumps({"reply": "hola", "fields": {"address": "Calle 10", "expected_sale_price": 350000000}})
 
-    reply, listing, handoff = _parse_llm_output(raw)
+    turn = _parse_llm_output(raw)
 
-    assert reply == "hola"
-    assert listing == PropertyListing(address="Calle 10", expected_sale_price=350000000)
-    assert handoff is False
+    assert turn.reply == "hola"
+    assert turn.listing == PropertyListing(address="Calle 10", expected_sale_price=350000000)
+    assert turn.handoff_requested is False
 
 
 def test_parse_llm_output_ignores_unknown_property_type() -> None:
     raw = json.dumps({"reply": "hola", "fields": {"property_type": "Yate"}})
 
-    _, listing, _ = _parse_llm_output(raw)
+    turn = _parse_llm_output(raw)
 
-    assert listing.property_type is None
+    assert turn.listing.property_type is None
 
 
 def test_parse_llm_output_ignores_non_numeric_price() -> None:
     raw = json.dumps({"reply": "hola", "fields": {"expected_sale_price": "mucho"}})
 
-    _, listing, _ = _parse_llm_output(raw)
+    turn = _parse_llm_output(raw)
 
-    assert listing.expected_sale_price is None
+    assert turn.listing.expected_sale_price is None
 
 
 def test_parse_llm_output_falls_back_to_plain_text_on_invalid_json() -> None:
-    reply, listing, handoff = _parse_llm_output("esto no es json")
+    turn = _parse_llm_output("esto no es json")
 
-    assert reply == "esto no es json"
-    assert listing == PropertyListing()
-    assert handoff is False
+    assert turn.reply == "esto no es json"
+    assert turn.listing == PropertyListing()
+    assert turn.handoff_requested is False
 
 
 def test_parse_llm_output_recovers_json_surrounded_by_extra_text() -> None:
     raw = 'aca esta: {"reply": "hola", "fields": {}} gracias'
 
-    reply, listing, _ = _parse_llm_output(raw)
+    turn = _parse_llm_output(raw)
 
-    assert reply == "hola"
-    assert listing == PropertyListing()
+    assert turn.reply == "hola"
+    assert turn.listing == PropertyListing()
 
 
 def test_parse_llm_output_falls_back_when_reply_key_missing() -> None:
     raw = json.dumps({"fields": {"address": "Calle 10"}})
 
-    reply, listing, _ = _parse_llm_output(raw)
+    turn = _parse_llm_output(raw)
 
-    assert reply == raw
-    assert listing == PropertyListing()
+    assert turn.reply == raw
+    assert turn.listing == PropertyListing()
 
 
 def test_parse_llm_output_extracts_handoff_requested() -> None:
     raw = json.dumps({"reply": "la conecto con un asesor", "fields": {}, "handoff_requested": True})
 
-    _, _, handoff = _parse_llm_output(raw)
+    turn = _parse_llm_output(raw)
 
-    assert handoff is True
+    assert turn.handoff_requested is True
+
+
+def test_parse_llm_output_extracts_client_full_name_and_phone() -> None:
+    raw = json.dumps(
+        {"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+    )
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.client_full_name == "Juan Pérez"
+    assert turn.client_phone == "3001112233"
+
+
+def test_parse_llm_output_defaults_client_identity_to_none() -> None:
+    raw = json.dumps({"reply": "hola", "fields": {}})
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.client_full_name is None
+    assert turn.client_phone is None
+
+
+def test_parse_llm_output_ignores_blank_client_full_name() -> None:
+    raw = json.dumps({"reply": "hola", "fields": {}, "client_full_name": "   "})
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.client_full_name is None
 
 
 # ── Filtro de números permitidos (WHATSAPP_BOT_ALLOWED_NUMBERS) ─────────
@@ -517,3 +625,34 @@ def test_conversation_store_deal_id_survives_new_instance_same_db_file(tmp_path)
     second = ConversationStore(db_path=db_path)
 
     assert second.get_deal_id("573001112233@c.us") == "6000"
+
+
+# ── Identidad confirmada (nombre/teléfono que la persona confirmó al bot) ─
+
+
+def test_conversation_store_confirmed_identity_defaults_to_none() -> None:
+    store = ConversationStore()
+
+    assert store.get_confirmed_identity("573001112233@c.us") == (None, None)
+
+
+def test_conversation_store_set_confirmed_name_and_phone_independently() -> None:
+    store = ConversationStore()
+
+    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
+    assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", None)
+
+    store.set_confirmed_phone("573001112233@c.us", "573001112233")
+    assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
+
+
+def test_conversation_store_confirmed_identity_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(db_path=db_path)
+    first.set_confirmed_name("573001112233@c.us", "Juan Pérez")
+    first.set_confirmed_phone("573001112233@c.us", "573001112233")
+
+    second = ConversationStore(db_path=db_path)
+
+    assert second.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")

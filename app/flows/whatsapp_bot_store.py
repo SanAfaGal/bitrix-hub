@@ -43,6 +43,15 @@ def init_db(db_path: str) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversation_identity (
+            chat_id TEXT PRIMARY KEY,
+            confirmed_name TEXT,
+            confirmed_phone TEXT
+        )
+        """
+    )
     conn.commit()
     return conn
 
@@ -86,5 +95,34 @@ def set_deal_id(conn: sqlite3.Connection, chat_id: str, deal_id: str) -> None:
         ON CONFLICT(chat_id) DO UPDATE SET deal_id = excluded.deal_id
         """,
         (chat_id, deal_id),
+    )
+    conn.commit()
+
+
+def get_confirmed_identity(conn: sqlite3.Connection, chat_id: str) -> tuple[str | None, str | None]:
+    row = conn.execute(
+        "SELECT confirmed_name, confirmed_phone FROM conversation_identity WHERE chat_id = ?", (chat_id,)
+    ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def set_confirmed_name(conn: sqlite3.Connection, chat_id: str, name: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO conversation_identity (chat_id, confirmed_name) VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET confirmed_name = excluded.confirmed_name
+        """,
+        (chat_id, name),
+    )
+    conn.commit()
+
+
+def set_confirmed_phone(conn: sqlite3.Connection, chat_id: str, phone: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO conversation_identity (chat_id, confirmed_phone) VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET confirmed_phone = excluded.confirmed_phone
+        """,
+        (chat_id, phone),
     )
     conn.commit()

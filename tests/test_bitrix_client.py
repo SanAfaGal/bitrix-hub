@@ -482,6 +482,63 @@ def test_set_welcome_sent_updates_custom_field(monkeypatch) -> None:
     assert captured["json"] == {"id": "42", "fields": {"UF_CRM_1776879856695": 1}}
 
 
+def test_update_contact_identity_splits_full_name_into_name_and_last_name(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.update_contact_identity("42", full_name="Juan Pérez Gómez")
+
+    assert captured["url"] == "https://example.bitrix24.com/rest/1/token/crm.contact.update.json"
+    assert captured["json"] == {"id": "42", "fields": {"NAME": "Juan", "LAST_NAME": "Pérez Gómez"}}
+
+
+def test_update_contact_identity_sets_phone_field(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.update_contact_identity("42", phone="573001112233")
+
+    assert captured["json"]["fields"] == {"PHONE": [{"VALUE": "573001112233", "VALUE_TYPE": "MOBILE"}]}
+
+
+def test_update_contact_identity_does_nothing_when_both_none(monkeypatch) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        raise AssertionError("no debería llamar a Bitrix si no hay nada que actualizar")
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.update_contact_identity("42")  # no debe lanzar ni llamar a Bitrix
+
+
+def test_update_contact_identity_single_word_name_sets_only_name(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.update_contact_identity("42", full_name="Juan")
+
+    assert captured["json"]["fields"] == {"NAME": "Juan"}
+
+
 def test_set_duplicado_status_updates_custom_field(monkeypatch) -> None:
     captured = {}
 

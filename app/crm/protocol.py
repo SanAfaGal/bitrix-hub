@@ -94,6 +94,15 @@ class CrmClient(Protocol):
         """
         ...
 
+    def update_contact_identity(self, contact_id: str, *, phone: str | None = None, full_name: str | None = None) -> None:
+        """Actualiza nombre y/o teléfono de un contacto ya existente, solo lo que no es `None`.
+
+        Se usa cuando la persona confirma su nombre/teléfono en la
+        conversación después de que el contacto ya se creó (con un
+        placeholder de nombre, o solo con `username` sin teléfono).
+        """
+        ...
+
     def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
         """Busca un deal de consignación abierto para el contacto; si no existe, lo crea. Retorna el deal_id, o None si falla."""
         ...

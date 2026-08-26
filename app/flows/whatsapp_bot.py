@@ -39,7 +39,7 @@ from app.forms.models import PROPERTY_TYPES
 from app.llm.client import LlmClient
 from app.waha.client import WahaClient
 from app.waha.inbound import InboundMessage
-from app.waha.phone import from_chat_id, lid_from_chat_id
+from app.waha.phone import from_chat_id, lid_from_chat_id, to_chat_id
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,11 @@ DEFAULT_SYSTEM_PROMPT = (
     "trámites específicos; si le preguntan, indique que un asesor lo "
     "puede orientar en eso. No invente información sobre inmuebles, "
     "disponibilidad ni la empresa.\n\n"
+    "Además del inmueble, en algún momento temprano de la conversación — "
+    "sin interrogar de golpe — pídale a la persona su nombre completo "
+    "(nombre y apellido) si todavía no lo tiene confirmado; el nombre de "
+    "perfil de WhatsApp no sirve, puede no ser el real. Si el sistema no "
+    "tiene un teléfono confirmado para esta persona, pídaselo también.\n\n"
     "Si la persona pide hablar con alguien, si su solicitud se sale de lo "
     "anterior, o si usted no tiene certeza de la respuesta, dígale con "
     "amabilidad que la va a conectar con un asesor.\n\n"
@@ -75,12 +80,16 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
     'WhatsApp>", "fields": {"property_type": <uno de ' + repr(list(PROPERTY_TYPES)) + " o null>, "
     '"address": <string o null>, "sector_zone_city": <string o null>, '
     '"expected_sale_price": <número entero o null>, "registration_number": '
-    '<string o null>}, "handoff_requested": <true o false>}\n'
+    '<string o null>}, "client_full_name": <nombre y apellido de la persona, '
+    'string o null>, "client_phone": <teléfono de la persona, string o '
+    'null>, "handoff_requested": <true o false>}\n'
     'En "fields" solo van los datos que la persona haya mencionado o '
     'confirmado en ESTE turno — todo lo demás va en null, aunque ya lo '
     "sepamos de antes. No repita en \"fields\" un dato que ya aparece en la "
     'lista de "Datos que ya tenemos" salvo que la persona lo esté '
-    "corrigiendo.\n"
+    "corrigiendo. Lo mismo aplica a \"client_full_name\" y \"client_phone\": "
+    "solo van si la persona los dijo/confirmó en ESTE turno, null en "
+    "cualquier otro caso — incluyendo cuando ya están confirmados.\n"
     '"handoff_requested" es true únicamente cuando "reply" es el mensaje en '
     "el que usted le avisa a la persona que la va a conectar con un asesor "
     '(según las condiciones ya indicadas) — en cualquier otro caso, false.'
@@ -102,8 +111,24 @@ def _known_fields_block(listing: PropertyListing) -> str:
     )
 
 
-def _build_system_prompt(base_prompt: str, listing: PropertyListing) -> str:
-    return f"{base_prompt}\n\n{_known_fields_block(listing)}{_OUTPUT_FORMAT_INSTRUCTIONS}"
+def _identity_block(confirmed_name: str | None, confirmed_phone: str | None) -> str:
+    def fmt(value: str | None) -> str:
+        return value if value else "(no confirmado)"
+
+    return (
+        "Datos de contacto de la persona:\n"
+        f"- Nombre completo: {fmt(confirmed_name)}\n"
+        f"- Teléfono: {fmt(confirmed_phone)}"
+    )
+
+
+def _build_system_prompt(
+    base_prompt: str, listing: PropertyListing, confirmed_name: str | None, confirmed_phone: str | None
+) -> str:
+    return (
+        f"{base_prompt}\n\n{_identity_block(confirmed_name, confirmed_phone)}"
+        f"\n\n{_known_fields_block(listing)}{_OUTPUT_FORMAT_INSTRUCTIONS}"
+    )
 
 
 def _as_text(value: Any) -> str | None:
@@ -130,13 +155,25 @@ def _to_property_listing(data: dict[str, Any]) -> PropertyListing:
     )
 
 
-def _parse_llm_output(raw: str) -> tuple[str, PropertyListing, bool]:
-    """Parsea la salida del LLM (JSON `{"reply": ..., "fields": ..., "handoff_requested": ...}`).
+@dataclass(frozen=True)
+class LlmTurn:
+    """Resultado de parsear un turno de respuesta del LLM."""
+
+    reply: str
+    listing: PropertyListing
+    handoff_requested: bool = False
+    client_full_name: str | None = None
+    client_phone: str | None = None
+
+
+def _parse_llm_output(raw: str) -> LlmTurn:
+    """Parsea la salida del LLM (JSON `{"reply": ..., "fields": ..., "handoff_requested": ...,
+    "client_full_name": ..., "client_phone": ...}`).
 
     Si el LLM no devolvió JSON válido (algún proveedor puede ignorar la
     instrucción), se trata todo el texto como la respuesta a mandar, no se
-    actualiza ningún campo y no se pide handoff — nunca se rompe la
-    conversación por esto.
+    actualiza ningún campo y no se pide handoff ni identidad — nunca se
+    rompe la conversación por esto.
     """
     data: Any = None
     try:
@@ -150,16 +187,22 @@ def _parse_llm_output(raw: str) -> tuple[str, PropertyListing, bool]:
                 data = None
 
     if not isinstance(data, dict):
-        return raw.strip(), PropertyListing(), False
+        return LlmTurn(reply=raw.strip(), listing=PropertyListing())
 
     reply = data.get("reply")
     if not isinstance(reply, str) or not reply.strip():
-        return raw.strip(), PropertyListing(), False
+        return LlmTurn(reply=raw.strip(), listing=PropertyListing())
 
     fields_data = data.get("fields")
     fields_data = fields_data if isinstance(fields_data, dict) else {}
 
-    return reply.strip(), _to_property_listing(fields_data), data.get("handoff_requested") is True
+    return LlmTurn(
+        reply=reply.strip(),
+        listing=_to_property_listing(fields_data),
+        handoff_requested=data.get("handoff_requested") is True,
+        client_full_name=_as_text(data.get("client_full_name")),
+        client_phone=_as_text(data.get("client_phone")),
+    )
 
 
 SEEN_MESSAGE_TTL_SECONDS = 600
@@ -248,6 +291,15 @@ class ConversationStore:
 
     def set_deal_id(self, chat_id: str, deal_id: str) -> None:
         store_db.set_deal_id(self._conn, chat_id, deal_id)
+
+    def get_confirmed_identity(self, chat_id: str) -> tuple[str | None, str | None]:
+        return store_db.get_confirmed_identity(self._conn, chat_id)
+
+    def set_confirmed_name(self, chat_id: str, name: str) -> None:
+        store_db.set_confirmed_name(self._conn, chat_id, name)
+
+    def set_confirmed_phone(self, chat_id: str, phone: str) -> None:
+        store_db.set_confirmed_phone(self._conn, chat_id, phone)
 
 
 # Singleton a nivel de proceso: un archivo SQLite real, sobrevive a un restart.
@@ -355,24 +407,71 @@ def process(
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_paused"}
 
     listing = crm_client.get_property_listing(deal_id) if deal_id is not None else PropertyListing()
+    confirmed_name, confirmed_phone = store.get_confirmed_identity(inbound.chat_id)
 
     history = store.get_history(inbound.chat_id)
-    system_prompt = _build_system_prompt(config.system_prompt, listing)
+    system_prompt = _build_system_prompt(config.system_prompt, listing, confirmed_name, confirmed_phone)
     raw_output = llm_client.reply(system_prompt, history, inbound.text)
     if raw_output is None:
         logger.error("LLM no devolvió respuesta para %s, no se envía nada", inbound.chat_id)
         return {"ok": False, "chat_id": inbound.chat_id, "error": "llm_failed"}
 
-    reply_text, extracted, handoff_requested = _parse_llm_output(raw_output)
+    turn = _parse_llm_output(raw_output)
 
-    sent = waha_client.send_text(inbound.chat_id, reply_text, session=inbound.session)
+    sent = waha_client.send_text(inbound.chat_id, turn.reply, session=inbound.session)
     if sent:
         store.add_turn(inbound.chat_id, "user", inbound.text)
-        store.add_turn(inbound.chat_id, "assistant", reply_text)
-        if deal_id is not None and extracted != PropertyListing():
-            crm_client.update_property_listing(deal_id, extracted)
-        if deal_id is not None and handoff_requested:
+        store.add_turn(inbound.chat_id, "assistant", turn.reply)
+
+        deal_id = _apply_confirmed_identity(inbound.chat_id, turn, deal_id, crm_client, store)
+
+        if deal_id is not None and turn.listing != PropertyListing():
+            crm_client.update_property_listing(deal_id, turn.listing)
+        if deal_id is not None and turn.handoff_requested:
             crm_client.set_bot_active(deal_id, False)
             crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
-    return {"ok": sent, "chat_id": inbound.chat_id, "reply": reply_text}
+    return {"ok": sent, "chat_id": inbound.chat_id, "reply": turn.reply}
+
+
+def _apply_confirmed_identity(
+    chat_id: str, turn: LlmTurn, deal_id: str | None, crm_client: CrmClient, store: ConversationStore
+) -> str | None:
+    """Guarda el nombre/teléfono que la persona confirmó en este turno, en el store y en Bitrix.
+
+    Si todavía no había contacto (caso `@lid` sin resolver, ver
+    `_resolve_deal_id`) y ahora se confirmó un teléfono, crea el
+    contacto/deal con ese teléfono en vez de esperar a que Waha lo
+    resuelva solo. Si el contacto ya existe, actualiza lo confirmado sobre
+    él (backfill de un contacto creado antes solo con `username`, o
+    corrección del nombre placeholder). Retorna el `deal_id` vigente
+    (puede ser uno nuevo, si se acaba de crear).
+    """
+    normalized_phone = None
+    if turn.client_phone is not None:
+        chat_id_form = to_chat_id(turn.client_phone)
+        normalized_phone = from_chat_id(chat_id_form) if chat_id_form else None
+        if normalized_phone is not None:
+            store.set_confirmed_phone(chat_id, normalized_phone)
+
+    if turn.client_full_name is not None:
+        store.set_confirmed_name(chat_id, turn.client_full_name)
+
+    if normalized_phone is None and turn.client_full_name is None:
+        return deal_id
+
+    if deal_id is None:
+        if normalized_phone is None:
+            return deal_id
+        contact_id = crm_client.find_or_create_property_seller_contact(normalized_phone, None, turn.client_full_name)
+        if contact_id is None:
+            return deal_id
+        new_deal_id = crm_client.find_or_create_property_seller_deal(contact_id)
+        if new_deal_id is not None:
+            store.set_deal_id(chat_id, new_deal_id)
+        return new_deal_id
+
+    contact_id = crm_client.get_deal_contact_id(crm_client.get_deal(deal_id))
+    if contact_id is not None:
+        crm_client.update_contact_identity(contact_id, phone=normalized_phone, full_name=turn.client_full_name)
+    return deal_id

@@ -38,6 +38,7 @@ class FakeCrmClient:
         self.deal_by_contact: dict[str, str] = {}
         self._next_contact_id = 5000
         self._next_deal_id = 6000
+        self.contact_identity_updates: list[tuple[str, str | None, str | None]] = []
 
         # Activo por defecto (mismo comportamiento default que BitrixClient
         # cuando el deal no tiene el campo seteado).
@@ -105,6 +106,14 @@ class FakeCrmClient:
         if username:
             self.contact_by_username[username] = contact_id
         return contact_id
+
+    def update_contact_identity(self, contact_id: str, *, phone: str | None = None, full_name: str | None = None) -> None:
+        self.contact_identity_updates.append((contact_id, phone, full_name))
+        contact = self._contacts.setdefault(contact_id, {})
+        if phone:
+            contact["PHONE"] = phone
+        if full_name:
+            contact["NAME"] = full_name
 
     def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
         if contact_id in self.deal_by_contact:
