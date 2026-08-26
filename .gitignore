@@ -39,6 +39,10 @@ logs/
 # ── Datos de Waha (sesiones de WhatsApp, media) ──────────────────────────────
 .waha-data/
 
+# ── Historial del bot de WhatsApp (SQLite) ───────────────────────────────────
+.whatsapp-bot-data/
+data/whatsapp_bot.db
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

@@ -7,6 +7,9 @@ services:
       - "${API_PORT:-8000}:8000"
     env_file:
       - .env
+    volumes:
+      # Historial del bot de WhatsApp (SQLite) — sobrevive a restarts/deploys.
+      - ./.whatsapp-bot-data:/app/data
     logging:
       driver: json-file
       options:

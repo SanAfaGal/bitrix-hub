@@ -345,3 +345,32 @@ def test_parse_llm_output_falls_back_when_reply_key_missing() -> None:
 
     assert reply == raw
     assert listing == PropertyListing()
+
+
+# ── Persistencia de historial (sobrevive a un "restart") ────────────────
+
+
+def test_conversation_store_history_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(db_path=db_path)
+    first.add_turn("573001112233@c.us", "user", "hola")
+    first.add_turn("573001112233@c.us", "assistant", "hola! como te ayudo?")
+
+    second = ConversationStore(db_path=db_path)
+
+    assert second.get_history("573001112233@c.us") == [
+        {"role": "user", "content": "hola"},
+        {"role": "assistant", "content": "hola! como te ayudo?"},
+    ]
+
+
+def test_conversation_store_deal_id_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(db_path=db_path)
+    first.set_deal_id("573001112233@c.us", "6000")
+
+    second = ConversationStore(db_path=db_path)
+
+    assert second.get_deal_id("573001112233@c.us") == "6000"

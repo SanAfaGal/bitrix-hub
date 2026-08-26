@@ -53,6 +53,7 @@ WHATSAPP_BOT_ENABLED=false
 LLM_API_KEY=sk-tu-api-key
 LLM_BASE_URL=
 LLM_MODEL=gpt-4o-mini
+WHATSAPP_BOT_DB_PATH=data/whatsapp_bot.db
 ```
 
 ## Ejecución local
@@ -89,7 +90,8 @@ docker compose up --build
 Levanta `api` y `waha` juntos, en el mismo compose. `api` espera a que
 `waha` pase su healthcheck antes de arrancar (`depends_on: condition:
 service_healthy`). Sesiones y media de WhatsApp persisten en
-`./.waha-data/` (gitignored).
+`./.waha-data/` (gitignored); el historial del bot de WhatsApp (SQLite)
+persiste en `./.whatsapp-bot-data/` (gitignored).
 
 Para desarrollo local, `docker compose up` carga automáticamente
 `docker-compose.override.yml` (monta `./app`, agrega `--reload`) — no hace
@@ -255,12 +257,15 @@ cada turno actualiza los campos del inmueble que el LLM haya identificado
 (tipo, dirección, sector/zona/ciudad, precio de venta esperado, matrícula
 — `app.crm.protocol.PropertyListing`). Ver `app/flows/whatsapp_bot.py`.
 
-La fuente de verdad de esos datos es el deal de Bitrix, no la memoria del
-proceso — si el bot se reinicia, en el peor caso repite una pregunta ya
-respondida (se resuelve leyendo el deal de nuevo), pero nunca pierde lo ya
-guardado. El historial de turnos y el dedup de mensajes sí siguen en
-memoria del proceso (se pierden en cada restart), pero eso ya no importa
-para no perder información — ver "Limitaciones" abajo.
+La fuente de verdad de los datos del inmueble es el deal de Bitrix. El
+historial de turnos y el `deal_id` por chat (`ConversationStore`) se
+persisten en SQLite (`app/flows/whatsapp_bot_store.py`,
+`WHATSAPP_BOT_DB_PATH`) y sobreviven a un restart/deploy — solo el dedup
+de mensajes reintentados por Waha sigue en memoria del proceso (un TTL
+corto, sin problema si se pierde). Así, si un cliente escribe, el bot le
+pide datos y el cliente no vuelve a contestar hasta días después, al
+retomar el bot sigue teniendo el historial y no repite preguntas ya
+respondidas.
 
 Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
 manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un
@@ -321,10 +326,12 @@ Limitaciones conocidas, por ser experimental:
   confirmar si en Bitrix es un campo `money` (necesitaría formato
   `"123456|COP"`); si Bitrix lo rechaza, ajustar `update_property_listing`
   en `app/bitrix/client.py`.
-- **Historial de conversación y dedup de mensajes en memoria del
-  proceso** — se pierden en cada restart del contenedor `api` (los datos
-  del inmueble no, esos ya quedaron en Bitrix). No se comparten si algún
-  día corre con más de un worker.
+- **Dedup de mensajes reintentados por Waha en memoria del proceso** — se
+  pierde en cada restart del contenedor `api` (a lo sumo se reprocesa un
+  mensaje reintentado, no rompe nada). El historial de conversación y el
+  `deal_id` por chat sí persisten en SQLite, pero en un solo archivo
+  (`WHATSAPP_BOT_DB_PATH`) — no pensado para correr con más de un worker
+  simultáneo escribiendo el mismo archivo.
 - **Nombre de perfil del remitente (`sender_name`) es best-effort** — Waha
   no documenta un nombre de campo estable para esto (vive dentro de
   `_data`, que "puede variar según el engine" según sus propias docs).

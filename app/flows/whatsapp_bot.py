@@ -8,12 +8,11 @@ sigue existiendo pero no llama al LLM ni responde.
 Los datos del inmueble que el cliente cuenta (tipo, dirección, sector/zona/
 ciudad, precio esperado, matrícula) se guardan directo en el deal de
 consignación en Bitrix (`app.crm.protocol.PropertyListing`) — esa es la
-fuente de verdad, no la memoria del proceso. El historial de turnos y el
-dedup de mensajes (`ConversationStore`) sí viven **en memoria del
-proceso** y se pierden en cada restart, pero eso ya no importa para no
-perder información: en el peor caso el bot repite una pregunta ya
-respondida, nunca pierde lo que ya quedó guardado en el CRM (se vuelve a
-leer del deal en el siguiente turno).
+fuente de verdad. El historial de turnos y el `deal_id` por chat
+(`ConversationStore`) se persisten en SQLite (`whatsapp_bot_store.py`) y
+sobreviven a un restart/deploy — solo el dedup de mensajes reintentados
+por Waha queda en memoria del proceso (un TTL corto, sin problema si se
+pierde).
 """
 from __future__ import annotations
 
@@ -21,11 +20,11 @@ import json
 import logging
 import os
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.crm.protocol import CrmClient, PropertyListing
+from app.flows import whatsapp_bot_store as store_db
 from app.forms.models import PROPERTY_TYPES
 from app.llm.client import LlmClient
 from app.waha.client import WahaClient
@@ -167,14 +166,25 @@ def load_bot_config() -> BotConfig:
     return BotConfig(enabled=enabled, max_history_turns=max_history_turns, system_prompt=system_prompt)
 
 
+DEFAULT_DB_PATH = os.getenv("WHATSAPP_BOT_DB_PATH", "data/whatsapp_bot.db")
+
+
 @dataclass
 class ConversationStore:
-    """Historial corto + dedup de mensajes + cache de deal_id por chat, en memoria."""
+    """Historial + cache de deal_id por chat, persistidos en SQLite; dedup de mensajes en memoria.
+
+    `db_path=":memory:"` (default) da una base aislada por instancia — lo
+    que quieren los tests. El singleton de proceso (`conversation_store`,
+    más abajo) usa un archivo real para sobrevivir a un restart/deploy.
+    """
 
     max_history_turns: int = 6
-    _history: dict[str, deque[dict[str, str]]] = field(default_factory=dict)
+    db_path: str = ":memory:"
     _seen_message_ids: dict[str, float] = field(default_factory=dict)
-    _deal_ids: dict[str, str] = field(default_factory=dict)
+    _conn: Any = field(init=False, repr=False, default=None)
+
+    def __post_init__(self) -> None:
+        self._conn = store_db.init_db(self.db_path)
 
     def already_processed(self, message_id: str) -> bool:
         self._purge_expired_seen()
@@ -190,21 +200,20 @@ class ConversationStore:
             del self._seen_message_ids[mid]
 
     def get_history(self, chat_id: str) -> list[dict[str, str]]:
-        return list(self._history.get(chat_id, ()))
+        return store_db.get_history(self._conn, chat_id, self.max_history_turns * 2)
 
     def add_turn(self, chat_id: str, role: str, content: str) -> None:
-        turns = self._history.setdefault(chat_id, deque(maxlen=self.max_history_turns * 2))
-        turns.append({"role": role, "content": content})
+        store_db.add_turn(self._conn, chat_id, role, content, self.max_history_turns * 2)
 
     def get_deal_id(self, chat_id: str) -> str | None:
-        return self._deal_ids.get(chat_id)
+        return store_db.get_deal_id(self._conn, chat_id)
 
     def set_deal_id(self, chat_id: str, deal_id: str) -> None:
-        self._deal_ids[chat_id] = deal_id
+        store_db.set_deal_id(self._conn, chat_id, deal_id)
 
 
-# Singleton a nivel de módulo: un solo proceso, un solo estado en memoria.
-conversation_store = ConversationStore()
+# Singleton a nivel de proceso: un archivo SQLite real, sobrevive a un restart.
+conversation_store = ConversationStore(db_path=DEFAULT_DB_PATH)
 
 
 def _resolve_deal_id(
