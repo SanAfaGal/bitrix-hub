@@ -357,6 +357,91 @@ def test_parse_llm_output_extracts_handoff_requested() -> None:
     assert handoff is True
 
 
+# ── Filtro de números permitidos (WHATSAPP_BOT_ALLOWED_NUMBERS) ─────────
+
+
+def _config_with_allowed_numbers(*numbers: str) -> BotConfig:
+    return BotConfig(enabled=True, max_history_turns=6, system_prompt="system prompt", allowed_numbers=frozenset(numbers))
+
+
+def test_process_skips_when_phone_not_in_allowed_numbers() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(chat_id="573009998877@c.us"),
+        waha,
+        llm,
+        crm,
+        config=_config_with_allowed_numbers("573001112233"),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": "573009998877@c.us", "skipped": "number_not_allowed"}
+    assert waha.calls == []
+    assert llm.calls == []
+
+
+def test_process_replies_when_phone_in_allowed_numbers() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(chat_id="573001112233@c.us"),
+        waha,
+        llm,
+        crm,
+        config=_config_with_allowed_numbers("573001112233"),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola!"}
+
+
+def test_process_resolves_lid_before_checking_allowed_numbers() -> None:
+    # Si WhatsApp oculta el número (chat @lid), hay que resolverlo vía Waha
+    # antes de filtrar — si no, un número sí permitido queda bloqueado
+    # siempre por llegar como @lid en vez de @c.us.
+    waha = FakeWahaClient(resolved_lids={"123456789012345": "573001112233@c.us"})
+    llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(chat_id="123456789012345@lid"),
+        waha,
+        llm,
+        crm,
+        config=_config_with_allowed_numbers("573001112233"),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": "123456789012345@lid", "reply": "hola!"}
+
+
+def test_process_skips_unresolved_lid_when_allowed_numbers_configured() -> None:
+    waha = FakeWahaClient()  # Waha no conoce el teléfono detrás del @lid.
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(chat_id="123456789012345@lid"),
+        waha,
+        llm,
+        crm,
+        config=_config_with_allowed_numbers("573001112233"),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": "123456789012345@lid", "skipped": "number_not_allowed"}
+    assert llm.calls == []
+
+
 # ── Pausa manual / handoff automático ───────────────────────────────────
 
 

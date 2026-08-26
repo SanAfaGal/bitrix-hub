@@ -239,20 +239,16 @@ class ConversationStore:
 conversation_store = ConversationStore(db_path=DEFAULT_DB_PATH)
 
 
-def _resolve_deal_id(
-    chat_id: str, crm_client: CrmClient, waha_client: WahaClient, session: str, sender_name: str | None
-) -> str | None:
-    """Resuelve (o crea) el deal de consignación de Bitrix para este chat de WhatsApp.
+def _resolve_phone(chat_id: str, waha_client: WahaClient, session: str) -> tuple[str | None, str | None]:
+    """Resuelve el teléfono real de un chat de WhatsApp, devuelve `(phone, username)`.
 
     El identificador normal es el teléfono (`from_chat_id`). Si WhatsApp
     oculta el número del remitente, el chat llega como `@lid` en vez de
     `@c.us` — en ese caso primero se intenta resolver el teléfono real vía
     `WahaClient.resolve_lid_to_phone` (Waha lo sabe si ya compartió un
     grupo o chat directo con este número antes); si Waha tampoco lo sabe
-    todavía, se usa el identificador `@lid` como respaldo
-    (`lid_from_chat_id`, guardado en `fields.FIELD_USERNAME`), para no
-    perder el hilo con esos clientes aunque no se pueda crear el contacto
-    sin teléfono (ver `CrmClient.find_or_create_property_seller_contact`).
+    todavía, se devuelve el identificador `@lid` como `username`
+    (`lid_from_chat_id`) y `phone=None`.
     """
     phone = from_chat_id(chat_id)
     username = None
@@ -263,6 +259,21 @@ def _resolve_deal_id(
             resolved_chat_id = waha_client.resolve_lid_to_phone(username, session=session)
             if resolved_chat_id is not None:
                 phone = from_chat_id(resolved_chat_id)
+
+    return phone, username
+
+
+def _resolve_deal_id(
+    chat_id: str, crm_client: CrmClient, waha_client: WahaClient, session: str, sender_name: str | None
+) -> str | None:
+    """Resuelve (o crea) el deal de consignación de Bitrix para este chat de WhatsApp.
+
+    Para no perder el hilo con clientes sin teléfono resuelto, usa el
+    identificador `@lid` como respaldo (guardado en `fields.FIELD_USERNAME`),
+    aunque no se pueda crear el contacto sin teléfono (ver
+    `CrmClient.find_or_create_property_seller_contact`).
+    """
+    phone, username = _resolve_phone(chat_id, waha_client, session)
 
     if phone is None and username is None:
         logger.warning("chat_id %s no es un chat @c.us ni @lid reconocible, no se vincula a Bitrix", chat_id)
@@ -303,9 +314,11 @@ def process(
     if not config.enabled:
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_disabled"}
 
-    if config.allowed_numbers and from_chat_id(inbound.chat_id) not in config.allowed_numbers:
-        logger.info("Chat %s fuera de WHATSAPP_BOT_ALLOWED_NUMBERS, no se responde", inbound.chat_id)
-        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "number_not_allowed"}
+    if config.allowed_numbers:
+        phone, _ = _resolve_phone(inbound.chat_id, waha_client, inbound.session)
+        if phone not in config.allowed_numbers:
+            logger.info("Chat %s fuera de WHATSAPP_BOT_ALLOWED_NUMBERS, no se responde", inbound.chat_id)
+            return {"ok": True, "chat_id": inbound.chat_id, "skipped": "number_not_allowed"}
 
     if store.already_processed(inbound.message_id):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "duplicate_message"}
