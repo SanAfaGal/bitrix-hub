@@ -47,7 +47,7 @@ FIELD_USERNAME = "UF_CRM_1786458989056"
 # patrón que FIELD_WELCOME_SENT). Vacío/None se interpreta como "activo" —
 # ver BitrixClient.get_bot_active — así los deals existentes sin el campo no
 # quedan pausados por defecto.
-FIELD_BOT_ACTIVE = "UF_CRM_0000000000000"
+FIELD_BOT_ACTIVE = "UF_CRM_1787762476957"
 
 # Pipeline "Consignación" donde caen los deals nuevos creados por el bot.
 CONSIGNACION_CATEGORY_ID = 34
