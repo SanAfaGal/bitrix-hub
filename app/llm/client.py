@@ -89,6 +89,7 @@ class LlmClient:
                 model=model,
                 max_tokens=MAX_TOKENS,
                 messages=messages,
+                response_format={"type": "json_object"},
             )
         except openai.OpenAIError as exc:
             logger.error("Error LLM %s: %s", model, exc)

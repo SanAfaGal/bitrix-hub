@@ -52,6 +52,11 @@ def init_db(db_path: str) -> sqlite3.Connection:
         )
         """
     )
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(conversation_identity)")}
+    if "pending_name" not in existing_columns:
+        conn.execute("ALTER TABLE conversation_identity ADD COLUMN pending_name TEXT")
+    if "pending_phone" not in existing_columns:
+        conn.execute("ALTER TABLE conversation_identity ADD COLUMN pending_phone TEXT")
     conn.commit()
     return conn
 
@@ -129,5 +134,49 @@ def set_confirmed_phone(conn: sqlite3.Connection, chat_id: str, phone: str) -> N
         ON CONFLICT(chat_id) DO UPDATE SET confirmed_phone = excluded.confirmed_phone
         """,
         (chat_id, phone),
+    )
+    conn.commit()
+
+
+def get_pending_identity(conn: sqlite3.Connection, chat_id: str) -> tuple[str | None, str | None]:
+    """Nombre/teléfono que el bot le propuso a la persona en su último mensaje, aún sin confirmar.
+
+    Distinto de `confirmed_name`/`confirmed_phone`: sirve para que, si la
+    persona responde con un simple "sí" a la pregunta de confirmación, el
+    bot pueda promover estos valores a confirmados sin depender de que el
+    LLM los repita en el JSON de ese turno.
+    """
+    row = conn.execute(
+        "SELECT pending_name, pending_phone FROM conversation_identity WHERE chat_id = ?", (chat_id,)
+    ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def set_pending_name(conn: sqlite3.Connection, chat_id: str, name: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO conversation_identity (chat_id, pending_name) VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET pending_name = excluded.pending_name
+        """,
+        (chat_id, name),
+    )
+    conn.commit()
+
+
+def set_pending_phone(conn: sqlite3.Connection, chat_id: str, phone: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO conversation_identity (chat_id, pending_phone) VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET pending_phone = excluded.pending_phone
+        """,
+        (chat_id, phone),
+    )
+    conn.commit()
+
+
+def clear_pending_identity(conn: sqlite3.Connection, chat_id: str) -> None:
+    conn.execute(
+        "UPDATE conversation_identity SET pending_name = NULL, pending_phone = NULL WHERE chat_id = ?",
+        (chat_id,),
     )
     conn.commit()

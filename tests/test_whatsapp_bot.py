@@ -209,6 +209,62 @@ def test_process_waits_for_both_name_and_phone_confirmed_across_turns() -> None:
     assert crm.deal_by_contact == {"5000": "6000"}
 
 
+def test_process_creates_deal_when_person_confirms_proposed_identity_with_plain_si() -> None:
+    """Reproduce el bug real: el LLM propone nombre/teléfono para confirmar, la persona
+    responde solo "Si" en el siguiente turno y, aunque el LLM no repita esos valores en
+    `client_full_name`/`client_phone` de ese turno, el bot debe crear igual el deal."""
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {
+                "reply": "Confirma que su nombre es Juan Pérez y su número es 3001112233, ¿es correcto?",
+                "fields": {},
+                "proposed_full_name": "Juan Pérez",
+                "proposed_phone": "3001112233",
+            }
+        )
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(message_id="m1", text="Juan Pérez\n3001112233"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_deal_id("573001112233@c.us") is None
+
+    store._last_message_time["573001112233@c.us"] = 0.0
+    llm.reply_text = json.dumps({"reply": "Perfecto, gracias", "fields": {}})
+    process(_inbound(message_id="m2", text="Si"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_deal_id("573001112233@c.us") == "6000"
+    assert crm.deal_by_contact == {"5000": "6000"}
+    assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
+
+
+def test_process_does_not_promote_pending_identity_without_affirmative_reply() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {
+                "reply": "Confirma que su nombre es Juan Pérez, ¿es correcto?",
+                "fields": {},
+                "proposed_full_name": "Juan Pérez",
+                "proposed_phone": "3001112233",
+            }
+        )
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    store._last_message_time["573001112233@c.us"] = 0.0
+    llm.reply_text = json.dumps({"reply": "entendido", "fields": {}})
+    process(_inbound(message_id="m2", text="No, mi nombre es otro"), waha, llm, crm, config=_enabled_config(), store=store)
+
+    assert store.get_deal_id("573001112233@c.us") is None
+    assert store.get_confirmed_identity("573001112233@c.us") == (None, None)
+
+
 def test_process_reuses_contact_already_linked_to_lid_username_when_identity_confirmed() -> None:
     # Un asesor ya vinculó ese identificador @lid a un contacto real en
     # Bitrix (con teléfono agregado a mano) — al confirmarse la identidad
@@ -529,6 +585,17 @@ def test_parse_llm_output_extracts_client_full_name_and_phone() -> None:
     assert turn.client_phone == "3001112233"
 
 
+def test_parse_llm_output_extracts_proposed_full_name_and_phone() -> None:
+    raw = json.dumps(
+        {"reply": "confirma?", "fields": {}, "proposed_full_name": "Juan Pérez", "proposed_phone": "3001112233"}
+    )
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.proposed_full_name == "Juan Pérez"
+    assert turn.proposed_phone == "3001112233"
+
+
 def test_parse_llm_output_defaults_client_identity_to_none() -> None:
     raw = json.dumps({"reply": "hola", "fields": {}})
 
@@ -737,3 +804,34 @@ def test_conversation_store_confirmed_identity_survives_new_instance_same_db_fil
     second = ConversationStore(db_path=db_path)
 
     assert second.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
+
+
+def test_conversation_store_pending_identity_defaults_to_none() -> None:
+    store = ConversationStore()
+
+    assert store.get_pending_identity("573001112233@c.us") == (None, None)
+
+
+def test_conversation_store_set_and_clear_pending_identity() -> None:
+    store = ConversationStore()
+
+    store.set_pending_name("573001112233@c.us", "Juan Pérez")
+    store.set_pending_phone("573001112233@c.us", "573001112233")
+
+    assert store.get_pending_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
+
+    store.clear_pending_identity("573001112233@c.us")
+
+    assert store.get_pending_identity("573001112233@c.us") == (None, None)
+
+
+def test_conversation_store_pending_identity_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(db_path=db_path)
+    first.set_pending_name("573001112233@c.us", "Juan Pérez")
+    first.set_pending_phone("573001112233@c.us", "573001112233")
+
+    second = ConversationStore(db_path=db_path)
+
+    assert second.get_pending_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")

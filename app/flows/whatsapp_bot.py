@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -67,8 +68,19 @@ DEFAULT_SYSTEM_PROMPT = (
     "de WhatsApp o un teléfono detectado sin confirmar, no los dé por "
     "buenos: pregúntele si son correctos (ej. \"¿usted es Juan Pérez, "
     "cierto?\", \"¿y escribe desde su número personal?\") en vez de "
-    "pedírselos de cero. Una vez tenga nombre y teléfono confirmados, "
+    "pedírselos de cero. Lo mismo si la persona misma le acaba de escribir "
+    "su nombre y teléfono en su mensaje anterior: repítaselos y pregúntele "
+    "si están correctos antes de darlos por buenos. Cuando la persona "
+    "responda afirmativamente a esa pregunta (ej. \"sí\", \"correcto\", "
+    "\"exacto\", \"así es\"), tome el nombre y el teléfono que usted mismo "
+    "propuso en su mensaje anterior y repórtelos en \"client_full_name\" y "
+    "\"client_phone\" de este turno — la persona no tiene por qué "
+    "volver a escribirlos. Una vez tenga nombre y teléfono confirmados, "
     "continúe con calma recolectando los datos del inmueble.\n\n"
+    "No separe la dirección del sector/zona/ciudad si la persona ya los "
+    "mencionó juntos (ej. una dirección que ya incluye el municipio o "
+    "barrio) — dé por lleno el sector/zona/ciudad con esa misma "
+    "información en vez de volver a preguntarlo aparte.\n\n"
     "Si la persona pide hablar con alguien, si su solicitud se sale de lo "
     "anterior, o si usted no tiene certeza de la respuesta, dígale con "
     "amabilidad que la va a conectar con un asesor.\n\n"
@@ -85,7 +97,8 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
     '"expected_sale_price": <número entero o null>, "registration_number": '
     '<string o null>}, "client_full_name": <nombre y apellido de la persona, '
     'string o null>, "client_phone": <teléfono de la persona, string o '
-    'null>, "handoff_requested": <true o false>}\n'
+    'null>, "proposed_full_name": <string o null>, "proposed_phone": '
+    '<string o null>, "handoff_requested": <true o false>}\n'
     'En "fields" solo van los datos que la persona haya mencionado o '
     'confirmado en ESTE turno — todo lo demás va en null, aunque ya lo '
     "sepamos de antes. No repita en \"fields\" un dato que ya aparece en la "
@@ -93,6 +106,12 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
     "corrigiendo. Lo mismo aplica a \"client_full_name\" y \"client_phone\": "
     "solo van si la persona los dijo/confirmó en ESTE turno, null en "
     "cualquier otro caso — incluyendo cuando ya están confirmados.\n"
+    '"proposed_full_name" y "proposed_phone" van cuando, en "reply", usted '
+    "le está preguntando a la persona si un nombre o teléfono es correcto "
+    "(sea porque la persona lo acaba de escribir, o porque usted se lo "
+    "propuso a partir del perfil de WhatsApp o el número del chat) — van "
+    "con el valor exacto que usted está proponiéndole confirmar, en "
+    "cualquier otro turno van en null.\n"
     '"handoff_requested" es true únicamente cuando "reply" es el mensaje en '
     "el que usted le avisa a la persona que la va a conectar con un asesor "
     '(según las condiciones ya indicadas) — en cualquier otro caso, false.'
@@ -186,6 +205,8 @@ class LlmTurn:
     handoff_requested: bool = False
     client_full_name: str | None = None
     client_phone: str | None = None
+    proposed_full_name: str | None = None
+    proposed_phone: str | None = None
 
 
 def _parse_llm_output(raw: str) -> LlmTurn:
@@ -224,6 +245,8 @@ def _parse_llm_output(raw: str) -> LlmTurn:
         handoff_requested=data.get("handoff_requested") is True,
         client_full_name=_as_text(data.get("client_full_name")),
         client_phone=_as_text(data.get("client_phone")),
+        proposed_full_name=_as_text(data.get("proposed_full_name")),
+        proposed_phone=_as_text(data.get("proposed_phone")),
     )
 
 
@@ -326,6 +349,18 @@ class ConversationStore:
     def set_confirmed_phone(self, chat_id: str, phone: str) -> None:
         store_db.set_confirmed_phone(self._conn, chat_id, phone)
 
+    def get_pending_identity(self, chat_id: str) -> tuple[str | None, str | None]:
+        return store_db.get_pending_identity(self._conn, chat_id)
+
+    def set_pending_name(self, chat_id: str, name: str) -> None:
+        store_db.set_pending_name(self._conn, chat_id, name)
+
+    def set_pending_phone(self, chat_id: str, phone: str) -> None:
+        store_db.set_pending_phone(self._conn, chat_id, phone)
+
+    def clear_pending_identity(self, chat_id: str) -> None:
+        store_db.clear_pending_identity(self._conn, chat_id)
+
 
 # Singleton a nivel de proceso: un archivo SQLite real, sobrevive a un restart.
 conversation_store = ConversationStore(db_path=DEFAULT_DB_PATH)
@@ -422,6 +457,7 @@ def process(
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_paused"}
 
     if deal_id is None:
+        _maybe_promote_pending_identity(inbound.chat_id, inbound.text, store)
         deal_id = _create_deal_from_confirmed_identity(inbound.chat_id, crm_client, store)
 
     listing = crm_client.get_property_listing(deal_id) if deal_id is not None else PropertyListing()
@@ -456,6 +492,9 @@ def process(
 
         deal_id = _apply_confirmed_identity(inbound.chat_id, turn, deal_id, crm_client, store)
 
+        if deal_id is None:
+            _capture_pending_identity(inbound.chat_id, turn, store)
+
         if deal_id is not None and turn.listing != PropertyListing():
             crm_client.update_property_listing(deal_id, turn.listing)
         if deal_id is not None and turn.handoff_requested:
@@ -463,6 +502,54 @@ def process(
             crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
     return {"ok": sent, "chat_id": inbound.chat_id, "reply": turn.reply}
+
+
+_AFFIRMATION_RE = re.compile(
+    r"^(s[ií]|correcto|exacto|as[ií] es|as[ií] mismo|eso es|confirmo|claro que s[ií])\W*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_phone(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    chat_id_form = to_chat_id(raw)
+    return from_chat_id(chat_id_form) if chat_id_form else None
+
+
+def _maybe_promote_pending_identity(chat_id: str, text: str, store: ConversationStore) -> None:
+    """Promueve a confirmado el nombre/teléfono que el bot propuso en su mensaje anterior.
+
+    Red de seguridad para cuando la persona confirma con un simple "sí" y
+    el LLM no repite esos valores en `client_full_name`/`client_phone` de
+    ese mismo turno (`proposed_full_name`/`proposed_phone`, guardados en el
+    turno anterior vía `_capture_pending_identity`, cubren ese hueco).
+    """
+    confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
+    if confirmed_name is not None and confirmed_phone is not None:
+        return
+    if not _AFFIRMATION_RE.match(text.strip()):
+        return
+
+    pending_name, pending_phone = store.get_pending_identity(chat_id)
+    if pending_name is None and pending_phone is None:
+        return
+
+    if confirmed_name is None and pending_name is not None:
+        store.set_confirmed_name(chat_id, pending_name)
+    if confirmed_phone is None and pending_phone is not None:
+        store.set_confirmed_phone(chat_id, pending_phone)
+    store.clear_pending_identity(chat_id)
+
+
+def _capture_pending_identity(chat_id: str, turn: LlmTurn, store: ConversationStore) -> None:
+    """Guarda el nombre/teléfono que el bot le acaba de proponer a la persona para confirmar."""
+    if turn.proposed_full_name is not None:
+        store.set_pending_name(chat_id, turn.proposed_full_name)
+
+    normalized_phone = _normalize_phone(turn.proposed_phone)
+    if normalized_phone is not None:
+        store.set_pending_phone(chat_id, normalized_phone)
 
 
 def _apply_confirmed_identity(
@@ -479,12 +566,9 @@ def _apply_confirmed_identity(
     `username`, o corrección del nombre). Retorna el `deal_id` vigente
     (puede ser uno nuevo, si se acaba de crear).
     """
-    normalized_phone = None
-    if turn.client_phone is not None:
-        chat_id_form = to_chat_id(turn.client_phone)
-        normalized_phone = from_chat_id(chat_id_form) if chat_id_form else None
-        if normalized_phone is not None:
-            store.set_confirmed_phone(chat_id, normalized_phone)
+    normalized_phone = _normalize_phone(turn.client_phone)
+    if normalized_phone is not None:
+        store.set_confirmed_phone(chat_id, normalized_phone)
 
     if turn.client_full_name is not None:
         store.set_confirmed_name(chat_id, turn.client_full_name)

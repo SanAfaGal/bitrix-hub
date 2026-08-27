@@ -60,6 +60,7 @@ def test_reply_returns_text_and_sends_expected_request(monkeypatch) -> None:
         *history,
         {"role": "user", "content": "tienen apartamentos?"},
     ]
+    assert captured["response_format"] == {"type": "json_object"}
 
 
 def test_reply_uses_custom_base_url_when_configured() -> None:
