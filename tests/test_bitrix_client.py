@@ -196,7 +196,7 @@ def test_get_contact_phone_returns_none_when_no_phone() -> None:
 def test_find_or_create_property_seller_contact_returns_existing_match(monkeypatch, caplog) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         assert url.endswith("crm.duplicate.findbycomm.json")
-        assert json == {"type": "PHONE", "values": ["573001112233", "3001112233"]}
+        assert json == {"type": "PHONE", "values": ["573001112233", "+573001112233", "3001112233"]}
         return FakeResponse({"result": {"CONTACT": [7, 9]}})
 
     monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
@@ -217,7 +217,7 @@ def test_find_or_create_property_seller_contact_creates_when_no_match(monkeypatc
             return FakeResponse({"result": {"CONTACT": []}})
         assert url.endswith("crm.contact.add.json")
         assert json == {
-            "fields": {"NAME": "Contacto WhatsApp", "PHONE": [{"VALUE": "573001112233", "VALUE_TYPE": "MOBILE"}]}
+            "fields": {"NAME": "Contacto WhatsApp", "PHONE": [{"VALUE": "+573001112233", "VALUE_TYPE": "MOBILE"}]}
         }
         return FakeResponse({"result": 55})
 

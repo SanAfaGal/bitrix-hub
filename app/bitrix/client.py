@@ -348,13 +348,15 @@ class BitrixClient:
         si falla la llamada.
 
         `crm.duplicate.findbycomm` compara el valor tal cual está guardado —
-        no normaliza. Hay contactos viejos guardados en formato local (sin
-        `57`), así que además del teléfono completo se manda la variante
-        local (últimos 10 dígitos) cuando aplica; si no, un contacto viejo
-        con ese formato no aparece acá, Bitrix lo crea igual y su propio
-        control de duplicados (que sí normaliza) lo borra después.
+        no normaliza. Los contactos nuevos se guardan con `+` delante
+        (`_create_contact`) y hay contactos viejos guardados en formato
+        local (sin `57`) o sin `+`, así que se manda el teléfono completo,
+        con `+` y la variante local (últimos 10 dígitos) cuando aplica; si
+        no, un contacto con alguno de esos formatos no aparece acá, Bitrix
+        lo crea igual y su propio control de duplicados (que sí normaliza)
+        lo borra después.
         """
-        values = [phone]
+        values = [phone, f"+{phone}"]
         if phone.startswith("57") and len(phone) > 10:
             values.append(phone[-10:])
 
@@ -411,7 +413,8 @@ class BitrixClient:
     def _create_contact(self, phone: str | None, username: str | None, display_name: str | None) -> str | None:
         contact_fields: dict[str, Any] = {"NAME": display_name or "Contacto WhatsApp"}
         if phone:
-            contact_fields["PHONE"] = [{"VALUE": phone, "VALUE_TYPE": "MOBILE"}]
+            phone_value = phone if phone.startswith("+") else f"+{phone}"
+            contact_fields["PHONE"] = [{"VALUE": phone_value, "VALUE_TYPE": "MOBILE"}]
         if username:
             contact_fields[fields.FIELD_USERNAME] = username
 
