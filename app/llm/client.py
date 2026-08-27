@@ -18,6 +18,23 @@ logger = logging.getLogger(__name__)
 
 MAX_TOKENS = 250
 
+# Los modelos actuales de OpenAI (probado con gpt-4.1-nano y gpt-5-nano, no
+# solo la familia "reasoning" o1/o3/o4) rechazan `max_tokens` en Chat
+# Completions y piden `max_completion_tokens` en su lugar. Además gastan
+# parte del presupuesto en tokens de "razonamiento" oculto antes de la
+# respuesta visible — con MAX_TOKENS=250 eso alcanzaba a consumir todo el
+# presupuesto sin dejar nada para el texto (finish_reason "length", content
+# vacío). `reasoning_effort="minimal"` corta ese gasto, apropiado para este
+# bot (respuestas cortas). No hay forma confiable de adivinar esto por
+# nombre de modelo (la lista de familias cambia todo el tiempo) — se decide
+# por si se habla directo con OpenAI (`base_url` vacío) o con un proveedor
+# compatible con endpoint propio (Groq, Ollama, etc.), que puede no soportar
+# ninguno de los dos parámetros nuevos todavía.
+def _completion_kwargs(base_url: str | None) -> dict[str, int | str]:
+    if base_url is None:
+        return {"max_completion_tokens": MAX_TOKENS, "reasoning_effort": "minimal"}
+    return {"max_tokens": MAX_TOKENS}
+
 # Pricing per 1K tokens (OpenAI gpt-4o-mini; adjust for other models)
 MODEL_PRICING = {
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
@@ -43,6 +60,7 @@ class LlmClient:
         self._base_url = settings.base_url
         self.fallback_model = settings.fallback_model
         self._fallback_base_url = settings.fallback_base_url
+        self._fallback_api_key = settings.fallback_api_key
         self._client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
 
     def reply(self, system_prompt: str, history: list[dict[str, str]], user_text: str) -> str | None:
@@ -81,15 +99,19 @@ class LlmClient:
 
         try:
             if fallback and self._fallback_base_url:
-                client = openai.OpenAI(api_key=self._api_key, base_url=self._fallback_base_url)
+                client = openai.OpenAI(
+                    api_key=self._fallback_api_key or self._api_key, base_url=self._fallback_base_url
+                )
+                base_url = self._fallback_base_url
             else:
                 client = self._client
+                base_url = self._base_url
 
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=MAX_TOKENS,
                 messages=messages,
                 response_format={"type": "json_object"},
+                **_completion_kwargs(base_url),
             )
         except openai.OpenAIError as exc:
             logger.error("Error LLM %s: %s", model, exc)

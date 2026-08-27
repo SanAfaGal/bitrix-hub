@@ -22,6 +22,7 @@ class LlmSettings:
     base_url: str | None
     fallback_model: str | None = None
     fallback_base_url: str | None = None
+    fallback_api_key: str | None = None
 
 
 def load_llm_settings() -> LlmSettings:
@@ -36,6 +37,7 @@ def load_llm_settings() -> LlmSettings:
     base_url = (os.getenv("LLM_BASE_URL") or "").strip() or None
     fallback_model = (os.getenv("LLM_FALLBACK_MODEL") or "").strip() or None
     fallback_base_url = (os.getenv("LLM_FALLBACK_BASE_URL") or "").strip() or None
+    fallback_api_key = (os.getenv("LLM_FALLBACK_API_KEY") or "").strip() or None
 
     return LlmSettings(
         api_key=api_key,
@@ -43,4 +45,5 @@ def load_llm_settings() -> LlmSettings:
         base_url=base_url,
         fallback_model=fallback_model,
         fallback_base_url=fallback_base_url,
+        fallback_api_key=fallback_api_key,
     )
