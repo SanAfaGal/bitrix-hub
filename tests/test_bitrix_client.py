@@ -305,6 +305,30 @@ def test_find_or_create_property_seller_contact_uses_display_name_when_creating(
     assert client.find_or_create_property_seller_contact("573001112233", display_name="Juan Pérez") == "88"
 
 
+def test_find_or_create_property_seller_contact_does_not_create_when_phone_matches_unconverted_lead(
+    monkeypatch, caplog
+) -> None:
+    # Crear un contacto nuevo cuando el teléfono ya tiene un lead sin
+    # convertir choca con el control de duplicados de Bitrix (lo borra
+    # apenas se crea, aunque después se vincule al lead) — no se crea nada.
+    calls = []
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        calls.append((url, json))
+        assert url.endswith("crm.duplicate.findbycomm.json")
+        return FakeResponse({"result": {"CONTACT": [], "LEAD": [175278]}})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    with caplog.at_level("WARNING"):
+        result = client.find_or_create_property_seller_contact("573001112233", display_name="Juan Pérez")
+
+    assert result is None
+    assert len(calls) == 1  # solo el lookup, nunca intenta crear
+    assert any("lead sin convertir" in record.message and "175278" in record.message for record in caplog.records)
+
+
 def test_find_or_create_property_seller_contact_returns_none_on_username_lookup_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")

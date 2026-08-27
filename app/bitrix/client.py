@@ -296,14 +296,23 @@ class BitrixClient:
         (`crm.contact.add` rechaza con 400 si no viene). Sin teléfono, si
         `username` no matchea ningún contacto existente, retorna `None` —
         no hay forma correcta de crear el contacto todavía.
+
+        Si el teléfono ya tiene un Lead sin convertir (nunca pasó por
+        contacto), no se crea un contacto "desde cero" — el control de
+        duplicados nativo de Bitrix lo detecta como duplicado del Lead y lo
+        borra automáticamente apenas se crea (probado: ni vincularlo al
+        lead después evita el borrado). En ese caso no se crea nada —
+        retorna `None`, mismo comportamiento que "no se pudo crear", para
+        que un asesor lo enganche a mano.
         """
         if not phone and not username:
             logger.error("find_or_create_property_seller_contact llamado sin teléfono ni username")
             return None
 
+        lead_id: str | None = None
         try:
             if phone:
-                contact_id = self._find_contact_by_phone(phone)
+                contact_id, lead_id = self._find_duplicates_by_phone(phone)
                 if contact_id is not None:
                     return contact_id
 
@@ -320,10 +329,24 @@ class BitrixClient:
             )
             return None
 
+        if lead_id is not None:
+            logger.warning(
+                "Teléfono %s ya tiene un lead sin convertir (id=%s) — no se crea contacto, requiere enganche manual",
+                phone,
+                lead_id,
+            )
+            return None
+
         return self._create_contact(phone, username, display_name)
 
-    def _find_contact_by_phone(self, phone: str) -> str | None:
-        """Retorna el contact_id si hay match, o None si no hay ninguno. Lanza `_BitrixLookupError` si falla la llamada."""
+    def _find_duplicates_by_phone(self, phone: str) -> tuple[str | None, str | None]:
+        """Busca contacto y lead existentes para `phone` en una sola llamada a Bitrix.
+
+        Retorna `(contact_id, lead_id)` — cualquiera puede ser `None`. El
+        lead importa aunque haya contacto: `find_or_create_property_seller_contact`
+        solo lo usa cuando no hay contacto (ver ahí). Lanza `_BitrixLookupError`
+        si falla la llamada.
+        """
         try:
             response = requests.post(
                 f"{self.webhook_url}crm.duplicate.findbycomm.json",
@@ -334,13 +357,21 @@ class BitrixClient:
             payload = response.json()
             result = payload.get("result") if isinstance(payload, dict) else None
             contact_ids = result.get("CONTACT") if isinstance(result, dict) else None
+            lead_ids = result.get("LEAD") if isinstance(result, dict) else None
+
+            contact_id = None
             if isinstance(contact_ids, list) and contact_ids:
                 contact_id = str(contact_ids[0])
                 logger.info("Contacto encontrado en Bitrix para %s (id=%s)", phone, contact_id)
-                return contact_id
-            return None
+
+            lead_id = None
+            if isinstance(lead_ids, list) and lead_ids:
+                lead_id = str(lead_ids[0])
+                logger.info("Lead sin convertir encontrado en Bitrix para %s (id=%s)", phone, lead_id)
+
+            return contact_id, lead_id
         except (requests.exceptions.RequestException, ValueError) as exc:
-            logger.error("Error buscando contacto por teléfono %s en Bitrix: %s%s", phone, exc, _error_detail(exc))
+            logger.error("Error buscando duplicados por teléfono %s en Bitrix: %s%s", phone, exc, _error_detail(exc))
             raise _BitrixLookupError from exc
 
     def _find_contact_by_username(self, username: str) -> str | None:
