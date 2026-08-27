@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import logging
 import re
+import tempfile
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
+import certifi
 import requests
 from bs4 import BeautifulSoup
 from requests import Session
@@ -20,6 +24,25 @@ USER_AGENT = (
     "AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36"
 )
 
+# Workaround temporal: medellin.xposureapp.com sirve el intermedio TLS
+# equivocado (GlobalSign GCC R6 en vez de R46, que es el que realmente
+# emitió su certificado hoja), rompiendo la cadena de confianza para
+# cualquier cliente que no haga AIA fetching (los navegadores sí lo hacen,
+# por eso ahí "funciona"). Mientras Xposure corrige su config, se agrega
+# el intermedio correcto al bundle de CAs. Quitar cuando el proveedor
+# arregle su cadena.
+_EXTRA_CA_PATH = Path(__file__).parent / "certs" / "globalsign_gcc_r46_alphassl_ca_2025.pem"
+
+
+@lru_cache(maxsize=1)
+def _ca_bundle_with_xposure_fix() -> str:
+    """Bundle de CAs del sistema + el intermedio faltante de Xposure."""
+    bundle = Path(certifi.where()).read_bytes() + b"\n" + _EXTRA_CA_PATH.read_bytes()
+    tmp = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
+    tmp.write(bundle)
+    tmp.close()
+    return tmp.name
+
 
 class XposureClient:
     """Encapsula el login y la búsqueda de inmuebles en el portal Xposure."""
@@ -33,6 +56,7 @@ class XposureClient:
             "User-Agent": USER_AGENT,
             "Accept-Language": "es-ES,es;q=0.9",
         })
+        self.session.verify = _ca_bundle_with_xposure_fix()
 
     def login(self) -> None:
         """Autentica la sesión contra el portal de Xposure."""
