@@ -27,6 +27,10 @@ docker compose -f docker-compose.yml up -d # prod: same stack, no hot-reload ove
 
 `WAHA_BASE_URL` in `.env` is set to `http://waha:3000` (Docker-network hostname, works when both services run via `docker compose`). Running the API bare with `uv run uvicorn` outside Docker, override it inline without touching `.env`: `WAHA_BASE_URL=http://localhost:3000 uv run uvicorn app.main:app --reload` (works because `load_dotenv()` never overrides a variable already set in the shell).
 
+## Code style
+
+Max 500 lines per file. Split before a file grows past that.
+
 ## Architecture
 
 **Integration packages, not a flat app.** Each external system gets its own package under `app/`: `app/bitrix/` (the current CRM implementation), `app/xposure/`, `app/waha/`. Inside each: `client.py` (HTTP client, never raises on network failure — logs and returns `None`/`False`/`{}`), `settings.py` (env var loading), `router.py` (FastAPI `APIRouter`, tagged), `deps.py` (dependency-provider functions consumed via `Depends(...)`; client-construction errors are caught here and re-raised as `HTTPException` so routes don't repeat that try/except).
