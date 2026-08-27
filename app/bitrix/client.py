@@ -346,11 +346,22 @@ class BitrixClient:
         lead importa aunque haya contacto: `find_or_create_property_seller_contact`
         solo lo usa cuando no hay contacto (ver ahí). Lanza `_BitrixLookupError`
         si falla la llamada.
+
+        `crm.duplicate.findbycomm` compara el valor tal cual está guardado —
+        no normaliza. Hay contactos viejos guardados en formato local (sin
+        `57`), así que además del teléfono completo se manda la variante
+        local (últimos 10 dígitos) cuando aplica; si no, un contacto viejo
+        con ese formato no aparece acá, Bitrix lo crea igual y su propio
+        control de duplicados (que sí normaliza) lo borra después.
         """
+        values = [phone]
+        if phone.startswith("57") and len(phone) > 10:
+            values.append(phone[-10:])
+
         try:
             response = requests.post(
                 f"{self.webhook_url}crm.duplicate.findbycomm.json",
-                json={"type": "PHONE", "values": [phone]},
+                json={"type": "PHONE", "values": values},
                 timeout=REQUEST_TIMEOUT,
             )
             response.raise_for_status()
@@ -415,6 +426,19 @@ class BitrixClient:
             contact_id = payload.get("result") if isinstance(payload, dict) else None
             if not isinstance(contact_id, int) or isinstance(contact_id, bool):
                 return None
+
+            # Bitrix devuelve el ID como éxito aunque después borre el contacto
+            # solo (de forma asíncrona) por control de duplicados propio, ver
+            # docstring de find_or_create_property_seller_contact. Confirmar
+            # que sigue vivo antes de darlo por creado.
+            if not self.get_contact(str(contact_id)):
+                logger.warning(
+                    "Bitrix creó el contacto %s para %s pero lo borró enseguida (duplicado interno)",
+                    contact_id,
+                    phone or username,
+                )
+                return None
+
             logger.info("Contacto creado en Bitrix para %s (id=%s)", phone or username, contact_id)
             return str(contact_id)
         except (requests.exceptions.RequestException, ValueError) as exc:
