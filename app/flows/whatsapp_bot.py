@@ -31,13 +31,14 @@ import logging
 import os
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from app.crm.protocol import CrmClient, PropertyListing
 from app.flows import whatsapp_bot_store as store_db
 from app.forms.models import PROPERTY_TYPES
 from app.llm.client import LlmClient
+from app.transcription.client import TranscriptionClient
 from app.waha.client import WahaClient
 from app.waha.inbound import InboundMessage
 from app.waha.phone import from_chat_id, lid_from_chat_id, to_chat_id
@@ -416,11 +417,30 @@ def _create_deal_from_confirmed_identity(
     return deal_id
 
 
+def _resolve_text(
+    inbound: InboundMessage, waha_client: WahaClient, transcription_client: TranscriptionClient
+) -> str | None:
+    """Si el mensaje es texto lo retorna tal cual; si es una nota de voz, la descarga y transcribe.
+
+    Retorna `None` si no se pudo obtener texto (falló la descarga del audio
+    o la transcripción) — el caller decide qué responder en ese caso.
+    """
+    if not inbound.is_audio:
+        return inbound.text
+    if not inbound.audio_media_path:
+        return None
+    audio_bytes = waha_client.download_media(inbound.audio_media_path)
+    if audio_bytes is None:
+        return None
+    return transcription_client.transcribe(audio_bytes)
+
+
 def process(
     inbound: InboundMessage,
     waha_client: WahaClient,
     llm_client: LlmClient,
     crm_client: CrmClient,
+    transcription_client: TranscriptionClient,
     config: BotConfig | None = None,
     store: ConversationStore | None = None,
 ) -> dict[str, Any]:
@@ -445,6 +465,15 @@ def process(
         logger.info("Chat %s rate limited, no se responde", inbound.chat_id)
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "rate_limited"}
     store.mark_message_received(inbound.chat_id)
+
+    text = _resolve_text(inbound, waha_client, transcription_client)
+    if text is None:
+        logger.info("No se pudo transcribir el audio de %s, se pide que escriba", inbound.chat_id)
+        waha_client.send_text(
+            inbound.chat_id, "No pude escuchar tu audio, ¿me lo puedes escribir? 🙏", session=inbound.session
+        )
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "transcription_failed"}
+    inbound = replace(inbound, text=text)
 
     deal_id = store.get_deal_id(inbound.chat_id)
     if deal_id is not None and not crm_client.deal_exists(deal_id):

@@ -7,9 +7,10 @@ from app.waha.settings import WahaSettings
 
 
 class FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: dict | None = None) -> None:
+    def __init__(self, status_code: int = 200, json_data: dict | None = None, content: bytes = b"") -> None:
         self.status_code = status_code
         self._json_data = json_data
+        self.content = content
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -204,3 +205,40 @@ def test_resolve_lid_to_phone_returns_none_on_request_error(monkeypatch) -> None
     client = WahaClient(settings)
 
     assert client.resolve_lid_to_phone("123456789012345") is None
+
+
+def test_download_media_returns_bytes_on_success(monkeypatch) -> None:
+    captured = {}
+
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse(content=b"audio-bytes")
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.download_media("/api/files/msg1.oga") == b"audio-bytes"
+    assert captured["url"] == "http://localhost:3000/api/files/msg1.oga"
+
+
+def test_download_media_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.download_media("/api/files/msg1.oga") is None
+
+
+def test_download_media_returns_none_on_http_error(monkeypatch) -> None:
+    monkeypatch.setattr("app.waha.client.requests.get", lambda url, headers, timeout: FakeResponse(status_code=404))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.download_media("/api/files/msg1.oga") is None

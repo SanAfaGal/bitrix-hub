@@ -41,6 +41,39 @@ def test_parse_inbound_message_ignores_media_messages() -> None:
     assert parse_inbound_message(_event(hasMedia=True)) is None
 
 
+def test_parse_inbound_message_ignores_non_audio_media() -> None:
+    assert parse_inbound_message(_event(hasMedia=True, media={"url": "http://x/f.jpg", "mimetype": "image/jpeg"})) is None
+
+
+def test_parse_inbound_message_lets_through_audio_message() -> None:
+    result = parse_inbound_message(
+        _event(
+            hasMedia=True,
+            body="",
+            media={"url": "http://localhost:3000/api/files/msg1.oga", "mimetype": "audio/ogg; codecs=opus"},
+        )
+    )
+
+    assert result == InboundMessage(
+        chat_id="573001112233@c.us",
+        text="",
+        message_id="msg1",
+        session="default",
+        is_audio=True,
+        audio_media_path="/api/files/msg1.oga",
+    )
+
+
+def test_parse_inbound_message_audio_without_url_has_no_media_path() -> None:
+    result = parse_inbound_message(
+        _event(hasMedia=True, body="", media={"mimetype": "audio/ogg; codecs=opus", "error": "download failed"})
+    )
+
+    assert result is not None
+    assert result.is_audio is True
+    assert result.audio_media_path is None
+
+
 def test_parse_inbound_message_ignores_status_broadcasts() -> None:
     assert parse_inbound_message(_event(**{"from": "status@broadcast"})) is None
 

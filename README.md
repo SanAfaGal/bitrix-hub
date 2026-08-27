@@ -88,11 +88,13 @@ así es el comportamiento por defecto de `load_dotenv()`)
 docker compose up --build
 ```
 
-Levanta `api` y `waha` juntos, en el mismo compose. `api` espera a que
-`waha` pase su healthcheck antes de arrancar (`depends_on: condition:
-service_healthy`). Sesiones y media de WhatsApp persisten en
-`./.waha-data/` (gitignored); el historial del bot de WhatsApp (SQLite)
-persiste en `./.whatsapp-bot-data/` (gitignored).
+Levanta `api`, `waha` y `whisper` (transcripción de audio, contenedor
+`onerahmet/openai-whisper-asr-webservice`) juntos, en el mismo compose.
+`api` espera a que `waha` y `whisper` pasen su healthcheck antes de
+arrancar (`depends_on: condition: service_healthy`). Sesiones y media de
+WhatsApp persisten en `./.waha-data/` (gitignored); el historial del bot de
+WhatsApp (SQLite) persiste en `./.whatsapp-bot-data/` (gitignored); el
+modelo de whisper descargado persiste en `./.whisper-data/` (gitignored).
 
 Para desarrollo local, `docker compose up` carga automáticamente
 `docker-compose.override.yml` (monta `./app`, agrega `--reload`) — no hace
@@ -135,6 +137,10 @@ app/
     events.py             # Reglas de negocio Waha-solo (vacío por ahora)
     deps.py                # get_waha_client()
     router.py               # POST /webhook/waha-test (scaffolding) y /webhook/waha-message (bot, tag "Waha")
+  transcription/
+    client.py         # TranscriptionClient — transcribe(audio_bytes) vía whisper-asr-webservice (contenedor propio)
+    settings.py        # TRANSCRIPTION_BASE_URL, TRANSCRIPTION_LANGUAGE
+    deps.py              # get_transcription_client()
   llm/
     client.py         # LlmClient — reply(system_prompt, history, user_text), SDK de OpenAI (cualquier proveedor compatible)
     settings.py        # LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
@@ -153,6 +159,7 @@ tests/
   test_bitrix_client.py
   test_waha_client.py
   test_waha_inbound.py
+  test_transcription_client.py
   test_llm_client.py
   test_whatsapp_bot.py
   test_phone.py
@@ -380,8 +387,21 @@ Limitaciones conocidas, por ser experimental:
   se lo pide de cero — no bloquea nada (el contacto nunca se crea con
   este valor sin confirmar, ver arriba), ajustar `_SENDER_NAME_PATHS`
   cuando se confirme el campo real con un payload de producción.
-- **Sin soporte de audio/imagen** — un mensaje con media se ignora
-  (`app/waha/inbound.py`).
+- **Notas de voz se transcriben (whisper-asr-webservice, contenedor propio
+  `whisper` en `docker-compose.yml`), otra media (imagen/video/documento) se
+  ignora** (`app/waha/inbound.py`, `app/transcription/`). La detección usa
+  `payload.media.mimetype` (`audio/...`) y la descarga usa
+  `payload.media.url`, confirmado contra el schema `WAMessage`/`WAMedia` de
+  la API de Waha. Si Waha no pudo descargar el audio (`media.error`, sin
+  `url`) o la transcripción falla, el bot responde pidiendo que se escriba
+  el mensaje en vez de quedarse en silencio. Audios de más de 15MB
+  (`app/transcription/client.py::MAX_AUDIO_BYTES`) se rechazan sin llamar a
+  whisper; tras un fallo de red/HTTP contra whisper, el cliente entra en
+  cooldown de 30s (`COOLDOWN_SECONDS`, estado compartido a nivel de módulo)
+  para que una ráfaga de audios no espere el timeout completo (60s) uno por
+  uno mientras el servicio está caído. `process_whatsapp_bot` corre en un
+  hilo aparte (`asyncio.to_thread` en `app/waha/router.py`) para no
+  bloquear el event loop mientras transcribe.
 - **Sin botones/listas interactivas** — solo texto plano (`WahaClient.send_text`).
 - **Riesgo de baneo de Waha** — es WhatsApp Web no oficial. No usar este
   canal para mandar mensajes masivos no solicitados.

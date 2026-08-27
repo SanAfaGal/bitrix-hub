@@ -1,6 +1,7 @@
 """Endpoints HTTP de la integración con Waha (WhatsApp)."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -12,6 +13,8 @@ from app.flows.whatsapp_bot import load_bot_config
 from app.flows.whatsapp_bot import process as process_whatsapp_bot
 from app.llm.client import LlmClient
 from app.llm.deps import get_llm_client
+from app.transcription.client import TranscriptionClient
+from app.transcription.deps import get_transcription_client
 from app.waha.client import WahaClient
 from app.waha.deps import get_waha_client
 from app.waha.inbound import parse_inbound_message
@@ -58,11 +61,17 @@ async def webhook_waha_message(
     **Experimental** — apagado por defecto (`WHATSAPP_BOT_ENABLED=false`).
     Configurar en Waha (`WHATSAPP_HOOK_URL`/`WHATSAPP_HOOK_EVENTS` en `.env`,
     ver README) para que reenvíe acá los eventos `message` de una sesión.
-    Ignora mensajes propios del bot (`fromMe`), con media, o ya procesados
-    (dedup por `message_id`, Waha puede reintentar el webhook). La lógica de
-    negocio (Waha + LLM + CRM) vive en `app/flows/whatsapp_bot.py` — los
-    datos del inmueble que el cliente cuenta se guardan en el deal de
-    consignación de Bitrix.
+    Ignora mensajes propios del bot (`fromMe`), con media no soportada
+    (imagen/video/documento), o ya procesados (dedup por `message_id`, Waha
+    puede reintentar el webhook). Los mensajes de audio (notas de voz) se
+    transcriben antes de pasar por el bot. La lógica de negocio (Waha + LLM +
+    CRM) vive en `app/flows/whatsapp_bot.py` — los datos del inmueble que el
+    cliente cuenta se guardan en el deal de consignación de Bitrix.
+
+    `process_whatsapp_bot` es síncrono y puede tardar varios segundos
+    (transcripción de audio en CPU, `send_text_sequence` con pausas
+    deliberadas) — se corre en un hilo aparte (`asyncio.to_thread`) para no
+    bloquear el event loop de este endpoint mientras tanto.
     """
     event = await request.json()
     inbound = parse_inbound_message(event)
@@ -85,4 +94,12 @@ async def webhook_waha_message(
         logger.error("Bot de WhatsApp: no se pudo construir el cliente de CRM (falta configuración)")
         return {"ok": False, "chat_id": inbound.chat_id, "error": "crm_not_configured"}
 
-    return process_whatsapp_bot(inbound, waha_client, llm_client, crm_client, config=config)
+    try:
+        transcription_client: TranscriptionClient = get_transcription_client()
+    except Exception:  # noqa: BLE001 — get_transcription_client ya loguea/traduce el error real
+        logger.error("Bot de WhatsApp: no se pudo construir el cliente de transcripción (falta configuración)")
+        return {"ok": False, "chat_id": inbound.chat_id, "error": "transcription_not_configured"}
+
+    return await asyncio.to_thread(
+        process_whatsapp_bot, inbound, waha_client, llm_client, crm_client, transcription_client, config=config
+    )

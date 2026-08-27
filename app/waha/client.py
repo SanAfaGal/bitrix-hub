@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 15
 
+# Descargar un audio de nota de voz puede pesar varios MB — más margen que
+# REQUEST_TIMEOUT.
+MEDIA_DOWNLOAD_TIMEOUT = 30
+
 
 class WahaClient:
     """Encapsula las llamadas a la REST API de Waha."""
@@ -69,6 +73,27 @@ class WahaClient:
             return pn if isinstance(pn, str) and pn else None
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error("Error resolviendo lid %s vía Waha: %s", lid, exc)
+            return None
+
+    def download_media(self, media_path: str) -> bytes | None:
+        """Descarga un archivo multimedia (ej. audio de una nota de voz) ya resuelto por Waha.
+
+        `media_path` es el path (sin host) de `payload.media.url` del propio
+        mensaje entrante (ver `app.waha.inbound._media_path`) — se pide sobre
+        `WAHA_BASE_URL` (alcanzable desde este contenedor) en vez de la URL
+        absoluta del payload, que usa `WAHA_PUBLIC_URL` y puede no resolver
+        desde acá. No lanza si falla, retorna `None`.
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}{media_path}",
+                headers=self._headers,
+                timeout=MEDIA_DOWNLOAD_TIMEOUT,
+            )
+            response.raise_for_status()
+            return response.content
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error descargando media (%s) vía Waha: %s", media_path, exc)
             return None
 
     def send_text_sequence(

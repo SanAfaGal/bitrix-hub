@@ -23,6 +23,8 @@ services:
     depends_on:
       waha:
         condition: service_healthy
+      whisper:
+        condition: service_healthy
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -80,3 +82,41 @@ services:
         limits:
           cpus: "${WAHA_CPU_LIMIT:-2}"
           memory: "${WAHA_MEMORY_LIMIT:-2G}"
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: whisper
+    restart: unless-stopped
+
+    # Sin puerto publicado — solo el servicio `api` lo alcanza, por hostname
+    # `whisper` (misma red default de compose que usa `waha`).
+    environment:
+      ASR_ENGINE: faster_whisper
+      ASR_MODEL: ${WHISPER_MODEL:-base}
+      ASR_MODEL_PATH: /app/.cache/models
+
+    volumes:
+      # Modelo descargado — se conserva entre restarts.
+      - ./.whisper-data/models:/app/.cache/models
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/docs')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    security_opt:
+      - no-new-privileges:true
+
+    deploy:
+      resources:
+        limits:
+          cpus: "${WHISPER_CPU_LIMIT:-2}"
+          memory: "${WHISPER_MEMORY_LIMIT:-2G}"

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,34 @@ def _extract_sender_name(payload: dict[str, Any]) -> str | None:
     return None
 
 
+# Confirmado contra el schema WAMessage/WAMedia de la API de Waha (mismo
+# shape que trae el webhook `message`): un mensaje con media trae
+# `payload.media = {"url": ..., "mimetype": ..., ...}` cuando Waha ya lo
+# descargó. `url` es absoluta (usa WAHA_PUBLIC_URL, ej.
+# "http://localhost:3000/api/files/xxx.oga") — para pedirla desde este
+# contenedor hay que descartar host/esquema y pegarle al path sobre
+# WAHA_BASE_URL (ver WahaClient.download_media), porque WAHA_PUBLIC_URL no
+# necesariamente resuelve desde acá.
+_AUDIO_MIMETYPE_PREFIX = "audio/"
+
+
+def _is_audio_media(media: Any) -> bool:
+    if not isinstance(media, dict):
+        return False
+    mimetype = media.get("mimetype")
+    return isinstance(mimetype, str) and mimetype.lower().startswith(_AUDIO_MIMETYPE_PREFIX)
+
+
+def _media_path(media: dict[str, Any]) -> str | None:
+    """Path (sin host) del archivo ya descargado por Waha, o `None` si Waha
+    no lo pudo descargar todavía (`media.error`) — en ese caso queda sin `url`.
+    """
+    url = media.get("url")
+    if not isinstance(url, str) or not url:
+        return None
+    return urlparse(url).path
+
+
 @dataclass(frozen=True)
 class InboundMessage:
     chat_id: str
@@ -53,6 +82,8 @@ class InboundMessage:
     message_id: str
     session: str
     sender_name: str | None = None
+    is_audio: bool = False
+    audio_media_path: str | None = None
 
 
 def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
@@ -60,7 +91,10 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
 
     Retorna `None` (sin lanzar) cuando el evento no aplica: no es de tipo
     `message`, es eco de un mensaje mandado por el propio bot (`fromMe`),
-    trae media en vez de texto, o le faltan campos mínimos.
+    trae media no soportada (imagen, video, documento), o le faltan campos
+    mínimos. Los mensajes de audio (notas de voz) sí se dejan pasar, con
+    `text=""` e `is_audio=True` — el texto se completa transcribiendo el
+    audio río abajo (ver `app/flows/whatsapp_bot.py`).
     """
     if event.get("event") != "message":
         return None
@@ -75,8 +109,11 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
     if payload.get("from") == "status@broadcast":
         return None
 
-    if payload.get("hasMedia"):
-        logger.info("Mensaje entrante con media (sin soporte todavía), ignorado: %s", payload.get("id"))
+    media = payload.get("media")
+    is_audio = bool(payload.get("hasMedia")) and _is_audio_media(media)
+
+    if payload.get("hasMedia") and not is_audio:
+        logger.info("Mensaje entrante con media no soportada, ignorado: %s", payload.get("id"))
         return None
 
     chat_id = payload.get("from")
@@ -84,7 +121,22 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
     message_id = payload.get("id")
     session = event.get("session")
 
-    if not chat_id or not text or not message_id or not session:
+    if not chat_id or not message_id or not session:
+        logger.warning("Evento de Waha incompleto, ignorado: %s", event)
+        return None
+
+    if is_audio:
+        return InboundMessage(
+            chat_id=chat_id,
+            text="",
+            message_id=str(message_id),
+            session=session,
+            sender_name=_extract_sender_name(payload),
+            is_audio=True,
+            audio_media_path=_media_path(media),
+        )
+
+    if not text:
         logger.warning("Evento de Waha incompleto, ignorado: %s", event)
         return None
 

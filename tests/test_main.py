@@ -134,6 +134,7 @@ def test_webhook_waha_message_replies_via_llm_when_enabled(monkeypatch) -> None:
     )
     monkeypatch.setattr("app.waha.router.get_llm_client", lambda: FakeLlmClient())
     monkeypatch.setattr("app.waha.router.get_crm_client", lambda: FakeCrmClient())
+    monkeypatch.setattr("app.waha.router.get_transcription_client", lambda: object())
     app.dependency_overrides[get_waha_client] = lambda: fake_waha
     try:
         response = client.post("/webhook/waha-message", json=_waha_message_event("msg-enabled"))
@@ -170,6 +171,7 @@ def test_webhook_waha_message_creates_deal_and_updates_property_listing(monkeypa
     )
     monkeypatch.setattr("app.waha.router.get_llm_client", lambda: FakeLlmClient())
     monkeypatch.setattr("app.waha.router.get_crm_client", lambda: fake_crm)
+    monkeypatch.setattr("app.waha.router.get_transcription_client", lambda: object())
     app.dependency_overrides[get_waha_client] = lambda: FakeWahaClient()
     try:
         response = client.post(
@@ -231,6 +233,37 @@ def test_webhook_waha_message_returns_error_when_crm_not_configured(monkeypatch)
 
     assert response.status_code == 200
     assert response.json() == {"ok": False, "chat_id": "573001112233@c.us", "error": "crm_not_configured"}
+
+
+def test_webhook_waha_message_returns_error_when_transcription_not_configured(monkeypatch) -> None:
+    def raise_not_configured():
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=500, detail="Falta variable de entorno: TRANSCRIPTION_BASE_URL")
+
+    class FakeLlmClient:
+        def reply(self, system_prompt: str, history: list[dict], user_text: str) -> str | None:
+            return "no debería llegar a llamarse"
+
+    monkeypatch.setattr(
+        "app.waha.router.load_bot_config",
+        lambda: BotConfig(enabled=True, max_history_turns=6, system_prompt="system"),
+    )
+    monkeypatch.setattr("app.waha.router.get_llm_client", lambda: FakeLlmClient())
+    monkeypatch.setattr("app.waha.router.get_crm_client", lambda: FakeCrmClient())
+    monkeypatch.setattr("app.waha.router.get_transcription_client", raise_not_configured)
+    app.dependency_overrides[get_waha_client] = lambda: object()
+    try:
+        response = client.post("/webhook/waha-message", json=_waha_message_event("msg-transcription-not-configured"))
+    finally:
+        app.dependency_overrides.pop(get_waha_client, None)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": False,
+        "chat_id": "573001112233@c.us",
+        "error": "transcription_not_configured",
+    }
 
 
 def test_webhook_deal_stage_broker_auth_logs_error_when_public_base_url_missing(monkeypatch, caplog) -> None:

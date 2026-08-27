@@ -43,6 +43,9 @@ logs/
 .whatsapp-bot-data/
 data/whatsapp_bot.db
 
+# ── Modelo de whisper descargado (transcripción de audio) ────────────────────
+.whisper-data/
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

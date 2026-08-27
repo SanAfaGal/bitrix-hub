@@ -9,11 +9,18 @@ from tests.fakes import FakeCrmClient
 
 
 class FakeWahaClient:
-    def __init__(self, send_result: bool = True, resolved_lids: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        send_result: bool = True,
+        resolved_lids: dict[str, str] | None = None,
+        media_bytes: bytes | None = b"audio-bytes",
+    ) -> None:
         self.send_result = send_result
         self.calls: list[tuple[str, str, str | None]] = []
         self._resolved_lids = resolved_lids or {}
         self.resolve_lid_to_phone_calls: list[tuple[str, str | None]] = []
+        self._media_bytes = media_bytes
+        self.download_media_calls: list[str] = []
 
     def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
         self.calls.append((chat_id, text, session))
@@ -22,6 +29,10 @@ class FakeWahaClient:
     def resolve_lid_to_phone(self, lid: str, session: str | None = None) -> str | None:
         self.resolve_lid_to_phone_calls.append((lid, session))
         return self._resolved_lids.get(lid)
+
+    def download_media(self, media_path: str) -> bytes | None:
+        self.download_media_calls.append(media_path)
+        return self._media_bytes
 
 
 class FakeLlmClient:
@@ -34,8 +45,41 @@ class FakeLlmClient:
         return self.reply_text
 
 
-def _inbound(message_id: str = "msg1", chat_id: str = "573001112233@c.us", text: str = "hola") -> InboundMessage:
-    return InboundMessage(chat_id=chat_id, text=text, message_id=message_id, session="default")
+class FakeTranscriptionClient:
+    def __init__(self, transcribed_text: str | None = "texto transcrito") -> None:
+        self.transcribed_text = transcribed_text
+        self.calls: list[bytes] = []
+
+    def transcribe(self, audio_bytes: bytes, filename: str = "audio.ogg") -> str | None:
+        self.calls.append(audio_bytes)
+        return self.transcribed_text
+
+
+# Instancia compartida para los tests de mensajes de texto (nunca invocada,
+# ya que `_resolve_text` solo transcribe cuando `inbound.is_audio` es True).
+_TRANSCRIPTION = FakeTranscriptionClient()
+
+
+_UNSET = object()
+
+
+def _inbound(
+    message_id: str = "msg1",
+    chat_id: str = "573001112233@c.us",
+    text: str = "hola",
+    is_audio: bool = False,
+    audio_media_path: str | None | object = _UNSET,
+) -> InboundMessage:
+    if audio_media_path is _UNSET:
+        audio_media_path = "/api/files/msg1.oga" if is_audio else None
+    return InboundMessage(
+        chat_id=chat_id,
+        text=text,
+        message_id=message_id,
+        session="default",
+        is_audio=is_audio,
+        audio_media_path=audio_media_path,
+    )
 
 
 def _enabled_config() -> BotConfig:
@@ -55,7 +99,7 @@ def test_process_skips_when_bot_disabled() -> None:
     crm = FakeCrmClient()
     config = BotConfig(enabled=False, max_history_turns=6, system_prompt="system prompt")
 
-    result = process(_inbound(), waha, llm, crm, config=config, store=ConversationStore())
+    result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=config, store=ConversationStore())
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled"}
     assert waha.calls == []
@@ -68,7 +112,7 @@ def test_process_sends_llm_reply_and_updates_history() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    result = process(_inbound(text="hola"), waha, llm, crm, config=_enabled_config(), store=store)
+    result = process(_inbound(text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
     assert waha.calls == [("573001112233@c.us", "hola! como te ayudo?", "default")]
@@ -76,6 +120,84 @@ def test_process_sends_llm_reply_and_updates_history() -> None:
         {"role": "user", "content": "hola"},
         {"role": "assistant", "content": "hola! como te ayudo?"},
     ]
+
+
+def test_process_transcribes_audio_and_replies_as_if_it_were_text() -> None:
+    waha = FakeWahaClient(media_bytes=b"nota-de-voz")
+    llm = FakeLlmClient(reply_text=_plain_reply("hola! como te ayudo?"))
+    crm = FakeCrmClient()
+    transcription = FakeTranscriptionClient(transcribed_text="hola quiero vender mi apartamento")
+    store = ConversationStore()
+
+    result = process(
+        _inbound(text="", is_audio=True), waha, llm, crm, transcription, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
+    assert waha.download_media_calls == ["/api/files/msg1.oga"]
+    assert transcription.calls == [b"nota-de-voz"]
+    assert llm.calls[0][2] == "hola quiero vender mi apartamento"
+    assert store.get_history("573001112233@c.us") == [
+        {"role": "user", "content": "hola quiero vender mi apartamento"},
+        {"role": "assistant", "content": "hola! como te ayudo?"},
+    ]
+
+
+def test_process_replies_with_fallback_when_media_download_fails() -> None:
+    waha = FakeWahaClient(media_bytes=None)
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    transcription = FakeTranscriptionClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(text="", is_audio=True), waha, llm, crm, transcription, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "transcription_failed"}
+    assert transcription.calls == []
+    assert llm.calls == []
+    assert waha.calls == [
+        ("573001112233@c.us", "No pude escuchar tu audio, ¿me lo puedes escribir? 🙏", "default")
+    ]
+
+
+def test_process_replies_with_fallback_when_waha_could_not_download_audio() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    transcription = FakeTranscriptionClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(text="", is_audio=True, audio_media_path=None),
+        waha,
+        llm,
+        crm,
+        transcription,
+        config=_enabled_config(),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "transcription_failed"}
+    assert waha.download_media_calls == []
+    assert transcription.calls == []
+
+
+def test_process_replies_with_fallback_when_transcription_fails() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    transcription = FakeTranscriptionClient(transcribed_text=None)
+    store = ConversationStore()
+
+    result = process(
+        _inbound(text="", is_audio=True), waha, llm, crm, transcription, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "transcription_failed"}
+    assert llm.calls == []
+    assert store.get_history("573001112233@c.us") == []
 
 
 def test_process_passes_existing_history_to_llm() -> None:
@@ -86,7 +208,7 @@ def test_process_passes_existing_history_to_llm() -> None:
     store.add_turn("573001112233@c.us", "user", "hola")
     store.add_turn("573001112233@c.us", "assistant", "hola! como te ayudo?")
 
-    process(_inbound(message_id="msg2", text="tienen apartamentos?"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="msg2", text="tienen apartamentos?"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     _, history, user_text = llm.calls[0]
     assert history == [
@@ -102,8 +224,8 @@ def test_process_does_not_resend_duplicate_message_id() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(message_id="msg1"), waha, llm, crm, config=_enabled_config(), store=store)
-    result = process(_inbound(message_id="msg1"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="msg1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+    result = process(_inbound(message_id="msg1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result["skipped"] == "duplicate_message"
     assert len(waha.calls) == 1
@@ -116,7 +238,7 @@ def test_process_does_not_send_or_store_when_llm_fails() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    result = process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": False, "chat_id": "573001112233@c.us", "error": "llm_failed"}
     assert waha.calls == []
@@ -129,7 +251,7 @@ def test_process_does_not_store_history_when_waha_send_fails() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    result = process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": False, "chat_id": "573001112233@c.us", "reply": "respuesta"}
     assert store.get_history("573001112233@c.us") == []
@@ -144,7 +266,7 @@ def test_process_does_not_create_contact_or_deal_before_identity_confirmed() -> 
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    result = process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, config=_enabled_config(), store=store)
+    result = process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola!"}
     assert crm.contact_by_phone == {}
@@ -163,6 +285,7 @@ def test_process_still_replies_when_lid_unresolved_and_identity_not_confirmed() 
         waha,
         llm,
         crm,
+        _TRANSCRIPTION,
         config=_enabled_config(),
         store=store,
     )
@@ -182,7 +305,7 @@ def test_process_creates_contact_and_deal_once_name_and_phone_confirmed_same_tur
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.contact_by_phone == {"573001112233": "5000"}
     assert crm.deal_by_contact == {"5000": "6000"}
@@ -196,14 +319,14 @@ def test_process_waits_for_both_name_and_phone_confirmed_across_turns() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("573001112233@c.us") is None
     assert crm.deal_by_contact == {}
 
     store._last_message_time["573001112233@c.us"] = 0.0  # evita el rate limit entre los 2 turnos del test
     llm.reply_text = json.dumps({"reply": "listo", "fields": {}, "client_phone": "3001112233"})
-    process(_inbound(message_id="m2", text="mi numero es ese"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m2", text="mi numero es ese"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("573001112233@c.us") == "6000"
     assert crm.deal_by_contact == {"5000": "6000"}
@@ -227,13 +350,13 @@ def test_process_creates_deal_when_person_confirms_proposed_identity_with_plain_
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(message_id="m1", text="Juan Pérez\n3001112233"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m1", text="Juan Pérez\n3001112233"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("573001112233@c.us") is None
 
     store._last_message_time["573001112233@c.us"] = 0.0
     llm.reply_text = json.dumps({"reply": "Perfecto, gracias", "fields": {}})
-    process(_inbound(message_id="m2", text="Si"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m2", text="Si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("573001112233@c.us") == "6000"
     assert crm.deal_by_contact == {"5000": "6000"}
@@ -255,11 +378,11 @@ def test_process_does_not_promote_pending_identity_without_affirmative_reply() -
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     store._last_message_time["573001112233@c.us"] = 0.0
     llm.reply_text = json.dumps({"reply": "entendido", "fields": {}})
-    process(_inbound(message_id="m2", text="No, mi nombre es otro"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m2", text="No, mi nombre es otro"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("573001112233@c.us") is None
     assert store.get_confirmed_identity("573001112233@c.us") == (None, None)
@@ -280,7 +403,7 @@ def test_process_reuses_contact_already_linked_to_lid_username_when_identity_con
     crm.deal_by_contact["5000"] = "6000"
     store = ConversationStore()
 
-    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("123456789012345@lid") == "6000"
     assert crm.find_or_create_property_seller_contact_calls[-1] == ("573001112233", "123456789012345", "Juan Pérez")
@@ -296,8 +419,8 @@ def test_process_reuses_cached_deal_id_without_hitting_crm_lookup_twice() -> Non
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
-    process(_inbound(message_id="m2", text="otra vez"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m2", text="otra vez"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     # Un solo contacto/deal creado, aunque hubo 2 mensajes.
     assert len(crm.contact_by_phone) == 1
@@ -318,7 +441,7 @@ def test_process_recreates_deal_when_cached_deal_was_deleted_in_bitrix() -> None
     store.set_confirmed_phone("573001112233@c.us", "573001112233")
     crm.deleted_deals.add("40510")
 
-    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     # El deal viejo (borrado) no se vuelve a consultar como si existiera; se
     # resuelve/crea uno nuevo para el contacto y el cache se actualiza.
@@ -337,7 +460,7 @@ def test_process_shows_candidate_name_and_phone_in_system_prompt_before_confirme
         chat_id="573001112233@c.us", text="hola", message_id="msg1", session="default", sender_name="Juan Pérez"
     )
 
-    process(inbound, waha, llm, crm, config=_enabled_config(), store=store)
+    process(inbound, waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     system_prompt = llm.calls[0][0]
     assert "Juan Pérez" in system_prompt
@@ -350,7 +473,7 @@ def test_process_shows_candidate_phone_resolved_from_lid_in_system_prompt() -> N
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert waha.resolve_lid_to_phone_calls == [("123456789012345", "default")]
     system_prompt = llm.calls[0][0]
@@ -366,7 +489,7 @@ def test_process_does_not_resolve_candidate_phone_once_deal_exists() -> None:
     store.set_confirmed_name("123456789012345@lid", "Juan Pérez")
     store.set_confirmed_phone("123456789012345@lid", "573001112233")
 
-    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert waha.resolve_lid_to_phone_calls == []
 
@@ -379,7 +502,7 @@ def test_process_sends_known_fields_to_llm_system_prompt() -> None:
     store.set_deal_id("573001112233@c.us", "6000")
     crm.property_listings["6000"] = PropertyListing(address="Calle 10 # 20-30")
 
-    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     system_prompt = llm.calls[0][0]
     assert "Calle 10 # 20-30" in system_prompt
@@ -399,7 +522,7 @@ def test_process_updates_property_listing_when_llm_extracts_fields() -> None:
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
 
-    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.property_listing_updates == [
         ("6000", PropertyListing(property_type="Apartamento", sector_zone_city="El Poblado, Medellín")),
@@ -413,7 +536,7 @@ def test_process_does_not_call_update_property_listing_when_no_fields_extracted(
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
 
-    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.property_listing_updates == []
 
@@ -428,7 +551,7 @@ def test_process_sends_confirmed_identity_block_to_llm_system_prompt() -> None:
     store = ConversationStore()
     store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
 
-    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     system_prompt = llm.calls[0][0]
     assert "Juan Pérez" in system_prompt
@@ -444,7 +567,7 @@ def test_process_stores_and_saves_confirmed_full_name_on_existing_contact() -> N
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
 
-    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.contact_identity_updates == [("5000", None, "Juan Pérez")]
     assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", None)
@@ -461,7 +584,7 @@ def test_process_backfills_phone_on_contact_found_only_by_username() -> None:
     store = ConversationStore()
     store.set_deal_id("123456789012345@lid", "6000")
 
-    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.contact_identity_updates == [("5000", "573001112233", None)]
     assert store.get_confirmed_identity("123456789012345@lid") == (None, "573001112233")
@@ -477,7 +600,7 @@ def test_process_creates_contact_using_confirmed_phone_and_name_when_lid_unresol
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(chat_id="123456789012345@lid", message_id="m1"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid", message_id="m1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("123456789012345@lid") is None  # falta el nombre
 
@@ -488,6 +611,7 @@ def test_process_creates_contact_using_confirmed_phone_and_name_when_lid_unresol
         waha,
         llm,
         crm,
+        _TRANSCRIPTION,
         config=_enabled_config(),
         store=store,
     )
@@ -505,7 +629,7 @@ def test_process_ignores_unparseable_client_phone() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_confirmed_identity("123456789012345@lid") == (None, None)
     assert store.get_deal_id("123456789012345@lid") is None
@@ -631,6 +755,7 @@ def test_process_skips_when_phone_not_in_allowed_numbers() -> None:
         waha,
         llm,
         crm,
+        _TRANSCRIPTION,
         config=_config_with_allowed_numbers("573001112233"),
         store=store,
     )
@@ -651,6 +776,7 @@ def test_process_replies_when_phone_in_allowed_numbers() -> None:
         waha,
         llm,
         crm,
+        _TRANSCRIPTION,
         config=_config_with_allowed_numbers("573001112233"),
         store=store,
     )
@@ -672,6 +798,7 @@ def test_process_resolves_lid_before_checking_allowed_numbers() -> None:
         waha,
         llm,
         crm,
+        _TRANSCRIPTION,
         config=_config_with_allowed_numbers("573001112233"),
         store=store,
     )
@@ -690,6 +817,7 @@ def test_process_skips_unresolved_lid_when_allowed_numbers_configured() -> None:
         waha,
         llm,
         crm,
+        _TRANSCRIPTION,
         config=_config_with_allowed_numbers("573001112233"),
         store=store,
     )
@@ -709,7 +837,7 @@ def test_process_skips_when_bot_paused_for_deal() -> None:
     store.set_deal_id("573001112233@c.us", "6000")
     crm.bot_active["6000"] = False
 
-    result = process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_paused"}
     assert waha.calls == []
@@ -725,7 +853,7 @@ def test_process_pauses_bot_and_comments_when_llm_requests_handoff() -> None:
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
 
-    result = process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "la conecto con un asesor"}
     assert waha.calls == [("573001112233@c.us", "la conecto con un asesor", "default")]
@@ -740,7 +868,7 @@ def test_process_does_not_pause_when_handoff_not_requested() -> None:
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
 
-    process(_inbound(), waha, llm, crm, config=_enabled_config(), store=store)
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.bot_active_updates == []
     assert crm.comments == []
