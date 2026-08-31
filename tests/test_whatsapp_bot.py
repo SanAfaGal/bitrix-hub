@@ -79,6 +79,7 @@ def _inbound(
     text: str = "hola",
     is_audio: bool = False,
     audio_media_path: str | None | object = _UNSET,
+    is_unsupported: bool = False,
 ) -> InboundMessage:
     if audio_media_path is _UNSET:
         audio_media_path = "/api/files/msg1.oga" if is_audio else None
@@ -89,6 +90,7 @@ def _inbound(
         session="default",
         is_audio=is_audio,
         audio_media_path=audio_media_path,
+        is_unsupported=is_unsupported,
     )
 
 
@@ -208,6 +210,28 @@ def test_process_replies_with_fallback_when_transcription_fails() -> None:
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "transcription_failed"}
     assert llm.calls == []
     assert store.get_history("573001112233@c.us") == []
+
+
+def test_process_replies_with_fallback_when_media_is_unsupported() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    transcription = FakeTranscriptionClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(text="", is_unsupported=True), waha, llm, crm, transcription, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "unsupported_media"}
+    assert llm.calls == []
+    assert waha.calls == [
+        (
+            "573001112233@c.us",
+            "Por ahora solo puedo leer texto o notas de voz, ¿me lo puedes escribir? 🙏",
+            "default",
+        )
+    ]
 
 
 def test_process_passes_existing_history_to_llm() -> None:

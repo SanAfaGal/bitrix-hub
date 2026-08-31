@@ -78,6 +78,7 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         "conversación real de WhatsApp — sin markdown ni emojis."
     ),
     "whatsapp_transcription_failed": "No pude escuchar tu audio, ¿me lo puedes escribir? 🙏",
+    "whatsapp_unsupported_message": "Por ahora solo puedo leer texto o notas de voz, ¿me lo puedes escribir? 🙏",
     "bitrix_welcome_stage_message": (
         "¡Hola! 👋 Soy el asistente virtual de Alberto Álvarez. Gracias por tu interés, ya te "
         "comparto el siguiente paso."
@@ -94,6 +95,7 @@ TEMPLATE_LABELS: dict[str, str] = {
     "whatsapp_welcome_known": "Bienvenida — cliente conocido",
     "whatsapp_system_prompt": "Comportamiento del bot",
     "whatsapp_transcription_failed": "No se pudo transcribir el audio",
+    "whatsapp_unsupported_message": "Mensaje con contenido no soportado",
     "bitrix_welcome_stage_message": "Aviso de siguiente paso",
     "bitrix_authorization_link_message": "Link de firma",
 }
@@ -116,6 +118,7 @@ TEMPLATE_HINTS: dict[str, str] = {
     "whatsapp_welcome_unknown": "Automático · bot de WhatsApp",
     "whatsapp_welcome_known": "Automático · bot de WhatsApp",
     "whatsapp_transcription_failed": "Automático · bot de WhatsApp",
+    "whatsapp_unsupported_message": "Automático · bot de WhatsApp",
     "bitrix_welcome_stage_message": "Manual · lo dispara un asesor en Bitrix",
     "bitrix_authorization_link_message": "Manual · lo dispara un asesor en Bitrix",
 }
@@ -134,6 +137,11 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
         "Se dispara si el cliente manda una nota de voz y el sistema no logra transcribirla "
         "(audio dañado, muy largo o el servicio de transcripción falló)."
     ),
+    "whatsapp_unsupported_message": (
+        "Se dispara si el cliente manda algo que el bot no puede leer (imagen, video, "
+        "documento, sticker, ubicación, contacto, etc.) — cualquier tipo de mensaje distinto "
+        "de texto o nota de voz."
+    ),
     "bitrix_welcome_stage_message": (
         "Lo dispara un asesor desde Bitrix al cambiar la etapa del negocio — no pasa por el "
         "bot conversacional."
@@ -149,7 +157,10 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
 # bot", no acá. Igual que las keys, el agrupamiento es fijo en código.
 TEMPLATE_SECTIONS: list[dict[str, object]] = [
     {"name": "Primer contacto", "keys": ["whatsapp_welcome_unknown", "whatsapp_welcome_known"]},
-    {"name": "Durante la conversación", "keys": ["whatsapp_transcription_failed"]},
+    {
+        "name": "Durante la conversación",
+        "keys": ["whatsapp_transcription_failed", "whatsapp_unsupported_message"],
+    },
     {
         "name": "Autorización de corretaje",
         "keys": ["bitrix_welcome_stage_message", "bitrix_authorization_link_message"],

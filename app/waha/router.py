@@ -61,10 +61,11 @@ async def webhook_waha_message(
     **Experimental** — apagado por defecto (`WHATSAPP_BOT_ENABLED=false`).
     Configurar en Waha (`WHATSAPP_HOOK_URL`/`WHATSAPP_HOOK_EVENTS` en `.env`,
     ver README) para que reenvíe acá los eventos `message` de una sesión.
-    Ignora mensajes propios del bot (`fromMe`), con media no soportada
-    (imagen/video/documento), o ya procesados (dedup por `message_id`, Waha
-    puede reintentar el webhook). Los mensajes de audio (notas de voz) se
-    transcriben antes de pasar por el bot. La lógica de negocio (Waha + LLM +
+    Ignora mensajes propios del bot (`fromMe`) o ya procesados (dedup por
+    `message_id`, Waha puede reintentar el webhook). Los mensajes de audio
+    (notas de voz) se transcriben antes de pasar por el bot; media no
+    soportada (imagen/video/documento) recibe una respuesta de fallback en
+    vez de quedarse sin contestar. La lógica de negocio (Waha + LLM +
     CRM) vive en `app/flows/whatsapp_bot.py` — los datos del inmueble que el
     cliente cuenta se guardan en el deal de consignación de Bitrix.
 

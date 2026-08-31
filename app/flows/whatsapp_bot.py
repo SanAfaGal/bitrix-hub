@@ -428,6 +428,13 @@ def process(
     if maybe_send_first_contact_welcome(inbound.chat_id, inbound.session, waha_client, crm_client, store):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "first_contact_welcome"}
 
+    if inbound.is_unsupported:
+        logger.info("Mensaje con media no soportada de %s, se pide que escriba", inbound.chat_id)
+        waha_client.send_text(
+            inbound.chat_id, templates_store.get_template("whatsapp_unsupported_message"), session=inbound.session
+        )
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "unsupported_media"}
+
     text = _resolve_text(inbound, waha_client, transcription_client)
     if text is None:
         logger.info("No se pudo transcribir el audio de %s, se pide que escriba", inbound.chat_id)

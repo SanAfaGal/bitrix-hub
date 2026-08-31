@@ -37,12 +37,26 @@ def test_parse_inbound_message_ignores_own_messages() -> None:
     assert parse_inbound_message(_event(fromMe=True)) is None
 
 
-def test_parse_inbound_message_ignores_media_messages() -> None:
-    assert parse_inbound_message(_event(hasMedia=True)) is None
+def test_parse_inbound_message_marks_media_messages_unsupported() -> None:
+    result = parse_inbound_message(_event(hasMedia=True))
+
+    assert result is not None
+    assert result.is_unsupported is True
+    assert result.text == ""
 
 
-def test_parse_inbound_message_ignores_non_audio_media() -> None:
-    assert parse_inbound_message(_event(hasMedia=True, media={"url": "http://x/f.jpg", "mimetype": "image/jpeg"})) is None
+def test_parse_inbound_message_marks_non_audio_media_unsupported() -> None:
+    result = parse_inbound_message(
+        _event(hasMedia=True, media={"url": "http://x/f.jpg", "mimetype": "image/jpeg"})
+    )
+
+    assert result == InboundMessage(
+        chat_id="573001112233@c.us",
+        text="",
+        message_id="msg1",
+        session="default",
+        is_unsupported=True,
+    )
 
 
 def test_parse_inbound_message_lets_through_audio_message() -> None:

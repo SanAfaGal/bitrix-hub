@@ -84,17 +84,21 @@ class InboundMessage:
     sender_name: str | None = None
     is_audio: bool = False
     audio_media_path: str | None = None
+    is_unsupported: bool = False
 
 
 def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
     """Extrae un mensaje de texto entrante del payload de webhook de Waha.
 
     Retorna `None` (sin lanzar) cuando el evento no aplica: no es de tipo
-    `message`, es eco de un mensaje mandado por el propio bot (`fromMe`),
-    trae media no soportada (imagen, video, documento), o le faltan campos
-    mínimos. Los mensajes de audio (notas de voz) sí se dejan pasar, con
-    `text=""` e `is_audio=True` — el texto se completa transcribiendo el
-    audio río abajo (ver `app/flows/whatsapp_bot.py`).
+    `message`, es eco de un mensaje mandado por el propio bot (`fromMe`), o
+    le faltan campos mínimos. Los mensajes de audio (notas de voz) se dejan
+    pasar con `text=""` e `is_audio=True` — el texto se completa
+    transcribiendo el audio río abajo (ver `app/flows/whatsapp_bot.py`).
+    Media no soportada (imagen, video, documento, sticker, etc.) también se
+    deja pasar, con `text=""` e `is_unsupported=True`, para que el bot le
+    responda con un mensaje de fallback en vez de quedarse callado (ver
+    `app/flows/whatsapp_bot.py`).
     """
     if event.get("event") != "message":
         return None
@@ -111,10 +115,7 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
 
     media = payload.get("media")
     is_audio = bool(payload.get("hasMedia")) and _is_audio_media(media)
-
-    if payload.get("hasMedia") and not is_audio:
-        logger.info("Mensaje entrante con media no soportada, ignorado: %s", payload.get("id"))
-        return None
+    is_unsupported = bool(payload.get("hasMedia")) and not is_audio
 
     chat_id = payload.get("from")
     text = payload.get("body")
@@ -134,6 +135,17 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
             sender_name=_extract_sender_name(payload),
             is_audio=True,
             audio_media_path=_media_path(media),
+        )
+
+    if is_unsupported:
+        logger.info("Mensaje entrante con media no soportada: %s", message_id)
+        return InboundMessage(
+            chat_id=chat_id,
+            text="",
+            message_id=str(message_id),
+            session=session,
+            sender_name=_extract_sender_name(payload),
+            is_unsupported=True,
         )
 
     if not text:
