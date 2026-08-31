@@ -107,12 +107,24 @@ class LlmClient:
                 client = self._client
                 base_url = self._base_url
 
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                **_completion_kwargs(base_url),
-            )
+            kwargs = _completion_kwargs(base_url)
+            try:
+                response = client.chat.completions.create(
+                    model=model, messages=messages, response_format={"type": "json_object"}, **kwargs
+                )
+            except openai.BadRequestError as exc:
+                # No todo modelo accesible directo por OpenAI es de la familia "reasoning"
+                # (ver `_completion_kwargs`) — gpt-4.1-nano, por ejemplo, rechaza
+                # `reasoning_effort` aunque se hable con OpenAI sin base_url custom.
+                # Se reintenta sin el parámetro en vez de adivinar por nombre de modelo.
+                if "reasoning_effort" in kwargs and "reasoning_effort" in str(exc):
+                    logger.warning("Modelo %s no soporta reasoning_effort, reintentando sin ese parámetro", model)
+                    kwargs.pop("reasoning_effort")
+                    response = client.chat.completions.create(
+                        model=model, messages=messages, response_format={"type": "json_object"}, **kwargs
+                    )
+                else:
+                    raise
         except openai.OpenAIError as exc:
             logger.error("Error LLM %s: %s", model, exc)
             return None

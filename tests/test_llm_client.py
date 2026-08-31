@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import httpx
 import openai
 
 from app.llm.client import LlmClient
 from app.llm.settings import LlmSettings
+
+
+def _bad_request_error(message: str) -> openai.BadRequestError:
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={"error": {"message": message, "type": "invalid_request_error", "param": None, "code": None}},
+    )
+    return openai.BadRequestError(message, response=response, body=None)
 
 
 @dataclass
@@ -77,6 +88,27 @@ def test_reply_uses_max_completion_tokens_and_reasoning_effort_against_openai_di
     assert captured["max_completion_tokens"] == 250
     assert captured["reasoning_effort"] == "minimal"
     assert "max_tokens" not in captured
+
+
+def test_reply_retries_without_reasoning_effort_when_model_rejects_it(monkeypatch) -> None:
+    captured_calls = []
+
+    def fake_create(**kwargs):
+        captured_calls.append(kwargs)
+        if "reasoning_effort" in kwargs:
+            raise _bad_request_error("Unrecognized request argument supplied: reasoning_effort")
+        return FakeCompletion(choices=[FakeChoice(message=FakeMessage(content="ok sin reasoning_effort"))])
+
+    client = LlmClient(_settings(model="gpt-4.1-nano", base_url=None))
+    monkeypatch.setattr(client._client.chat.completions, "create", fake_create)
+
+    result = client.reply("system", [], "hola")
+
+    assert result == "ok sin reasoning_effort"
+    assert len(captured_calls) == 2
+    assert "reasoning_effort" in captured_calls[0]
+    assert "reasoning_effort" not in captured_calls[1]
+    assert captured_calls[1]["max_completion_tokens"] == 250
 
 
 def test_reply_uses_plain_max_tokens_for_custom_base_url(monkeypatch) -> None:
