@@ -98,16 +98,16 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     });
   }
 
-  // Matrícula: solo números y guion, sin ningún espacio — no es texto libre
-  // como la dirección, es un código (misma regla que `_REGISTRATION_NUMBER_RE`
-  // en app/forms/models.py).
-  function onlyDigitsAndHyphen(value) {
-    return value.replace(/[^0-9-]/g, '');
+  // Matrícula: dígitos, letras (código de oficina, ej. "50C") y guion, sin
+  // ningún espacio — no es texto libre como la dirección, es un código
+  // (misma regla que `_REGISTRATION_NUMBER_RE` en app/forms/models.py).
+  function onlyAlnumAndHyphen(value) {
+    return value.toUpperCase().replace(/[^0-9A-Z-]/g, '');
   }
   var registrationNumberInput = document.getElementById('field-registration_number');
   if (registrationNumberInput) {
     registrationNumberInput.addEventListener('input', function () {
-      transformPreservingCursor(registrationNumberInput, onlyDigitsAndHyphen);
+      transformPreservingCursor(registrationNumberInput, onlyAlnumAndHyphen);
     });
   }
 

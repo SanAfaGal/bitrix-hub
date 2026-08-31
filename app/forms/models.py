@@ -51,8 +51,11 @@ _NAME_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-\s]+$")
 # estricto que "algo@algo.algo" (que dejaba pasar "juan@example..com" o
 # "juan@example.c").
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[a-zA-Z]{2,}$")
-# Solo números y guion — la matrícula inmobiliaria no lleva letras.
-_REGISTRATION_NUMBER_RE = re.compile(r"^[0-9-]+$")
+# Matrícula inmobiliaria: "código de oficina - número de matrícula" (ej.
+# "50C-1945945"), con letra opcional en el código de oficina; o solo dígitos
+# para el formato viejo sin separador. Misma regla que `MATRICULA_PATTERN`
+# en app/flows/registry_duplicate_check.py.
+_REGISTRATION_NUMBER_RE = re.compile(r"^\d{2,3}[A-Z]?-\d{4,10}$|^\d{4,10}$")
 # Letras, números y guion — cédula, cédula de extranjería o pasaporte (puede
 # traer letras); el guion se permite porque en varios países es parte real
 # del número, no solo formato (ver clean_id_number).

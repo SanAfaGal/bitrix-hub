@@ -324,13 +324,29 @@ def test_post_form_rejects_invalid_email(bad_email):
     assert response.status_code == 422
 
 
-def test_post_form_rejects_letters_in_registration_number():
+def test_post_form_rejects_letters_before_the_office_code(monkeypatch):
     payload = _valid_form_payload()
     payload["registration_number"] = "ABC-12345"
 
     response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
 
     assert response.status_code == 422
+
+
+def test_post_form_accepts_letter_in_office_code(monkeypatch):
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+    payload["registration_number"] = "50C-1945945"
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    _, listing = fake_crm.property_listing_updates[0]
+    assert listing.registration_number == "50C-1945945"
 
 
 def test_post_form_rejects_unknown_property_type():
