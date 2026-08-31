@@ -468,12 +468,17 @@ La bienvenida de primer contacto (`whatsapp_welcome_known`/`_unknown`) se
 manda **tal cual, sin pasar por el LLM** — solo el resto de la conversación
 usa el `system_prompt`. Ver `app/flows/whatsapp_bot_welcome.py`.
 
-Guardado en MySQL vía SQLAlchemy (`app/message_templates/`, contenedor
-`mysql` propio en `docker-compose.yml`) — aparte del SQLite del historial
-de conversación (`WHATSAPP_BOT_DB_PATH`), que no se tocó. Si MySQL no está
-disponible, las lecturas caen a los defaults hardcodeados en
-`app/message_templates/store.py::DEFAULT_TEMPLATES` — el bot nunca deja de
-responder por esto.
+Guardado en MySQL vía SQLAlchemy (`app/message_templates/`) — aparte del
+SQLite del historial de conversación (`WHATSAPP_BOT_DB_PATH`), que no se
+tocó. Si MySQL no está disponible, las lecturas caen a los defaults
+hardcodeados en `app/message_templates/store.py::DEFAULT_TEMPLATES` — el bot
+nunca deja de responder por esto.
+
+El contenedor `mysql` (+ `adminer` para inspeccionarlo en
+`http://localhost:${ADMINER_PORT:-8080}`) solo vive en
+`docker-compose.override.yml` (desarrollo local). En producción no se corre
+este archivo — `MYSQL_HOST`/`MYSQL_PORT` deben apuntar a un MySQL externo o
+gestionado aparte.
 
 ### Cambio de etapa de deal -> bienvenida + Autorización de Corretaje por WhatsApp
 
