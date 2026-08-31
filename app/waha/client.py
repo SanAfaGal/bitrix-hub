@@ -50,6 +50,41 @@ class WahaClient:
             logger.error("Error enviando mensaje a %s vía Waha: %s", chat_id, exc)
             return False
 
+    def send_voice(
+        self,
+        chat_id: str,
+        audio_base64: str,
+        *,
+        mimetype: str = "audio/ogg; codecs=opus",
+        filename: str = "voice.ogg",
+        session: str | None = None,
+    ) -> bool:
+        """Envía una nota de voz a un chat de WhatsApp. No lanza si falla.
+
+        `audio_base64` va sin el prefijo `data:...;base64,` (solo el
+        contenido codificado) — Waha lo espera así en `file.data`. Pensado
+        para audios fijos ya conocidos en tiempo de build (ver
+        `app.flows.whatsapp_bot_welcome`), no para reenviar audio recibido
+        de un usuario. Retorna True si Waha aceptó el envío, False si falla.
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/sendVoice",
+                json={
+                    "chatId": chat_id,
+                    "file": {"mimetype": mimetype, "filename": filename, "data": audio_base64},
+                    "session": session or self.session,
+                },
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            logger.info("Nota de voz enviada a %s vía Waha", chat_id)
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error enviando nota de voz a %s vía Waha: %s", chat_id, exc)
+            return False
+
     def resolve_lid_to_phone(self, lid: str, session: str | None = None) -> str | None:
         """Resuelve un identificador `@lid` (número oculto) al chatId real, si Waha ya lo conoce.
 

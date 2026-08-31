@@ -5,11 +5,16 @@ no seguir inflándolo. Se ejecuta antes de que `process()` invoque al LLM: si
 el chat no tiene historial todavía, se resuelve si Bitrix ya conoce al
 cliente por su teléfono (`CrmClient.find_contact_by_phone`) y se envía la
 plantilla correspondiente (`whatsapp_welcome_known`/`whatsapp_welcome_unknown`,
-ver `app/message_templates/store.py`) tal cual, sin generarla con el LLM.
+ver `app/message_templates/store.py`) tal cual, sin generarla con el LLM. Si
+el cliente es conocido, además se manda una nota de voz fija
+(`app/waha/assets/welcome_known_voice.ogg`) justo después del texto.
 """
 from __future__ import annotations
 
+import base64
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.crm.protocol import CrmClient
@@ -20,6 +25,20 @@ if TYPE_CHECKING:
     from app.flows.whatsapp_bot import ConversationStore
 
 logger = logging.getLogger(__name__)
+
+# Nota de voz fija que acompaña la bienvenida de cliente conocido — no
+# cambia en runtime, se lee una sola vez y se cachea en base64 (evita releer
+# disco en cada mensaje).
+_WELCOME_KNOWN_VOICE_PATH = Path(__file__).resolve().parent.parent / "waha" / "assets" / "welcome_known_voice.ogg"
+
+
+@lru_cache(maxsize=1)
+def _welcome_known_voice_base64() -> str | None:
+    try:
+        return base64.b64encode(_WELCOME_KNOWN_VOICE_PATH.read_bytes()).decode("ascii")
+    except OSError as exc:
+        logger.error("No se pudo leer el audio de bienvenida (%s): %s", _WELCOME_KNOWN_VOICE_PATH, exc)
+        return None
 
 
 def maybe_send_first_contact_welcome(
@@ -57,4 +76,10 @@ def maybe_send_first_contact_welcome(
         store.add_turn(chat_id, "assistant", text)
     else:
         logger.error("No se pudo enviar la bienvenida de primer contacto a %s", chat_id)
+
+    if sent and name:
+        audio_base64 = _welcome_known_voice_base64()
+        if audio_base64 is not None:
+            waha_client.send_voice(chat_id, audio_base64, session=session)
+
     return True
