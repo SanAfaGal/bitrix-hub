@@ -25,6 +25,10 @@ from app.forms.page import (
 from app.forms.rate_limit import rate_limit
 from app.forms.settings import load_form_link_secret, load_signed_form_drive_folder_id
 from app.forms.signature_cleaner import clean_signature_photo
+from app.message_templates import store as templates_store
+from app.waha.client import WahaClient
+from app.waha.deps import get_waha_client
+from app.waha.phone import to_chat_id
 
 logger = logging.getLogger(__name__)
 
@@ -218,9 +222,10 @@ def _upload_signed_pdf(crm_client, deal_id: str, address: str, pdf_bytes: bytes,
 
 def _mark_as_signed(deal_id: str, address: str, pdf_bytes: bytes, signed_at: datetime) -> None:
     """Deja constancia de la firma en el deal: sube el PDF al drive, comenta en el timeline
-    (con el link al documento si la subida funcionó) y marca el estado 'Firmada'.
+    (con el link al documento si la subida funcionó), marca el estado 'Firmada' y le avisa
+    al cliente por WhatsApp que la recibimos.
 
-    Best-effort: nunca rompe la descarga del PDF si Bitrix falla.
+    Best-effort: nunca rompe la descarga del PDF si Bitrix o Waha fallan.
     """
     try:
         crm_client = get_crm_client()
@@ -230,5 +235,31 @@ def _mark_as_signed(deal_id: str, address: str, pdf_bytes: bytes, signed_at: dat
             comment += f" Documento firmado: {file_url}"
         crm_client.add_comment(deal_id, comment)
         crm_client.set_authorization_status(deal_id, "firmada")
+        _notify_client_signed(crm_client, deal_id)
     except Exception:
         logger.exception("Error marcando la firma de la Autorización de Corretaje en el deal %s", deal_id)
+
+
+def _notify_client_signed(crm_client, deal_id: str) -> None:
+    """Le avisa al cliente por WhatsApp que su Autorización de Corretaje firmada llegó.
+
+    Best-effort, silencioso si algo falta (sin contacto, sin teléfono, o
+    falla Waha) — no debe romper `_mark_as_signed`, que ya deja la
+    constancia importante (comentario + estado) en el deal aunque este
+    aviso no se pueda mandar.
+    """
+    deal = crm_client.get_deal(deal_id)
+    contact_id = crm_client.get_deal_contact_id(deal)
+    if not contact_id:
+        logger.warning("Deal %s firmado sin contacto vinculado, no se avisa por WhatsApp", deal_id)
+        return
+
+    contact = crm_client.get_contact(contact_id)
+    raw_phone = crm_client.get_contact_phone(contact)
+    chat_id = to_chat_id(raw_phone) if raw_phone else None
+    if not chat_id:
+        logger.warning("Deal %s firmado sin teléfono válido, no se avisa por WhatsApp", deal_id)
+        return
+
+    waha_client: WahaClient = get_waha_client()
+    waha_client.send_text(chat_id, templates_store.get_template("whatsapp_authorization_signed_message"))

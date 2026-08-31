@@ -94,6 +94,11 @@ DEFAULT_TEMPLATES: dict[str, str] = {
     "bitrix_authorization_link_message": (
         "Para continuar, necesitamos que completes y firmes la Autorización de Corretaje aquí: {{link}}"
     ),
+    "whatsapp_authorization_signed_message": (
+        "¡Gracias! Hemos recibido tu Autorización de Corretaje firmada ✅ En breve uno de "
+        "nuestros asesores se pondrá en contacto contigo para solicitarte la demás "
+        "documentación y continuar con el proceso."
+    ),
 }
 
 # Metadatos para el panel admin (etiqueta amigable + variables disponibles). No
@@ -106,6 +111,7 @@ TEMPLATE_LABELS: dict[str, str] = {
     "whatsapp_unsupported_message": "Mensaje con contenido no soportado",
     "bitrix_welcome_stage_message": "Aviso de siguiente paso",
     "bitrix_authorization_link_message": "Link de firma",
+    "whatsapp_authorization_signed_message": "Confirmación de firma recibida",
 }
 
 TEMPLATE_VARIABLES: dict[str, list[str]] = {
@@ -129,6 +135,7 @@ TEMPLATE_HINTS: dict[str, str] = {
     "whatsapp_unsupported_message": "Automático · bot de WhatsApp",
     "bitrix_welcome_stage_message": "Manual · lo dispara un asesor en Bitrix",
     "bitrix_authorization_link_message": "Manual · lo dispara un asesor en Bitrix",
+    "whatsapp_authorization_signed_message": "Automático · al firmar el formulario público",
 }
 
 TEMPLATE_WHEN_USED: dict[str, str] = {
@@ -158,6 +165,10 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
         "Se manda justo después del aviso de siguiente paso, en el mismo chat, con el enlace "
         "único para firmar desde el celular."
     ),
+    "whatsapp_authorization_signed_message": (
+        "Se envía apenas el cliente completa y firma el formulario público de Autorización de "
+        "Corretaje, para confirmarle que la recibimos y que un asesor la continuará."
+    ),
 }
 
 # Agrupación de las plantillas (mensajes reales) en el panel admin — el
@@ -171,7 +182,11 @@ TEMPLATE_SECTIONS: list[dict[str, object]] = [
     },
     {
         "name": "Autorización de corretaje",
-        "keys": ["bitrix_welcome_stage_message", "bitrix_authorization_link_message"],
+        "keys": [
+            "bitrix_welcome_stage_message",
+            "bitrix_authorization_link_message",
+            "whatsapp_authorization_signed_message",
+        ],
     },
 ]
 

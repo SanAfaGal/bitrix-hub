@@ -24,12 +24,20 @@ def _token_for(deal_id: str) -> str:
 class FakeCrmClient:
     """Fake mínimo para tests del router: deal sin estado de firma por defecto."""
 
-    def __init__(self, authorization_status: str | None = None, upload_file_result: str | None = "https://example.bitrix24.com/docs/file/firmado.pdf") -> None:
+    def __init__(
+        self,
+        authorization_status: str | None = None,
+        upload_file_result: str | None = "https://example.bitrix24.com/docs/file/firmado.pdf",
+        contact_id: str | None = "7",
+        contact_phone: str | None = "573001112233",
+    ) -> None:
         self.authorization_status = authorization_status
         self.comments: list[tuple[str, str]] = []
         self.status_updates: list[tuple[str, str]] = []
         self.uploaded_files: list[tuple[str, str, bytes]] = []
         self.upload_file_result = upload_file_result
+        self.contact_id = contact_id
+        self.contact_phone = contact_phone
 
     def get_deal(self, deal_id):
         return {"ID": deal_id}
@@ -47,6 +55,24 @@ class FakeCrmClient:
     def upload_file(self, folder_id, filename, content):
         self.uploaded_files.append((folder_id, filename, content))
         return self.upload_file_result
+
+    def get_deal_contact_id(self, deal):
+        return self.contact_id
+
+    def get_contact(self, contact_id):
+        return {"ID": contact_id}
+
+    def get_contact_phone(self, contact):
+        return self.contact_phone
+
+
+class FakeWahaClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str | None]] = []
+
+    def send_text(self, chat_id, text, session=None):
+        self.calls.append((chat_id, text, session))
+        return True
 
 
 @pytest.fixture(autouse=True)
@@ -366,6 +392,61 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
     assert deal_id == "42"
     assert "firm" in comment.lower()
     assert fake_crm.status_updates == [("42", "firmada")]
+
+
+def test_post_form_with_deal_id_notifies_client_by_whatsapp_when_signed(monkeypatch):
+    fake_crm = FakeCrmClient(contact_id="7", contact_phone="573001112233")
+    fake_waha = FakeWahaClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+    monkeypatch.setattr("app.forms.router.get_waha_client", lambda: fake_waha)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert len(fake_waha.calls) == 1
+    chat_id, text, _ = fake_waha.calls[0]
+    assert chat_id == "573001112233@c.us"
+    assert "firmada" in text.lower() or "firm" in text.lower()
+
+
+def test_post_form_still_marks_signed_when_whatsapp_notification_fails(monkeypatch):
+    fake_crm = FakeCrmClient(contact_id="7", contact_phone="573001112233")
+
+    def _broken_waha_client():
+        raise RuntimeError("Waha no configurado")
+
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+    monkeypatch.setattr("app.forms.router.get_waha_client", _broken_waha_client)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+    assert fake_crm.status_updates == [("42", "firmada")]
+
+
+def test_post_form_does_not_notify_when_contact_has_no_phone(monkeypatch):
+    fake_crm = FakeCrmClient(contact_id="7", contact_phone=None)
+    fake_waha = FakeWahaClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+    monkeypatch.setattr("app.forms.router.get_waha_client", lambda: fake_waha)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert fake_waha.calls == []
 
 
 def test_post_form_with_deal_id_uploads_pdf_to_drive_and_links_it_in_comment(monkeypatch):
