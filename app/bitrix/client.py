@@ -571,7 +571,13 @@ class BitrixClient:
         return None
 
     def update_deal(self, deal_id: str, fields: dict[str, Any]) -> None:
-        """Actualiza campos de un deal de Bitrix. No lanza si falla."""
+        """Actualiza campos de un deal de Bitrix. No lanza si falla.
+
+        Un 200 de Bitrix no garantiza éxito: la API puede rechazar el campo/valor
+        a nivel lógico y devolver igual HTTP 200 con `{"error": ...}` en el body
+        — se detecta ese caso acá para no loguear como éxito una escritura que
+        en realidad no aplicó.
+        """
         try:
             response = requests.post(
                 f"{self.webhook_url}crm.deal.update.json",
@@ -579,6 +585,12 @@ class BitrixClient:
                 timeout=REQUEST_TIMEOUT,
             )
             response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, dict) and "error" in payload:
+                logger.error(
+                    "Bitrix rechazó la actualización del deal %s (%s): %s", deal_id, fields, payload
+                )
+                return
             logger.info("Deal %s actualizado: %s", deal_id, fields)
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.error("Error actualizando deal %s: %s", deal_id, exc)

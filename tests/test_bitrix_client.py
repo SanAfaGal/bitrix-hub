@@ -161,6 +161,21 @@ def test_update_deal_does_not_raise_on_request_error(monkeypatch) -> None:
     client.update_deal("42", {"SOME_FIELD": "value"})  # no debe lanzar
 
 
+def test_update_deal_logs_error_when_bitrix_returns_200_with_error_body(monkeypatch, caplog) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        return FakeResponse({"error": "ERROR_CORE", "error_description": "Bad field value UF_CRM_1773864282733"})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    with caplog.at_level("ERROR"):
+        client.update_deal("42", {"UF_CRM_1773864282733": 12345})  # no debe lanzar
+
+    assert any(
+        "ERROR_CORE" in record.message or "Bad field value" in record.message for record in caplog.records
+    )
+
+
 def test_get_deal_contact_id_extracts_contact_id() -> None:
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.get_deal_contact_id({"ID": "42", "CONTACT_ID": "7"}) == "7"
