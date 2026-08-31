@@ -10,14 +10,14 @@ _LINK_SECRET = "test-secret"
 class FakeWahaClient:
     def __init__(self, sent: bool = True) -> None:
         self.sent = sent
-        self.calls: list[tuple[str, list[str], str | None]] = []
+        self.calls: list[tuple[str, str, str | None]] = []
 
-    def send_text_sequence(self, chat_id: str, messages: list[str], session: str | None = None) -> bool:
-        self.calls.append((chat_id, messages, session))
+    def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
+        self.calls.append((chat_id, text, session))
         return self.sent
 
 
-def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
+def test_sends_authorization_link_to_deal_contact() -> None:
     crm = FakeCrmClient(
         deals={"42": {"ID": "42", "CONTACT_ID": "7"}},
         contacts={"7": {"PHONE": "300 111 2233"}},
@@ -30,14 +30,13 @@ def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
 
     assert result == {"ok": True, "deal_id": "42", "contact_id": "7", "chat_id": "573001112233@c.us"}
     assert len(waha.calls) == 1
-    chat_id, messages, session = waha.calls[0]
+    chat_id, text, session = waha.calls[0]
     assert chat_id == "573001112233@c.us"
     assert session == "default"
-    assert len(messages) == 2
     expected_token = sign_deal_id("42", _LINK_SECRET)
     assert (
         f"https://hub.example.com/formularios/autorizacion-de-corretaje?deal_id=42&token={expected_token}"
-        in messages[1]
+        in text
     )
     assert crm.authorization_status_updates == [("42", "pendiente_firma")]
     assert crm.comments == [("42", "Se envió el enlace de Autorización de Corretaje por WhatsApp.")]

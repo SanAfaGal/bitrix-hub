@@ -87,10 +87,6 @@ DEFAULT_TEMPLATES: dict[str, str] = {
     ),
     "whatsapp_transcription_failed": "No pude escuchar tu audio, ¿me lo puedes escribir? 🙏",
     "whatsapp_unsupported_message": "Por ahora solo puedo leer texto o notas de voz, ¿me lo puedes escribir? 🙏",
-    "bitrix_welcome_stage_message": (
-        "¡Hola! 👋 Soy el asistente virtual de Alberto Álvarez. Gracias por tu interés, ya te "
-        "comparto el siguiente paso."
-    ),
     "bitrix_authorization_link_message": (
         "Para continuar, necesitamos que completes y firmes la Autorización de Corretaje aquí: {{link}}"
     ),
@@ -109,7 +105,6 @@ TEMPLATE_LABELS: dict[str, str] = {
     "whatsapp_system_prompt": "Comportamiento del bot",
     "whatsapp_transcription_failed": "No se pudo transcribir el audio",
     "whatsapp_unsupported_message": "Mensaje con contenido no soportado",
-    "bitrix_welcome_stage_message": "Aviso de siguiente paso",
     "bitrix_authorization_link_message": "Link de firma",
     "whatsapp_authorization_signed_message": "Confirmación de firma recibida",
 }
@@ -133,7 +128,6 @@ TEMPLATE_HINTS: dict[str, str] = {
     "whatsapp_welcome_known": "Automático · bot de WhatsApp",
     "whatsapp_transcription_failed": "Automático · bot de WhatsApp",
     "whatsapp_unsupported_message": "Automático · bot de WhatsApp",
-    "bitrix_welcome_stage_message": "Manual · lo dispara un asesor en Bitrix",
     "bitrix_authorization_link_message": "Manual · lo dispara un asesor en Bitrix",
     "whatsapp_authorization_signed_message": "Automático · al firmar el formulario público",
 }
@@ -157,13 +151,9 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
         "documento, sticker, ubicación, contacto, etc.) — cualquier tipo de mensaje distinto "
         "de texto o nota de voz."
     ),
-    "bitrix_welcome_stage_message": (
-        "Lo dispara un asesor desde Bitrix al cambiar la etapa del negocio — no pasa por el "
-        "bot conversacional."
-    ),
     "bitrix_authorization_link_message": (
-        "Se manda justo después del aviso de siguiente paso, en el mismo chat, con el enlace "
-        "único para firmar desde el celular."
+        "Lo dispara un asesor desde Bitrix al cambiar la etapa del negocio, con el enlace "
+        "único para firmar desde el celular — no pasa por el bot conversacional."
     ),
     "whatsapp_authorization_signed_message": (
         "Se envía apenas el cliente completa y firma el formulario público de Autorización de "
@@ -182,11 +172,7 @@ TEMPLATE_SECTIONS: list[dict[str, object]] = [
     },
     {
         "name": "Autorización de corretaje",
-        "keys": [
-            "bitrix_welcome_stage_message",
-            "bitrix_authorization_link_message",
-            "whatsapp_authorization_signed_message",
-        ],
+        "keys": ["bitrix_authorization_link_message", "whatsapp_authorization_signed_message"],
     },
 ]
 

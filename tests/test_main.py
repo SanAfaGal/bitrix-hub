@@ -68,10 +68,10 @@ def test_webhook_deal_stage_broker_auth_sends_welcome_and_link(monkeypatch) -> N
 
     class FakeWahaClient:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, list[str], str | None]] = []
+            self.calls: list[tuple[str, str, str | None]] = []
 
-        def send_text_sequence(self, chat_id: str, messages: list[str], session: str | None = None) -> bool:
-            self.calls.append((chat_id, messages, session))
+        def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
+            self.calls.append((chat_id, text, session))
             return True
 
     monkeypatch.setattr("app.flows.router.get_crm_client", lambda: fake_crm)

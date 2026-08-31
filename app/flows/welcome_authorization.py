@@ -1,8 +1,7 @@
-"""Flujo: deal del CRM -> contacto vinculado -> WhatsApp de bienvenida + enlace de Autorización de Corretaje.
+"""Flujo: deal del CRM -> contacto vinculado -> enlace de Autorización de Corretaje por WhatsApp.
 
 Combina app.crm (leer el deal y su contacto) con app.waha (formatear el
-chatId y enviar los mensajes) — mismo patrón que app.flows.notify_contact,
-pero manda dos mensajes en secuencia en vez de uno.
+chatId y enviar el mensaje) — mismo patrón que app.flows.notify_contact.
 """
 from __future__ import annotations
 
@@ -27,11 +26,7 @@ def process_welcome_and_authorization(
     link_secret: str,
     session: str | None = None,
 ) -> dict[str, Any]:
-    """Busca el contacto vinculado al deal y le envía bienvenida + enlace de Autorización de Corretaje.
-
-    Los dos mensajes van al mismo chat/sesión, con pausa aleatoria entre
-    ellos (`WahaClient.send_text_sequence`) simulando comportamiento humano.
-    """
+    """Busca el contacto vinculado al deal y le envía el enlace de Autorización de Corretaje."""
     deal = crm_client.get_deal(deal_id)
 
     if crm_client.get_authorization_status(deal) == "firmada":
@@ -62,12 +57,9 @@ def process_welcome_and_authorization(
 
     token = sign_deal_id(deal_id, link_secret)
     link = f"{public_base_url}{FORM_PATH}?deal_id={deal_id}&token={token}"
-    messages = [
-        templates_store.get_template("bitrix_welcome_stage_message"),
-        templates_store.render_template("bitrix_authorization_link_message", link=link),
-    ]
+    text = templates_store.render_template("bitrix_authorization_link_message", link=link)
 
-    sent = waha_client.send_text_sequence(chat_id, messages, session=session)
+    sent = waha_client.send_text(chat_id, text, session=session)
     if sent:
         crm_client.set_authorization_status(deal_id, "pendiente_firma")
         crm_client.add_comment(deal_id, "Se envió el enlace de Autorización de Corretaje por WhatsApp.")
