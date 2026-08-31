@@ -112,12 +112,12 @@ class BrokerageAuthorizationPayload(BaseModel):
     property_type: PropertyType
     address: str
     municipality: str
-    registration_number: str = ""
-    sale_price: int | None = None
+    registration_number: str
+    sale_price: int = 0
     mortgage_loan: YesNo
     leasing: YesNo
-    outstanding_debt: int | None = None
-    term_months: int | None = None
+    outstanding_debt: int = 0
+    term_months: int = 3
     signer_id_number: str
     signature_png: str = Field(max_length=_MAX_IMAGE_DATA_URL_LENGTH)
     deal_id: str | None = None
@@ -159,7 +159,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     def _validate_registration_number(cls, value: str) -> str:
         blank_checked = blank_to_none(value)
         if blank_checked is None:
-            return ""
+            raise ValueError("Matrícula inmobiliaria inválida.")
         cleaned = clean_uppercase_alnum(blank_checked)
         if not _REGISTRATION_NUMBER_RE.match(cleaned):
             raise ValueError("Matrícula inmobiliaria inválida.")

@@ -90,9 +90,8 @@ _FIELDS = [
     ),
     dict(
         name="registration_number", label="Matrícula inmobiliaria", kind="text", input_type="text",
-        required=False, section="property",
-        hint="Número de identificación del inmueble en el registro de instrumentos públicos. "
-        "Puedes dejarlo en blanco si no lo tienes a la mano.",
+        required=True, section="property",
+        hint="Número de identificación del inmueble en el registro de instrumentos públicos.",
         placeholder="Ej: 050-123456",
     ),
     dict(

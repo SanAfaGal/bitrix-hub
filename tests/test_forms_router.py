@@ -268,7 +268,8 @@ def test_post_form_cleans_dirty_input():
 
 
 @pytest.mark.parametrize(
-    "field", ["interested_party", "id_number", "email", "address", "municipality", "signer_id_number"]
+    "field",
+    ["interested_party", "id_number", "email", "address", "municipality", "registration_number", "signer_id_number"],
 )
 def test_post_form_rejects_missing_required_field(field):
     payload = _valid_form_payload()
@@ -352,13 +353,38 @@ def test_post_form_requires_mortgage_loan_and_leasing_choice():
 
 def test_post_form_accepts_blank_optional_fields():
     payload = _valid_form_payload()
-    payload["registration_number"] = ""
     payload["sale_price"] = ""
+    payload["outstanding_debt"] = ""
     payload["term_months"] = ""
 
     response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
 
     assert response.status_code == 200
+
+
+def test_post_form_defaults_blank_amounts_instead_of_leaving_them_empty(monkeypatch):
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+    payload["sale_price"] = ""
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    _, listing = fake_crm.property_listing_updates[0]
+    assert listing.expected_sale_price == 0
+
+
+def test_post_form_rejects_blank_registration_number():
+    payload = _valid_form_payload()
+    payload["registration_number"] = ""
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 422
 
 
 def test_post_form_without_signature_is_rejected():
