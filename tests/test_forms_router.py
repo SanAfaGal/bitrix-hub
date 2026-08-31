@@ -35,6 +35,7 @@ class FakeCrmClient:
         self.comments: list[tuple[str, str]] = []
         self.status_updates: list[tuple[str, str]] = []
         self.uploaded_files: list[tuple[str, str, bytes]] = []
+        self.property_listing_updates: list[tuple[str, object]] = []
         self.upload_file_result = upload_file_result
         self.contact_id = contact_id
         self.contact_phone = contact_phone
@@ -64,6 +65,9 @@ class FakeCrmClient:
 
     def get_contact_phone(self, contact):
         return self.contact_phone
+
+    def update_property_listing(self, deal_id, listing):
+        self.property_listing_updates.append((deal_id, listing))
 
 
 class FakeWahaClient:
@@ -392,6 +396,13 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
     assert deal_id == "42"
     assert "firm" in comment.lower()
     assert fake_crm.status_updates == [("42", "firmada")]
+    assert len(fake_crm.property_listing_updates) == 1
+    listing_deal_id, listing = fake_crm.property_listing_updates[0]
+    assert listing_deal_id == "42"
+    assert listing.property_type == "Apartamento"
+    assert listing.address == "CALLE 10 #20-30"
+    assert listing.expected_sale_price == 500_000_000
+    assert listing.registration_number == "001-12345"
 
 
 def test_post_form_with_deal_id_notifies_client_by_whatsapp_when_signed(monkeypatch):

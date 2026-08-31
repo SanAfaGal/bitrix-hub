@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 
 from app.crm.deps import get_crm_client
+from app.crm.protocol import PropertyListing
 from app.forms.cleaning import slugify_filename
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
 from app.forms.link_token import verify_deal_id_token
@@ -192,7 +193,7 @@ def post_brokerage_authorization_form(
     signed_at = datetime.now()
 
     if payload.deal_id:
-        _mark_as_signed(payload.deal_id, payload.address, pdf_bytes, signed_at)
+        _mark_as_signed(payload, pdf_bytes, signed_at)
 
     return Response(
         content=pdf_bytes,
@@ -220,20 +221,36 @@ def _upload_signed_pdf(crm_client, deal_id: str, address: str, pdf_bytes: bytes,
     return crm_client.upload_file(folder_id, filename, pdf_bytes)
 
 
-def _mark_as_signed(deal_id: str, address: str, pdf_bytes: bytes, signed_at: datetime) -> None:
+def _property_listing_from_payload(payload: BrokerageAuthorizationPayload) -> PropertyListing:
+    """Solo los campos del inmueble que ya tienen mapeo definido a Bitrix.
+
+    `municipality` queda pendiente: todavía no se define qué campo de Bitrix
+    (sector/zona/ciudad) le corresponde, así que por ahora solo va al PDF.
+    """
+    return PropertyListing(
+        property_type=payload.property_type,
+        address=payload.address,
+        expected_sale_price=payload.sale_price,
+        registration_number=payload.registration_number or None,
+    )
+
+
+def _mark_as_signed(payload: BrokerageAuthorizationPayload, pdf_bytes: bytes, signed_at: datetime) -> None:
     """Deja constancia de la firma en el deal: sube el PDF al drive, comenta en el timeline
-    (con el link al documento si la subida funcionó), marca el estado 'Firmada' y le avisa
-    al cliente por WhatsApp que la recibimos.
+    (con el link al documento si la subida funcionó), actualiza los datos del inmueble,
+    marca el estado 'Firmada' y le avisa al cliente por WhatsApp que la recibimos.
 
     Best-effort: nunca rompe la descarga del PDF si Bitrix o Waha fallan.
     """
+    deal_id = payload.deal_id
     try:
         crm_client = get_crm_client()
-        file_url = _upload_signed_pdf(crm_client, deal_id, address, pdf_bytes, signed_at)
+        file_url = _upload_signed_pdf(crm_client, deal_id, payload.address, pdf_bytes, signed_at)
         comment = "El cliente firmó la Autorización de Corretaje."
         if file_url:
             comment += f" Documento firmado: {file_url}"
         crm_client.add_comment(deal_id, comment)
+        crm_client.update_property_listing(deal_id, _property_listing_from_payload(payload))
         crm_client.set_authorization_status(deal_id, "firmada")
         _notify_client_signed(crm_client, deal_id)
     except Exception:
