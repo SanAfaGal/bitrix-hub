@@ -563,21 +563,6 @@ def test_upload_file_returns_none_when_detail_url_missing(monkeypatch) -> None:
     assert client.upload_file("595608", "Autorizacion_42.pdf", b"contenido") is None
 
 
-def test_set_welcome_sent_updates_custom_field(monkeypatch) -> None:
-    captured = {}
-
-    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
-        captured["json"] = json
-        return FakeResponse({"result": True})
-
-    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
-
-    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
-    client.set_welcome_sent("42")
-
-    assert captured["json"] == {"id": "42", "fields": {"UF_CRM_1776879856695": 1}}
-
-
 def test_update_contact_identity_splits_full_name_into_name_and_last_name(monkeypatch) -> None:
     captured = {}
 

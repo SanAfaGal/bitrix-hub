@@ -176,10 +176,6 @@ class BitrixClient:
         """Marca el estado de firma de la Autorización de Corretaje (UF_CRM_1773864282733) del deal."""
         self.update_deal(deal_id, {fields.FIELD_AUTHORIZATION_STATUS: fields.AUTHORIZATION_VALUE_BY_STATUS[status]})
 
-    def set_welcome_sent(self, deal_id: str) -> None:
-        """Marca el checkbox "V_Bienvenida negocio enviada" (UF_CRM_1776879856695) del deal."""
-        self.update_deal(deal_id, {fields.FIELD_WELCOME_SENT: 1})
-
     def get_bot_active(self, deal_id: str) -> bool:
         """Lee el checkbox de bot activo/pausado (`fields.FIELD_BOT_ACTIVE`) del deal.
 

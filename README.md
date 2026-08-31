@@ -373,10 +373,10 @@ Limitaciones conocidas, por ser experimental:
   (`WHATSAPP_BOT_DB_PATH`) — no pensado para correr con más de un worker
   simultáneo escribiendo el mismo archivo.
 - **`fields.FIELD_BOT_ACTIVE` necesita crearse a mano en Bitrix** —
-  checkbox en el deal, mismo patrón que `FIELD_WELCOME_SENT`; hasta que se
-  reemplace el placeholder en `app/bitrix/fields.py` con el ID real, la
-  pausa manual/automática no tiene dónde escribir (el bot sigue
-  funcionando igual, solo sin este control).
+  checkbox en el deal; hasta que se reemplace el placeholder en
+  `app/bitrix/fields.py` con el ID real, la pausa manual/automática no
+  tiene dónde escribir (el bot sigue funcionando igual, solo sin este
+  control).
 - **Nombre de perfil del remitente (`sender_name`) es best-effort** — Waha
   no documenta un nombre de campo estable para esto (vive dentro de
   `_data`, que "puede variar según el engine" según sus propias docs).

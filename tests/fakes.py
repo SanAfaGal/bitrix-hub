@@ -24,7 +24,6 @@ class FakeCrmClient:
         self.pins: list[tuple[int, str]] = []
         self.duplicado_updates: list[tuple[str, bool]] = []
         self.authorization_status_updates: list[tuple[str, str]] = []
-        self.welcome_sent_updates: list[str] = []
         self.uploaded_files: list[tuple[str, str, bytes]] = []
         self.upload_file_result: str | None = "https://example.bitrix24.com/docs/file/sample.pdf"
 
@@ -77,9 +76,6 @@ class FakeCrmClient:
 
     def set_authorization_status(self, deal_id: str, status: str) -> None:
         self.authorization_status_updates.append((deal_id, status))
-
-    def set_welcome_sent(self, deal_id: str) -> None:
-        self.welcome_sent_updates.append(deal_id)
 
     def add_comment(self, deal_id: str, comment: str) -> int | None:
         self.comments.append((deal_id, comment))

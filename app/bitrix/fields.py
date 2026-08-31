@@ -14,8 +14,6 @@ FIELD_DUPLICADO = "UF_CRM_1773861337167"
 VALUE_SIN_DUPLICADO = 89296
 VALUE_DUPLICADO = 89298
 
-FIELD_WELCOME_SENT = "UF_CRM_1776879856695"
-
 FIELD_AUTHORIZATION_STATUS = "UF_CRM_1773864282733"
 VALUE_AUTHORIZATION_PENDIENTE_ENVIO = 89306
 VALUE_AUTHORIZATION_PENDIENTE_FIRMA = 89308
@@ -43,10 +41,9 @@ FIELD_FIRST_CONTACT = "UF_CRM_1773860044607"
 # (chat "@lid" en vez de "@c.us" — ver app.waha.phone.lid_from_chat_id).
 FIELD_USERNAME = "UF_CRM_1786458989056"
 
-# TODO: reemplazar por el ID real una vez creado en Bitrix (checkbox, mismo
-# patrón que FIELD_WELCOME_SENT). Vacío/None se interpreta como "activo" —
-# ver BitrixClient.get_bot_active — así los deals existentes sin el campo no
-# quedan pausados por defecto.
+# TODO: reemplazar por el ID real una vez creado en Bitrix (checkbox). Vacío/None
+# se interpreta como "activo" — ver BitrixClient.get_bot_active — así los deals
+# existentes sin el campo no quedan pausados por defecto.
 FIELD_BOT_ACTIVE = "UF_CRM_1787762476957"
 
 # Pipeline "Consignación" donde caen los deals nuevos creados por el bot.

@@ -40,7 +40,24 @@ def test_sends_welcome_then_authorization_link_in_same_chat() -> None:
         in messages[1]
     )
     assert crm.authorization_status_updates == [("42", "pendiente_firma")]
-    assert crm.welcome_sent_updates == ["42"]
+    assert crm.comments == [("42", "Se envió el enlace de Autorización de Corretaje por WhatsApp.")]
+
+
+def test_skips_send_when_deal_already_signed() -> None:
+    crm = FakeCrmClient(
+        deals={"42": {"ID": "42", "CONTACT_ID": "7", "AUTHORIZATION_STATUS": "firmada"}},
+        contacts={"7": {"PHONE": "3001112233"}},
+    )
+    waha = FakeWahaClient()
+
+    result = process_welcome_and_authorization(
+        "42", crm, waha, public_base_url="https://hub.example.com", link_secret=_LINK_SECRET
+    )
+
+    assert result == {"ok": True, "deal_id": "42", "skipped": "ya_firmada"}
+    assert waha.calls == []
+    assert crm.authorization_status_updates == []
+    assert crm.comments == []
 
 
 def test_returns_error_when_deal_has_no_contact() -> None:
@@ -89,4 +106,4 @@ def test_propagates_waha_failure() -> None:
     assert result["ok"] is False
     assert result["chat_id"] == "573001112233@c.us"
     assert crm.authorization_status_updates == []
-    assert crm.welcome_sent_updates == []
+    assert crm.comments == []

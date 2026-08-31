@@ -35,6 +35,11 @@ def process_welcome_and_authorization(
     ellos (`WahaClient.send_text_sequence`) simulando comportamiento humano.
     """
     deal = crm_client.get_deal(deal_id)
+
+    if crm_client.get_authorization_status(deal) == "firmada":
+        logger.info("Deal %s ya tiene la Autorización de Corretaje firmada, no se reenvía el link", deal_id)
+        return {"ok": True, "deal_id": deal_id, "skipped": "ya_firmada"}
+
     contact_id = crm_client.get_deal_contact_id(deal)
 
     if not contact_id:
@@ -64,5 +69,5 @@ def process_welcome_and_authorization(
     sent = waha_client.send_text_sequence(chat_id, messages, session=session)
     if sent:
         crm_client.set_authorization_status(deal_id, "pendiente_firma")
-        crm_client.set_welcome_sent(deal_id)
+        crm_client.add_comment(deal_id, "Se envió el enlace de Autorización de Corretaje por WhatsApp.")
     return {"ok": sent, "deal_id": deal_id, "contact_id": contact_id, "chat_id": chat_id}
