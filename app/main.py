@@ -3,16 +3,22 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 # Windows no siempre trae .webp registrado en su mapa de MIME types del
 # sistema; sin esto, StaticFiles serviría el logo como application/octet-stream.
 mimetypes.add_type("image/webp", ".webp")
 
+from app.admin.router import router as admin_router
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
+from app.message_templates import db as templates_db
+from app.message_templates import store as templates_store
 from app.waha.router import router as waha_router
 from app.xposure.router import router as xposure_router
 
@@ -49,7 +55,32 @@ tags_metadata = [
             "celular (sin apps de terceros) y que generan el PDF final."
         ),
     },
+    {
+        "name": "Admin",
+        "description": (
+            "Panel interno (login único) para editar las plantillas de "
+            "WhatsApp y el comportamiento del bot sin tocar código — ver "
+            "app/admin/ y app/message_templates/."
+        ),
+    },
 ]
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Crea el esquema de plantillas en MySQL y siembra los defaults si hace falta.
+
+    Best-effort: si MySQL no está disponible (ej. desarrollo local sin
+    docker compose), solo loguea — el bot sigue funcionando con los
+    defaults hardcodeados en app/message_templates/store.py.
+    """
+    try:
+        templates_db.ensure_schema()
+        templates_store.seed_defaults()
+    except Exception:
+        logger.exception("No se pudo inicializar la base de plantillas de MySQL, se seguirá con los defaults")
+    yield
+
 
 app = FastAPI(
     title="Bitrix Integration Hub",
@@ -61,14 +92,21 @@ app = FastAPI(
         "README del repo para el patrón de cómo agregar una integración nueva."
     ),
     openapi_tags=tags_metadata,
+    lifespan=_lifespan,
 )
+
+# Firma la cookie de sesión del panel admin (app/admin/). Sin
+# ADMIN_SESSION_SECRET en .env cae a un secreto de desarrollo — no usar así
+# en producción (ver README).
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("ADMIN_SESSION_SECRET") or "dev-insecure-secret-change-me")
 
 app.include_router(xposure_router)
 app.include_router(flows_router)
 app.include_router(waha_router)
 app.include_router(forms_router)
+app.include_router(admin_router)
 
-# Assets de marca (favicon, logo) usados por app/forms.
+# Assets de marca (favicon, logo) usados por app/forms y app/admin.
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 

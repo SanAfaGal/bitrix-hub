@@ -48,6 +48,19 @@ class CrmClient(Protocol):
         """Extrae el mejor teléfono disponible de un contacto ya obtenido con get_contact."""
         ...
 
+    def find_contact_by_phone(self, phone: str) -> dict[str, Any] | None:
+        """Busca un contacto ya existente para `phone`. Retorna sus campos, o None si no hay match.
+
+        Usado para decidir la plantilla de bienvenida del bot de WhatsApp
+        (cliente conocido vs. desconocido) — a diferencia de
+        `find_or_create_property_seller_contact`, nunca crea nada.
+        """
+        ...
+
+    def get_contact_full_name(self, contact: dict[str, Any]) -> str | None:
+        """Extrae el nombre completo de un contacto ya obtenido con get_contact/find_contact_by_phone."""
+        ...
+
     def get_matricula(self, deal: dict[str, Any]) -> str | None:
         """Extrae la matrícula/registro del inmueble de un deal ya obtenido con get_deal."""
         ...

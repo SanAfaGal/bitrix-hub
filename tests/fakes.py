@@ -64,6 +64,18 @@ class FakeCrmClient:
         phone = contact.get("PHONE")
         return phone if isinstance(phone, str) and phone.strip() else None
 
+    def find_contact_by_phone(self, phone: str) -> dict[str, Any] | None:
+        contact_id = self.contact_by_phone.get(phone)
+        if contact_id is None:
+            return None
+        return self._contacts.get(contact_id)
+
+    def get_contact_full_name(self, contact: dict[str, Any]) -> str | None:
+        name = contact.get("NAME")
+        last_name = contact.get("LAST_NAME")
+        parts = [p.strip() for p in (name, last_name) if isinstance(p, str) and p.strip()]
+        return " ".join(parts) if parts else None
+
     def get_matricula(self, deal: dict[str, Any]) -> str | None:
         matricula = deal.get("MATRICULA")
         return str(matricula) if matricula else None

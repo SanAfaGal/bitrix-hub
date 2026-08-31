@@ -153,6 +153,29 @@ class BitrixClient:
 
         return next(iter(by_type.values()), None)
 
+    def find_contact_by_phone(self, phone: str) -> dict[str, Any] | None:
+        """Busca un contacto ya existente en Bitrix para `phone`. Retorna sus campos, o None si no hay match.
+
+        Usado para decidir la plantilla de bienvenida del bot de WhatsApp
+        (cliente conocido vs. desconocido) — reusa la misma búsqueda de
+        duplicados que `find_or_create_property_seller_contact`, pero nunca
+        crea nada.
+        """
+        try:
+            contact_id, _ = self._find_duplicates_by_phone(phone)
+        except _BitrixLookupError:
+            return None
+        if contact_id is None:
+            return None
+        return self.get_contact(contact_id) or None
+
+    def get_contact_full_name(self, contact: dict[str, Any]) -> str | None:
+        """Extrae el nombre completo (NAME + LAST_NAME) de un contacto de Bitrix."""
+        name = contact.get("NAME")
+        last_name = contact.get("LAST_NAME")
+        parts = [p.strip() for p in (name, last_name) if isinstance(p, str) and p.strip()]
+        return " ".join(parts) if parts else None
+
     def get_matricula(self, deal: dict[str, Any]) -> str | None:
         """Extrae la matrícula del inmueble de un deal (campo UF_CRM_1773860489786)."""
         matricula = deal.get(fields.FIELD_MATRICULA)

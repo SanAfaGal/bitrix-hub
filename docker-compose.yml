@@ -1,3 +1,8 @@
+networks:
+  default:
+    name: ${DOCKER_NETWORK_NAME:-bitrix-hub}
+    external: ${DOCKER_NETWORK_EXTERNAL:-false}
+
 services:
   api:
     build: .
@@ -25,6 +30,8 @@ services:
         condition: service_healthy
       whisper:
         condition: service_healthy
+      mysql:
+        condition: service_healthy
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -32,6 +39,46 @@ services:
         limits:
           cpus: "${API_CPU_LIMIT:-1}"
           memory: "${API_MEMORY_LIMIT:-512M}"
+
+  mysql:
+    image: mysql:8
+    container_name: bitrix-hub-mysql
+    restart: unless-stopped
+
+    # Solo accesible desde el propio servidor — igual criterio que waha.
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bitrix_hub}
+      MYSQL_USER: ${MYSQL_USER:-bitrix_hub}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+
+    volumes:
+      - ./.mysql-data:/var/lib/mysql
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+    security_opt:
+      - no-new-privileges:true
+
+    deploy:
+      resources:
+        limits:
+          cpus: "${MYSQL_CPU_LIMIT:-1}"
+          memory: "${MYSQL_MEMORY_LIMIT:-512M}"
 
   waha:
     image: devlikeapro/waha:latest

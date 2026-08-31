@@ -12,13 +12,11 @@ from typing import Any
 from app.crm.protocol import CrmClient
 from app.forms.link_token import sign_deal_id
 from app.forms.page import FORM_PATH
+from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 from app.waha.phone import to_chat_id
 
 logger = logging.getLogger(__name__)
-
-WELCOME_MESSAGE = "¡Hola! 👋 Soy el asistente virtual de Alberto Álvarez. Gracias por tu interés, ya te comparto el siguiente paso."
-_AUTHORIZATION_LINK_MESSAGE = "Para continuar, necesitamos que completes y firmes la Autorización de Corretaje aquí: {link}"
 
 
 def process_welcome_and_authorization(
@@ -64,7 +62,10 @@ def process_welcome_and_authorization(
 
     token = sign_deal_id(deal_id, link_secret)
     link = f"{public_base_url}{FORM_PATH}?deal_id={deal_id}&token={token}"
-    messages = [WELCOME_MESSAGE, _AUTHORIZATION_LINK_MESSAGE.format(link=link)]
+    messages = [
+        templates_store.get_template("bitrix_welcome_stage_message"),
+        templates_store.render_template("bitrix_authorization_link_message", link=link),
+    ]
 
     sent = waha_client.send_text_sequence(chat_id, messages, session=session)
     if sent:

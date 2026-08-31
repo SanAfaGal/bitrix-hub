@@ -55,6 +55,15 @@ LLM_BASE_URL=
 LLM_MODEL=gpt-4o-mini
 WHATSAPP_BOT_DB_PATH=data/whatsapp_bot.db
 WHATSAPP_BOT_ALLOWED_NUMBERS=
+
+# Panel admin de plantillas (/admin/templates) y su base MySQL
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=cambia-esto-por-una-clave-segura
+ADMIN_SESSION_SECRET=cambia-esto-por-un-secreto-largo-y-aleatorio
+MYSQL_HOST=mysql
+MYSQL_DATABASE=bitrix_hub
+MYSQL_USER=bitrix_hub
+MYSQL_PASSWORD=cambia-esto-por-una-clave-segura
 ```
 
 ## Ejecución local
@@ -148,8 +157,16 @@ app/
   flows/
     registry_duplicate_check.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
     whatsapp_bot.py                  # Waha + LLM + CRM: bot conversacional (experimental) — ver sección Endpoints
+    whatsapp_bot_welcome.py            # Bienvenida de primer contacto (texto fijo, sin LLM)
     router.py              # POST /webhook/deal-event (tag "Bitrix Webhooks")
     README.md               # Patrón para flujos que combinan >1 integración
+  message_templates/
+    store.py                # get_template/set_template/render_template + DEFAULT_TEMPLATES (fallback si MySQL no responde)
+    models.py, db.py, settings.py  # SQLAlchemy: MessageTemplate, engine/sesión, MYSQL_*
+  admin/
+    router.py                 # GET/POST /admin/login, /admin/templates (tag "Admin")
+    auth.py, deps.py            # Login único (ADMIN_USERNAME/PASSWORD), sesión en cookie firmada
+    page.py, page_styles.py       # HTML/CSS del panel (mismo patrón que app/forms/, guía de estilo de la empresa)
   main.py                 # FastAPI(), openapi_tags, include_router(...), GET /health
 scripts/
   resolve_bitrix_drive_folder.py     # Busca carpetas de Bitrix Drive por nombre
@@ -162,6 +179,9 @@ tests/
   test_transcription_client.py
   test_llm_client.py
   test_whatsapp_bot.py
+  test_whatsapp_bot_welcome.py
+  test_message_templates_store.py
+  test_admin_router.py
   test_phone.py
   test_registry_duplicate_check.py
   test_main.py
@@ -424,6 +444,36 @@ curl -X POST "http://127.0.0.1:8000/webhook/waha-message" \
     }
   }'
 ```
+
+### Panel admin de plantillas y comportamiento del bot
+
+`GET /admin/templates` (login único, `ADMIN_USERNAME`/`ADMIN_PASSWORD`) deja
+que el equipo comercial edite, sin tocar código ni redeployar, los textos
+que le llegan al cliente por WhatsApp y el `system_prompt` del bot LLM.
+Reemplaza lo que antes era código Python hardcodeado o el env var
+`WHATSAPP_BOT_SYSTEM_PROMPT` (deprecado). Los disparadores (`key`) son
+fijos en código — el panel solo edita el texto de cada uno, no crea
+disparadores nuevos (sin motor de reglas genérico):
+
+| key | Variables | Dónde se usa |
+|---|---|---|
+| `whatsapp_welcome_unknown` | — | Primer mensaje de un chat nuevo sin contacto conocido en Bitrix |
+| `whatsapp_welcome_known` | `{{nombre}}` | Primer mensaje de un chat nuevo cuyo teléfono ya tiene contacto con nombre en Bitrix |
+| `whatsapp_system_prompt` | — | Comportamiento del bot LLM (`app/flows/whatsapp_bot.py::_build_system_prompt`) |
+| `whatsapp_transcription_failed` | — | Fallback cuando no se pudo transcribir una nota de voz |
+| `bitrix_welcome_stage_message` | — | Aviso de siguiente paso (flujo de cambio de etapa, ver abajo) |
+| `bitrix_authorization_link_message` | `{{link}}` | Link de firma de la Autorización de Corretaje (mismo flujo) |
+
+La bienvenida de primer contacto (`whatsapp_welcome_known`/`_unknown`) se
+manda **tal cual, sin pasar por el LLM** — solo el resto de la conversación
+usa el `system_prompt`. Ver `app/flows/whatsapp_bot_welcome.py`.
+
+Guardado en MySQL vía SQLAlchemy (`app/message_templates/`, contenedor
+`mysql` propio en `docker-compose.yml`) — aparte del SQLite del historial
+de conversación (`WHATSAPP_BOT_DB_PATH`), que no se tocó. Si MySQL no está
+disponible, las lecturas caen a los defaults hardcodeados en
+`app/message_templates/store.py::DEFAULT_TEMPLATES` — el bot nunca deja de
+responder por esto.
 
 ### Cambio de etapa de deal -> bienvenida + Autorización de Corretaje por WhatsApp
 

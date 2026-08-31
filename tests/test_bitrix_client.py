@@ -637,3 +637,50 @@ def test_set_duplicado_status_updates_custom_field(monkeypatch) -> None:
     client.set_duplicado_status("42", has_duplicate=False)
 
     assert captured["json"] == {"id": "42", "fields": {"UF_CRM_1773861337167": 89296}}
+
+
+def test_find_contact_by_phone_returns_contact_when_match(monkeypatch) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        assert url.endswith("crm.duplicate.findbycomm.json")
+        return FakeResponse({"result": {"CONTACT": [7]}})
+
+    def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
+        assert url.endswith("crm.contact.get.json")
+        assert params == {"id": "7"}
+        return FakeResponse({"result": {"ID": "7", "NAME": "Juan"}})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+    monkeypatch.setattr("app.bitrix.client.requests.get", fake_get)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_contact_by_phone("573001112233") == {"ID": "7", "NAME": "Juan"}
+
+
+def test_find_contact_by_phone_returns_none_when_no_match(monkeypatch) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        return FakeResponse({"result": {"CONTACT": []}})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_contact_by_phone("573001112233") is None
+
+
+def test_find_contact_by_phone_returns_none_on_lookup_error(monkeypatch) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        return FakeResponse(status_code=500)
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_contact_by_phone("573001112233") is None
+
+
+def test_get_contact_full_name_combines_name_and_last_name() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_contact_full_name({"NAME": "Juan", "LAST_NAME": "Pérez"}) == "Juan Pérez"
+
+
+def test_get_contact_full_name_returns_none_when_empty() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_contact_full_name({}) is None

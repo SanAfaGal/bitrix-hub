@@ -105,7 +105,7 @@ def test_webhook_waha_message_skips_when_not_applicable() -> None:
 def test_webhook_waha_message_skips_when_bot_disabled(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
-        lambda: BotConfig(enabled=False, max_history_turns=6, system_prompt="system"),
+        lambda: BotConfig(enabled=False, max_history_turns=6),
     )
 
     response = client.post("/webhook/waha-message", json=_WAHA_MESSAGE_EVENT)
@@ -130,11 +130,12 @@ def test_webhook_waha_message_replies_via_llm_when_enabled(monkeypatch) -> None:
     fake_waha = FakeWahaClient()
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
-        lambda: BotConfig(enabled=True, max_history_turns=6, system_prompt="system"),
+        lambda: BotConfig(enabled=True, max_history_turns=6),
     )
     monkeypatch.setattr("app.waha.router.get_llm_client", lambda: FakeLlmClient())
     monkeypatch.setattr("app.waha.router.get_crm_client", lambda: FakeCrmClient())
     monkeypatch.setattr("app.waha.router.get_transcription_client", lambda: object())
+    monkeypatch.setattr("app.flows.whatsapp_bot.maybe_send_first_contact_welcome", lambda *a, **k: False)
     app.dependency_overrides[get_waha_client] = lambda: fake_waha
     try:
         response = client.post("/webhook/waha-message", json=_waha_message_event("msg-enabled"))
@@ -167,11 +168,12 @@ def test_webhook_waha_message_creates_deal_and_updates_property_listing(monkeypa
     fake_crm = FakeCrmClient()
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
-        lambda: BotConfig(enabled=True, max_history_turns=6, system_prompt="system"),
+        lambda: BotConfig(enabled=True, max_history_turns=6),
     )
     monkeypatch.setattr("app.waha.router.get_llm_client", lambda: FakeLlmClient())
     monkeypatch.setattr("app.waha.router.get_crm_client", lambda: fake_crm)
     monkeypatch.setattr("app.waha.router.get_transcription_client", lambda: object())
+    monkeypatch.setattr("app.flows.whatsapp_bot.maybe_send_first_contact_welcome", lambda *a, **k: False)
     app.dependency_overrides[get_waha_client] = lambda: FakeWahaClient()
     try:
         response = client.post(
@@ -196,7 +198,7 @@ def test_webhook_waha_message_returns_error_when_llm_not_configured(monkeypatch)
 
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
-        lambda: BotConfig(enabled=True, max_history_turns=6, system_prompt="system"),
+        lambda: BotConfig(enabled=True, max_history_turns=6),
     )
     monkeypatch.setattr("app.waha.router.get_llm_client", raise_not_configured)
     app.dependency_overrides[get_waha_client] = lambda: object()
@@ -221,7 +223,7 @@ def test_webhook_waha_message_returns_error_when_crm_not_configured(monkeypatch)
 
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
-        lambda: BotConfig(enabled=True, max_history_turns=6, system_prompt="system"),
+        lambda: BotConfig(enabled=True, max_history_turns=6),
     )
     monkeypatch.setattr("app.waha.router.get_llm_client", lambda: FakeLlmClient())
     monkeypatch.setattr("app.waha.router.get_crm_client", raise_not_configured)
@@ -247,7 +249,7 @@ def test_webhook_waha_message_returns_error_when_transcription_not_configured(mo
 
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
-        lambda: BotConfig(enabled=True, max_history_turns=6, system_prompt="system"),
+        lambda: BotConfig(enabled=True, max_history_turns=6),
     )
     monkeypatch.setattr("app.waha.router.get_llm_client", lambda: FakeLlmClient())
     monkeypatch.setattr("app.waha.router.get_crm_client", lambda: FakeCrmClient())

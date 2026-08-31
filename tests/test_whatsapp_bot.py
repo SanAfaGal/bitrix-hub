@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app.crm.protocol import PropertyListing
 from app.flows.whatsapp_bot import BotConfig, ConversationStore, _parse_llm_output, process
 from app.waha.inbound import InboundMessage
 from tests.fakes import FakeCrmClient
+
+
+@pytest.fixture(autouse=True)
+def _skip_first_contact_welcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La bienvenida de primer contacto (texto fijo, sin LLM) se prueba aparte en
+    test_whatsapp_bot_welcome.py — acá se desactiva para no repetir el setup en cada test
+    que ya asume que el turno pasa directo por el LLM."""
+    monkeypatch.setattr("app.flows.whatsapp_bot.maybe_send_first_contact_welcome", lambda *a, **k: False)
 
 
 class FakeWahaClient:
@@ -83,7 +93,7 @@ def _inbound(
 
 
 def _enabled_config() -> BotConfig:
-    return BotConfig(enabled=True, max_history_turns=6, system_prompt="system prompt")
+    return BotConfig(enabled=True, max_history_turns=6)
 
 
 def _plain_reply(text: str) -> str:
@@ -97,7 +107,7 @@ def test_process_skips_when_bot_disabled() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient()
     crm = FakeCrmClient()
-    config = BotConfig(enabled=False, max_history_turns=6, system_prompt="system prompt")
+    config = BotConfig(enabled=False, max_history_turns=6)
 
     result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=config, store=ConversationStore())
 
@@ -741,7 +751,7 @@ def test_parse_llm_output_ignores_blank_client_full_name() -> None:
 
 
 def _config_with_allowed_numbers(*numbers: str) -> BotConfig:
-    return BotConfig(enabled=True, max_history_turns=6, system_prompt="system prompt", allowed_numbers=frozenset(numbers))
+    return BotConfig(enabled=True, max_history_turns=6, allowed_numbers=frozenset(numbers))
 
 
 def test_process_skips_when_phone_not_in_allowed_numbers() -> None:

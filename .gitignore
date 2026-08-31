@@ -46,6 +46,9 @@ data/whatsapp_bot.db
 # ── Modelo de whisper descargado (transcripción de audio) ────────────────────
 .whisper-data/
 
+# ── Datos de MySQL (plantillas de mensajes, app/message_templates/) ──────────
+.mysql-data/
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

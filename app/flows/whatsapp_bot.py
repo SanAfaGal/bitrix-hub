@@ -36,58 +36,16 @@ from typing import Any
 
 from app.crm.protocol import CrmClient, PropertyListing
 from app.flows import whatsapp_bot_store as store_db
+from app.flows.whatsapp_bot_welcome import maybe_send_first_contact_welcome
 from app.forms.models import PROPERTY_TYPES
 from app.llm.client import LlmClient
+from app.message_templates import store as templates_store
 from app.transcription.client import TranscriptionClient
 from app.waha.client import WahaClient
 from app.waha.inbound import InboundMessage
 from app.waha.phone import from_chat_id, lid_from_chat_id, to_chat_id
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_SYSTEM_PROMPT = (
-    "Usted es el asistente virtual de Alberto Álvarez, una inmobiliaria, y "
-    "atiende por WhatsApp a personas interesadas en vender su apartamento. "
-    "Trate siempre de usted, nunca de tú ni de vos — mantenga un tono "
-    "formal, profesional y amable en todo momento.\n\n"
-    "Su objetivo es entender, poco a poco y sin interrogar de golpe, los "
-    "datos básicos del inmueble que la persona quiere vender: tipo de "
-    "inmueble, dirección, sector/zona/ciudad, precio de venta esperado y, "
-    "si la tiene a la mano, la matrícula inmobiliaria — y ofrecerle "
-    "agendar el contacto con un asesor humano para continuar el proceso. "
-    "Usted no cierra negocios ni reemplaza al asesor.\n\n"
-    "No dé cifras de avalúo ni valorización bajo ninguna circunstancia — "
-    "eso lo define un asesor tras conocer el inmueble; el precio de venta "
-    "esperado que usted recolecta es el que la persona misma menciona, no "
-    "uno que usted sugiera. No dé asesoría legal, tributaria ni de "
-    "trámites específicos; si le preguntan, indique que un asesor lo "
-    "puede orientar en eso. No invente información sobre inmuebles, "
-    "disponibilidad ni la empresa.\n\n"
-    "Antes de profundizar en el inmueble, confirme con la persona su nombre "
-    "completo (nombre y apellido) y su teléfono — sin esto no se puede "
-    "registrar su solicitud. Si el sistema le muestra un nombre de perfil "
-    "de WhatsApp o un teléfono detectado sin confirmar, no los dé por "
-    "buenos: pregúntele si son correctos (ej. \"¿usted es Juan Pérez, "
-    "cierto?\", \"¿y escribe desde su número personal?\") en vez de "
-    "pedírselos de cero. Lo mismo si la persona misma le acaba de escribir "
-    "su nombre y teléfono en su mensaje anterior: repítaselos y pregúntele "
-    "si están correctos antes de darlos por buenos. Cuando la persona "
-    "responda afirmativamente a esa pregunta (ej. \"sí\", \"correcto\", "
-    "\"exacto\", \"así es\"), tome el nombre y el teléfono que usted mismo "
-    "propuso en su mensaje anterior y repórtelos en \"client_full_name\" y "
-    "\"client_phone\" de este turno — la persona no tiene por qué "
-    "volver a escribirlos. Una vez tenga nombre y teléfono confirmados, "
-    "continúe con calma recolectando los datos del inmueble.\n\n"
-    "No separe la dirección del sector/zona/ciudad si la persona ya los "
-    "mencionó juntos (ej. una dirección que ya incluye el municipio o "
-    "barrio) — dé por lleno el sector/zona/ciudad con esa misma "
-    "información en vez de volver a preguntarlo aparte.\n\n"
-    "Si la persona pide hablar con alguien, si su solicitud se sale de lo "
-    "anterior, o si usted no tiene certeza de la respuesta, dígale con "
-    "amabilidad que la va a conectar con un asesor.\n\n"
-    "Responda en español, en mensajes breves y claros, como una "
-    "conversación real de WhatsApp — sin markdown ni emojis."
-)
 
 _OUTPUT_FORMAT_INSTRUCTIONS = (
     "\n\nFormato de salida (obligatorio, sin excepción): responda ÚNICAMENTE "
@@ -259,22 +217,23 @@ RATE_LIMIT_COOLDOWN_SECONDS = 5  # Max 1 msg every 5 seconds per chat
 class BotConfig:
     enabled: bool
     max_history_turns: int
-    system_prompt: str
     allowed_numbers: frozenset[str] = frozenset()
 
 
 def load_bot_config() -> BotConfig:
-    """Carga la configuración del bot desde variables de entorno."""
+    """Carga la configuración del bot desde variables de entorno.
+
+    El system prompt ya no viene de acá — se edita desde el panel admin
+    (`app/message_templates/store.py`, key `whatsapp_system_prompt`).
+    """
     enabled = (os.getenv("WHATSAPP_BOT_ENABLED") or "").strip().lower() in ("1", "true", "yes")
     max_history_turns = int((os.getenv("WHATSAPP_BOT_MAX_HISTORY_TURNS") or "6").strip())
-    system_prompt = (os.getenv("WHATSAPP_BOT_SYSTEM_PROMPT") or "").strip() or DEFAULT_SYSTEM_PROMPT
     allowed_numbers = frozenset(
         n.strip() for n in (os.getenv("WHATSAPP_BOT_ALLOWED_NUMBERS") or "").split(",") if n.strip()
     )
     return BotConfig(
         enabled=enabled,
         max_history_turns=max_history_turns,
-        system_prompt=system_prompt,
         allowed_numbers=allowed_numbers,
     )
 
@@ -466,11 +425,14 @@ def process(
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "rate_limited"}
     store.mark_message_received(inbound.chat_id)
 
+    if maybe_send_first_contact_welcome(inbound.chat_id, inbound.session, waha_client, crm_client, store):
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "first_contact_welcome"}
+
     text = _resolve_text(inbound, waha_client, transcription_client)
     if text is None:
         logger.info("No se pudo transcribir el audio de %s, se pide que escriba", inbound.chat_id)
         waha_client.send_text(
-            inbound.chat_id, "No pude escuchar tu audio, ¿me lo puedes escribir? 🙏", session=inbound.session
+            inbound.chat_id, templates_store.get_template("whatsapp_transcription_failed"), session=inbound.session
         )
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "transcription_failed"}
     inbound = replace(inbound, text=text)
@@ -505,7 +467,12 @@ def process(
 
     history = store.get_history(inbound.chat_id)
     system_prompt = _build_system_prompt(
-        config.system_prompt, listing, confirmed_name, confirmed_phone, candidate_name, candidate_phone
+        templates_store.get_template("whatsapp_system_prompt"),
+        listing,
+        confirmed_name,
+        confirmed_phone,
+        candidate_name,
+        candidate_phone,
     )
     raw_output = llm_client.reply(system_prompt, history, inbound.text)
     if raw_output is None:
