@@ -12,6 +12,7 @@ class WahaSettings:
     base_url: str
     api_key: str | None
     session: str
+    webhook_secret: str | None = None
 
 
 def load_waha_settings() -> WahaSettings:
@@ -24,5 +25,6 @@ def load_waha_settings() -> WahaSettings:
 
     api_key = (os.getenv("WAHA_API_KEY") or "").strip() or None
     session = (os.getenv("WAHA_SESSION") or "default").strip()
+    webhook_secret = (os.getenv("WHATSAPP_WEBHOOK_SECRET") or "").strip() or None
 
-    return WahaSettings(base_url=base_url, api_key=api_key, session=session)
+    return WahaSettings(base_url=base_url, api_key=api_key, session=session, webhook_secret=webhook_secret)

@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.crm.deps import get_crm_client
 from app.crm.protocol import CrmClient
@@ -18,6 +19,7 @@ from app.transcription.deps import get_transcription_client
 from app.waha.client import WahaClient
 from app.waha.deps import get_waha_client
 from app.waha.inbound import parse_inbound_message
+from app.waha.settings import load_waha_settings
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +57,19 @@ def webhook_waha_test(
 async def webhook_waha_message(
     request: Request,
     waha_client: WahaClient = Depends(get_waha_client),
+    secret: str | None = Query(
+        default=None, description="Debe coincidir con WHATSAPP_WEBHOOK_SECRET cuando esté configurado."
+    ),
 ) -> dict[str, Any]:
     """Recibe el webhook `message` de Waha y responde con el bot LLM.
 
     **Experimental** — apagado por defecto (`WHATSAPP_BOT_ENABLED=false`).
     Configurar en Waha (`WHATSAPP_HOOK_URL`/`WHATSAPP_HOOK_EVENTS` en `.env`,
-    ver README) para que reenvíe acá los eventos `message` de una sesión.
+    ver README) para que reenvíe acá los eventos `message` de una sesión —
+    agregar `?secret=...` a `WHATSAPP_HOOK_URL` si `WHATSAPP_WEBHOOK_SECRET`
+    está configurado, si no cualquiera que descubra la URL puede disparar
+    llamadas al LLM y creación de deals en Bitrix a nombre de un cliente
+    inventado.
     Ignora mensajes propios del bot (`fromMe`) o ya procesados (dedup por
     `message_id`, Waha puede reintentar el webhook). Los mensajes de audio
     (notas de voz) se transcriben antes de pasar por el bot; media no
@@ -74,6 +83,10 @@ async def webhook_waha_message(
     deliberadas) — se corre en un hilo aparte (`asyncio.to_thread`) para no
     bloquear el event loop de este endpoint mientras tanto.
     """
+    expected_secret = load_waha_settings().webhook_secret
+    if expected_secret is not None and not hmac.compare_digest(secret or "", expected_secret):
+        raise HTTPException(status_code=401, detail="secret inválido o faltante")
+
     event = await request.json()
     inbound = parse_inbound_message(event)
     if inbound is None:
