@@ -192,7 +192,7 @@ def test_prospects_list_requires_login(client: TestClient) -> None:
 
 
 def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ConversationStore(db_path=":memory:")
+    store = ConversationStore()
     store.add_turn("573001112233@c.us", "user", "hola, quiero vender mi apto")
     store.set_confirmed_name("573001112233@c.us", "Ana")
     store.set_confirmed_phone("573001112233@c.us", "573001112233")
@@ -209,7 +209,7 @@ def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.Monk
 
 
 def test_prospects_list_shows_empty_state(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(admin_router, "conversation_store", ConversationStore(db_path=":memory:"))
+    monkeypatch.setattr(admin_router, "conversation_store", ConversationStore())
 
     _log_in(client)
     response = client.get("/admin/prospects")
@@ -219,7 +219,7 @@ def test_prospects_list_shows_empty_state(client: TestClient, monkeypatch: pytes
 
 
 def test_prospect_detail_shows_full_history(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = ConversationStore(db_path=":memory:", max_history_turns=1)
+    store = ConversationStore(max_history_turns=1)
     chat_id = "573001112233@c.us"
     store.add_turn(chat_id, "user", "hola")
     store.add_turn(chat_id, "assistant", "hola, en qué te ayudo")
@@ -238,7 +238,7 @@ def test_prospect_detail_shows_full_history(client: TestClient, monkeypatch: pyt
 
 def test_prospect_detail_keeps_the_chat_list_visible(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Layout tipo WhatsApp Web: la lista sigue visible aunque haya un chat seleccionado."""
-    store = ConversationStore(db_path=":memory:")
+    store = ConversationStore()
     store.add_turn("111@c.us", "user", "chat uno")
     store.add_turn("222@c.us", "user", "chat dos")
     monkeypatch.setattr(admin_router, "conversation_store", store)

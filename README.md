@@ -53,7 +53,6 @@ WHATSAPP_BOT_ENABLED=false
 LLM_API_KEY=sk-tu-api-key
 LLM_BASE_URL=
 LLM_MODEL=gpt-4o-mini
-WHATSAPP_BOT_DB_PATH=data/whatsapp_bot.db
 WHATSAPP_BOT_ALLOWED_NUMBERS=
 
 # Panel admin de plantillas (/admin/templates) y su base MySQL
@@ -102,8 +101,8 @@ Levanta `api`, `waha` y `whisper` (transcripción de audio, contenedor
 `api` espera a que `waha` y `whisper` pasen su healthcheck antes de
 arrancar (`depends_on: condition: service_healthy`). Sesiones y media de
 WhatsApp persisten en `./.waha-data/` (gitignored); el historial del bot de
-WhatsApp (SQLite) persiste en `./.whatsapp-bot-data/` (gitignored); el
-modelo de whisper descargado persiste en `./.whisper-data/` (gitignored).
+WhatsApp persiste en MySQL (ver la sección de MySQL más abajo); el modelo de
+whisper descargado persiste en `./.whisper-data/` (gitignored).
 
 Para desarrollo local, `docker compose up` carga automáticamente
 `docker-compose.override.yml` (monta `./app`, agrega `--reload`) — no hace
@@ -287,23 +286,26 @@ el bot conversa y responde normal por WhatsApp, pero nada queda en
 Bitrix — así un asesor nunca ve negociaciones a medio llenar de alguien
 que escribió una vez y no volvió. Apenas ambos datos están confirmados
 se busca (o crea) el contacto y el deal de consignación (pipeline
-`CATEGORY_ID=34`), y en cada turno siguiente se actualizan los campos del
-inmueble que el LLM haya identificado (tipo, dirección, sector/zona/
-ciudad, precio de venta esperado, matrícula —
-`app.crm.protocol.PropertyListing`). Si el cliente cuenta datos del
-inmueble antes de confirmar su identidad, esos datos no se guardan — el
-bot puede tener que volver a preguntarlos una vez creado el deal. Ver
-`app/flows/whatsapp_bot.py`.
+`CATEGORY_ID=34`), se le explica el proceso y se le pide firmar la
+Autorización de Corretaje — el bot ya no recolecta los datos del
+inmueble por chat: eso se llena en el formulario de la Autorización
+(`app/forms/`, `app.crm.protocol.PropertyListing`) cuando la persona lo
+firma, no en la conversación de WhatsApp. Ver `app/flows/whatsapp_bot.py`.
 
-La fuente de verdad de los datos del inmueble es el deal de Bitrix. El
-historial de turnos y el `deal_id` por chat (`ConversationStore`) se
-persisten en SQLite (`app/flows/whatsapp_bot_store.py`,
-`WHATSAPP_BOT_DB_PATH`) y sobreviven a un restart/deploy — solo el dedup
-de mensajes reintentados por Waha sigue en memoria del proceso (un TTL
-corto, sin problema si se pierde). Así, si un cliente escribe, el bot le
-pide datos y el cliente no vuelve a contestar hasta días después, al
-retomar el bot sigue teniendo el historial y no repite preguntas ya
-respondidas.
+La creación de contacto/deal por chat corre serializada con un
+`threading.Lock` por `chat_id` (`ConversationStore.chat_lock`) — sin esto,
+dos mensajes casi simultáneos del mismo chat (dos threads de
+`asyncio.to_thread` en `app/waha/router.py`) pueden ver `deal_id is None`
+al mismo tiempo y cada uno crear su propio deal duplicado en Bitrix.
+
+El historial de turnos y el `deal_id` por chat (`ConversationStore`) se
+persisten en MySQL (`app/flows/whatsapp_bot_store.py`,
+`app/flows/whatsapp_bot_db.py`, ver la sección de MySQL más abajo) y
+sobreviven a un restart/deploy — solo el dedup de mensajes reintentados
+por Waha sigue en memoria del proceso (un TTL corto, sin problema si se
+pierde). Así, si un cliente escribe, el bot le pide datos y el cliente no
+vuelve a contestar hasta días después, al retomar el bot sigue teniendo
+el historial y no repite preguntas ya respondidas.
 
 **Pausa por conversación / handoff a un asesor**: un asesor puede pausar
 el bot para un deal puntual marcando el checkbox `fields.FIELD_BOT_ACTIVE`
@@ -386,12 +388,15 @@ Limitaciones conocidas, por ser experimental:
   confirmar si en Bitrix es un campo `money` (necesitaría formato
   `"123456|COP"`); si Bitrix lo rechaza, ajustar `update_property_listing`
   en `app/bitrix/client.py`.
-- **Dedup de mensajes reintentados por Waha en memoria del proceso** — se
-  pierde en cada restart del contenedor `api` (a lo sumo se reprocesa un
-  mensaje reintentado, no rompe nada). El historial de conversación y el
-  `deal_id` por chat sí persisten en SQLite, pero en un solo archivo
-  (`WHATSAPP_BOT_DB_PATH`) — no pensado para correr con más de un worker
-  simultáneo escribiendo el mismo archivo.
+- **Dedup de mensajes reintentados por Waha, y los locks por chat
+  (`ConversationStore.chat_lock`), viven en memoria del proceso** — se
+  pierden en cada restart del contenedor `api` (a lo sumo se reprocesa un
+  mensaje reintentado, no rompe nada) y no se comparten entre workers si
+  se corre más de uno — con más de un worker, dos mensajes del mismo chat
+  podrían caer en workers distintos y volver a exponerse a la race
+  condition de deals duplicados que el lock evita dentro de un mismo
+  proceso. El historial de conversación y el `deal_id` por chat sí
+  persisten en MySQL, compartido entre workers.
 - **`fields.FIELD_BOT_ACTIVE` necesita crearse a mano en Bitrix** —
   checkbox en el deal; hasta que se reemplace el placeholder en
   `app/bitrix/fields.py` con el ID real, la pausa manual/automática no
@@ -468,11 +473,12 @@ La bienvenida de primer contacto (`whatsapp_welcome_known`/`_unknown`) se
 manda **tal cual, sin pasar por el LLM** — solo el resto de la conversación
 usa el `system_prompt`. Ver `app/flows/whatsapp_bot_welcome.py`.
 
-Guardado en MySQL vía SQLAlchemy (`app/message_templates/`) — aparte del
-SQLite del historial de conversación (`WHATSAPP_BOT_DB_PATH`), que no se
-tocó. Si MySQL no está disponible, las lecturas caen a los defaults
+Guardado en MySQL vía SQLAlchemy (`app/message_templates/`) — misma base
+que el historial de conversación (`app/flows/whatsapp_bot_store.py`). Si
+MySQL no está disponible, las lecturas de plantillas caen a los defaults
 hardcodeados en `app/message_templates/store.py::DEFAULT_TEMPLATES` — el bot
-nunca deja de responder por esto.
+sigue respondiendo con esos defaults, pero el historial de conversación no
+tiene fallback: sin MySQL no persiste.
 
 El contenedor `mysql` (+ `adminer` para inspeccionarlo en
 `http://localhost:${ADMINER_PORT:-8080}`) solo vive en

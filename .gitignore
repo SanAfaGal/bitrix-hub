@@ -39,10 +39,6 @@ logs/
 # ── Datos de Waha (sesiones de WhatsApp, media) ──────────────────────────────
 .waha-data/
 
-# ── Historial del bot de WhatsApp (SQLite) ───────────────────────────────────
-.whatsapp-bot-data/
-data/
-
 # ── Modelo de whisper descargado (transcripción de audio) ────────────────────
 .whisper-data/
 

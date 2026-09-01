@@ -428,6 +428,14 @@ ADMIN_STYLE = """<style>
   .prospect-header__name { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prospect-header__phone { font-size: 11.5px; line-height: 1.3; color: var(--color-text-muted); }
 
+  .prospect-header__delete-form { flex: 0 0 auto; margin: 0; }
+  .prospect-header__delete-btn {
+    display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+    border-radius: 50%; border: none; background: transparent; color: var(--color-text-faint); cursor: pointer;
+    transition: background-color 0.15s var(--ease-standard), color 0.15s var(--ease-standard);
+  }
+  .prospect-header__delete-btn:hover { background: var(--color-error-bg); color: var(--color-error); }
+
   .prospect-thread {
     flex: 1 1 auto; overflow-y: auto; padding: 24px 32px; display: flex; flex-direction: column; gap: 10px;
   }

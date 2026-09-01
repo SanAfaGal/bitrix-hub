@@ -9,10 +9,19 @@ Los datos del inmueble que el cliente cuenta (tipo, dirección, sector/zona/
 ciudad, precio esperado, matrícula) se guardan directo en el deal de
 consignación en Bitrix (`app.crm.protocol.PropertyListing`) — esa es la
 fuente de verdad. El historial de turnos y el `deal_id` por chat
-(`ConversationStore`) se persisten en SQLite (`whatsapp_bot_store.py`) y
-sobreviven a un restart/deploy — solo el dedup de mensajes reintentados
-por Waha queda en memoria del proceso (un TTL corto, sin problema si se
-pierde).
+(`ConversationStore`) se persisten en MySQL (`whatsapp_bot_store.py`,
+`whatsapp_bot_db.py`) y sobreviven a un restart/deploy — solo el dedup de
+mensajes reintentados por Waha queda en memoria del proceso (un TTL corto,
+sin problema si se pierde).
+
+Un `threading.Lock` por `chat_id` (`ConversationStore.chat_lock`) serializa
+`process()` para un mismo chat — sin esto, dos mensajes que llegan casi
+simultáneos para el mismo chat (ej. WhatsApp entrega uno por teléfono y
+otro por `@lid` casi a la vez) corren en threads distintos
+(`asyncio.to_thread` en `app.waha.router`), ambos ven `deal_id is None`
+antes de que cualquiera termine de crearlo, y cada uno crea su propio deal
+duplicado en Bitrix (visto en producción: dos "Deal de consignación
+creado..." para el mismo contacto, 400ms aparte).
 
 Si un asesor pausa el bot para un deal puntual (checkbox en Bitrix,
 `fields.FIELD_BOT_ACTIVE`), o el bot mismo lo pausa al detectar que la
@@ -28,13 +37,13 @@ from __future__ import annotations
 
 import logging
 import os
-import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.crm.protocol import CrmClient, PropertyListing
-from app.flows import whatsapp_bot_store as store_db
+from app.flows import whatsapp_bot_db as store_engine
 from app.flows.settings import load_public_base_url
+from app.flows.whatsapp_bot_conversation_store import ConversationStore
 from app.flows.whatsapp_bot_explanation import maybe_handle_acceptance, maybe_send_explanation
 from app.flows.whatsapp_bot_llm import (
     AFFIRMATION_RE as _AFFIRMATION_RE,
@@ -53,9 +62,6 @@ from app.waha.inbound import InboundMessage
 from app.waha.phone import from_chat_id, lid_from_chat_id, to_chat_id
 
 logger = logging.getLogger(__name__)
-
-SEEN_MESSAGE_TTL_SECONDS = 600
-RATE_LIMIT_COOLDOWN_SECONDS = 5  # Max 1 msg every 5 seconds per chat
 
 
 @dataclass(frozen=True)
@@ -83,104 +89,9 @@ def load_bot_config() -> BotConfig:
     )
 
 
-DEFAULT_DB_PATH = os.getenv("WHATSAPP_BOT_DB_PATH", "data/whatsapp_bot.db")
-
-
-@dataclass
-class ConversationStore:
-    """Historial + cache de deal_id por chat, persistidos en SQLite; dedup de mensajes en memoria.
-
-    `db_path=":memory:"` (default) da una base aislada por instancia — lo
-    que quieren los tests. El singleton de proceso (`conversation_store`,
-    más abajo) usa un archivo real para sobrevivir a un restart/deploy.
-    """
-
-    max_history_turns: int = 6
-    db_path: str = ":memory:"
-    _seen_message_ids: dict[str, float] = field(default_factory=dict)
-    _last_message_time: dict[str, float] = field(default_factory=dict)
-    _conn: Any = field(init=False, repr=False, default=None)
-
-    def __post_init__(self) -> None:
-        self._conn = store_db.init_db(self.db_path)
-
-    def already_processed(self, message_id: str) -> bool:
-        self._purge_expired_seen()
-        return message_id in self._seen_message_ids
-
-    def mark_processed(self, message_id: str) -> None:
-        self._seen_message_ids[message_id] = time.monotonic()
-
-    def is_rate_limited(self, chat_id: str) -> bool:
-        """Retorna True si el chat está en cooldown (más de 1 msg en últimos 5 seg)."""
-        now = time.monotonic()
-        if chat_id in self._last_message_time:
-            elapsed = now - self._last_message_time[chat_id]
-            if elapsed < RATE_LIMIT_COOLDOWN_SECONDS:
-                return True
-        return False
-
-    def mark_message_received(self, chat_id: str) -> None:
-        """Registra que recibimos un mensaje de este chat para rate limiting."""
-        self._last_message_time[chat_id] = time.monotonic()
-
-    def _purge_expired_seen(self) -> None:
-        cutoff = time.monotonic() - SEEN_MESSAGE_TTL_SECONDS
-        expired = [mid for mid, seen_at in self._seen_message_ids.items() if seen_at < cutoff]
-        for mid in expired:
-            del self._seen_message_ids[mid]
-
-    def get_history(self, chat_id: str) -> list[dict[str, str]]:
-        return store_db.get_history(self._conn, chat_id, self.max_history_turns * 2)
-
-    def add_turn(self, chat_id: str, role: str, content: str) -> None:
-        store_db.add_turn(self._conn, chat_id, role, content, self.max_history_turns * 2)
-
-    def get_deal_id(self, chat_id: str) -> str | None:
-        return store_db.get_deal_id(self._conn, chat_id)
-
-    def set_deal_id(self, chat_id: str, deal_id: str) -> None:
-        store_db.set_deal_id(self._conn, chat_id, deal_id)
-
-    def clear_deal_id(self, chat_id: str) -> None:
-        store_db.clear_deal_id(self._conn, chat_id)
-
-    def get_confirmed_identity(self, chat_id: str) -> tuple[str | None, str | None]:
-        return store_db.get_confirmed_identity(self._conn, chat_id)
-
-    def set_confirmed_name(self, chat_id: str, name: str) -> None:
-        store_db.set_confirmed_name(self._conn, chat_id, name)
-
-    def set_confirmed_phone(self, chat_id: str, phone: str) -> None:
-        store_db.set_confirmed_phone(self._conn, chat_id, phone)
-
-    def get_pending_identity(self, chat_id: str) -> tuple[str | None, str | None]:
-        return store_db.get_pending_identity(self._conn, chat_id)
-
-    def set_pending_name(self, chat_id: str, name: str) -> None:
-        store_db.set_pending_name(self._conn, chat_id, name)
-
-    def set_pending_phone(self, chat_id: str, phone: str) -> None:
-        store_db.set_pending_phone(self._conn, chat_id, phone)
-
-    def clear_pending_identity(self, chat_id: str) -> None:
-        store_db.clear_pending_identity(self._conn, chat_id)
-
-    def get_explanation_sent(self, chat_id: str) -> bool:
-        return store_db.get_explanation_sent(self._conn, chat_id)
-
-    def set_explanation_sent(self, chat_id: str) -> None:
-        store_db.set_explanation_sent(self._conn, chat_id)
-
-    def get_full_history(self, chat_id: str) -> list[dict[str, str]]:
-        return store_db.get_full_history(self._conn, chat_id)
-
-    def list_chats(self) -> list[dict[str, Any]]:
-        return store_db.list_chats(self._conn)
-
-
-# Singleton a nivel de proceso: un archivo SQLite real, sobrevive a un restart.
-conversation_store = ConversationStore(db_path=DEFAULT_DB_PATH)
+# Singleton a nivel de proceso: el MySQL real, sobrevive a un restart. Ver
+# `ConversationStore` en `whatsapp_bot_conversation_store.py`.
+conversation_store = ConversationStore(engine=store_engine.engine)
 
 
 def _resolve_phone(chat_id: str, waha_client: WahaClient, session: str) -> tuple[str | None, str | None]:
@@ -264,13 +175,33 @@ def process(
 ) -> dict[str, Any]:
     """Procesa un mensaje entrante de WhatsApp y responde vía LLM, guardando el inmueble en el CRM.
 
+    Serializado por `store.chat_lock(inbound.chat_id)` — ver el docstring
+    del módulo sobre la creación de deals duplicados que esto evita.
+    """
+    store = store or conversation_store
+    with store.chat_lock(inbound.chat_id):
+        return _process(inbound, waha_client, llm_client, crm_client, transcription_client, config, store, public_base_url, link_secret)
+
+
+def _process(
+    inbound: InboundMessage,
+    waha_client: WahaClient,
+    llm_client: LlmClient,
+    crm_client: CrmClient,
+    transcription_client: TranscriptionClient,
+    config: BotConfig | None,
+    store: ConversationStore,
+    public_base_url: str | None,
+    link_secret: str | None,
+) -> dict[str, Any]:
+    """Cuerpo de `process()`, corre siempre dentro del `chat_lock` del chat.
+
     `public_base_url`/`link_secret` son para el link de la Autorización de
     Corretaje (`maybe_handle_acceptance`) — si no se pasan (caso normal en
     producción), se cargan de `HUB_PUBLIC_BASE_URL`/`FORM_LINK_SECRET` acá
     mismo, la primera vez que hacen falta.
     """
     config = config or load_bot_config()
-    store = store or conversation_store
 
     if not config.enabled:
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_disabled"}
@@ -355,7 +286,6 @@ def process(
 
             awaiting_acceptance = True
 
-    listing = crm_client.get_property_listing(deal_id) if deal_id is not None else PropertyListing()
     confirmed_name, confirmed_phone = store.get_confirmed_identity(inbound.chat_id)
 
     # Sin deal todavía (identidad sin confirmar): se le muestran al LLM
@@ -372,7 +302,6 @@ def process(
     history = store.get_history(inbound.chat_id)
     system_prompt = _build_system_prompt(
         templates_store.get_template("whatsapp_system_prompt"),
-        listing,
         confirmed_name,
         confirmed_phone,
         candidate_name,

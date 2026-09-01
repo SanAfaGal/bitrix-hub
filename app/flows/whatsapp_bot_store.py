@@ -1,127 +1,82 @@
-"""Persistencia en SQLite del historial de conversación del bot de WhatsApp.
+"""Persistencia en MySQL (SQLAlchemy) del historial de conversación del bot de WhatsApp.
 
 Solo el historial de turnos y el cache de `deal_id` por chat viven acá —
 sobreviven a un restart/deploy del proceso, a diferencia del dedup de
 mensajes (`ConversationStore._seen_message_ids` en `whatsapp_bot.py`), que
 sigue en memoria porque es solo un TTL corto de reintentos de Waha y no
-importa perderlo. Funciones puras sobre una `sqlite3.Connection` ya abierta
-(la abre y mantiene `ConversationStore`), sin ORM — consistente con el
-resto del repo.
+importa perderlo.
+
+Funciones puras sobre una `Session` ya abierta (la abre y cierra
+`ConversationStore` por cada operación, ver `whatsapp_bot_db.py`). Todas las
+tablas cuelgan de `conversations` con `chat_id` como FK — `_ensure_conversation`
+crea esa fila raíz antes de insertar en cualquier tabla hija.
 """
 from __future__ import annotations
 
-import sqlite3
 import time
-from pathlib import Path
 from typing import Any
 
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
 
-def init_db(db_path: str) -> sqlite3.Connection:
-    """Abre (creando si hace falta) la conexión y el esquema de la base de historial."""
-    if db_path != ":memory:":
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversation_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at REAL NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_conversation_messages_chat_id ON conversation_messages (chat_id, id)"
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversation_meta (
-            chat_id TEXT PRIMARY KEY,
-            deal_id TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversation_flags (
-            chat_id TEXT PRIMARY KEY,
-            explanation_sent INTEGER NOT NULL DEFAULT 0
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversation_identity (
-            chat_id TEXT PRIMARY KEY,
-            confirmed_name TEXT,
-            confirmed_phone TEXT
-        )
-        """
-    )
-    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(conversation_identity)")}
-    if "pending_name" not in existing_columns:
-        conn.execute("ALTER TABLE conversation_identity ADD COLUMN pending_name TEXT")
-    if "pending_phone" not in existing_columns:
-        conn.execute("ALTER TABLE conversation_identity ADD COLUMN pending_phone TEXT")
-    conn.commit()
-    return conn
+from app.flows.whatsapp_bot_models import Conversation, ConversationFlags, ConversationIdentity, ConversationMessage, ConversationMeta
 
 
-def get_history(conn: sqlite3.Connection, chat_id: str, limit: int) -> list[dict[str, str]]:
+def _ensure_conversation(session: Session, chat_id: str) -> None:
+    if session.get(Conversation, chat_id) is None:
+        session.add(Conversation(chat_id=chat_id))
+        session.flush()
+
+
+def get_history(session: Session, chat_id: str, limit: int) -> list[dict[str, str]]:
     """Últimos `limit` turnos del chat, en orden cronológico."""
-    rows = conn.execute(
-        "SELECT role, content FROM conversation_messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
-        (chat_id, limit),
-    ).fetchall()
+    rows = session.execute(
+        select(ConversationMessage.role, ConversationMessage.content)
+        .where(ConversationMessage.chat_id == chat_id)
+        .order_by(ConversationMessage.id.desc())
+        .limit(limit)
+    ).all()
     return [{"role": role, "content": content} for role, content in reversed(rows)]
 
 
-def get_full_history(conn: sqlite3.Connection, chat_id: str) -> list[dict[str, str]]:
+def get_full_history(session: Session, chat_id: str) -> list[dict[str, str]]:
     """Todo el historial del chat (sin recorte), en orden cronológico — para la vista de detalle del panel admin."""
-    rows = conn.execute(
-        "SELECT role, content, created_at FROM conversation_messages WHERE chat_id = ? ORDER BY id ASC",
-        (chat_id,),
-    ).fetchall()
+    rows = session.execute(
+        select(ConversationMessage.role, ConversationMessage.content, ConversationMessage.created_at)
+        .where(ConversationMessage.chat_id == chat_id)
+        .order_by(ConversationMessage.id.asc())
+    ).all()
     return [{"role": role, "content": content, "created_at": created_at} for role, content, created_at in rows]
 
 
-def list_chats(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def list_chats(session: Session) -> list[dict[str, Any]]:
     """Un resumen por chat (último mensaje, deal_id, identidad confirmada), para la lista del panel admin.
 
     Ordenado por último mensaje descendente — los chats sin ningún mensaje
     en `conversation_messages` no aparecen (no hay nada que mostrar de
     ellos).
     """
-    rows = conn.execute(
-        """
-        SELECT
-            m.chat_id,
-            m.last_content,
-            m.last_created_at,
-            m.message_count,
-            meta.deal_id,
-            identity.confirmed_name,
-            identity.confirmed_phone
-        FROM (
-            SELECT
-                chat_id,
-                content AS last_content,
-                created_at AS last_created_at,
-                id AS last_id,
-                (SELECT COUNT(*) FROM conversation_messages c2 WHERE c2.chat_id = c1.chat_id) AS message_count
-            FROM conversation_messages c1
-            WHERE id IN (SELECT MAX(id) FROM conversation_messages GROUP BY chat_id)
-        ) m
-        LEFT JOIN conversation_meta meta ON meta.chat_id = m.chat_id
-        LEFT JOIN conversation_identity identity ON identity.chat_id = m.chat_id
-        ORDER BY m.last_id DESC
-        """
-    ).fetchall()
+    msg = ConversationMessage
+    last_id_subq = select(msg.chat_id, func.max(msg.id).label("last_id")).group_by(msg.chat_id).subquery()
+    count_subq = select(msg.chat_id, func.count(msg.id).label("message_count")).group_by(msg.chat_id).subquery()
+
+    stmt = (
+        select(
+            msg.chat_id,
+            msg.content,
+            msg.created_at,
+            count_subq.c.message_count,
+            ConversationMeta.deal_id,
+            ConversationIdentity.confirmed_name,
+            ConversationIdentity.confirmed_phone,
+        )
+        .join(last_id_subq, (msg.chat_id == last_id_subq.c.chat_id) & (msg.id == last_id_subq.c.last_id))
+        .join(count_subq, count_subq.c.chat_id == msg.chat_id)
+        .outerjoin(ConversationMeta, ConversationMeta.chat_id == msg.chat_id)
+        .outerjoin(ConversationIdentity, ConversationIdentity.chat_id == msg.chat_id)
+        .order_by(msg.id.desc())
+    )
+    rows = session.execute(stmt).all()
     return [
         {
             "chat_id": chat_id,
@@ -136,75 +91,86 @@ def list_chats(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ]
 
 
-def add_turn(conn: sqlite3.Connection, chat_id: str, role: str, content: str, max_rows: int) -> None:
+def add_turn(session: Session, chat_id: str, role: str, content: str, max_rows: int) -> None:
     """Guarda un turno y recorta el historial del chat a `max_rows` filas."""
-    conn.execute(
-        "INSERT INTO conversation_messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-        (chat_id, role, content, time.time()),
+    _ensure_conversation(session, chat_id)
+    session.add(ConversationMessage(chat_id=chat_id, role=role, content=content, created_at=time.time()))
+    session.flush()
+
+    # MySQL no soporta `LIMIT` dentro de un subquery usado con `IN`/`NOT IN`
+    # directamente ("LIMIT & IN/ALL/ANY/SOME subquery") — envolverlo en
+    # `.subquery()` lo materializa como derived table, que sí soporta.
+    keep_ids_subq = (
+        select(ConversationMessage.id)
+        .where(ConversationMessage.chat_id == chat_id)
+        .order_by(ConversationMessage.id.desc())
+        .limit(max_rows)
+        .subquery()
     )
-    conn.execute(
-        """
-        DELETE FROM conversation_messages
-        WHERE chat_id = ? AND id NOT IN (
-            SELECT id FROM conversation_messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?
+    session.execute(
+        delete(ConversationMessage).where(
+            ConversationMessage.chat_id == chat_id,
+            ConversationMessage.id.notin_(select(keep_ids_subq.c.id)),
         )
-        """,
-        (chat_id, chat_id, max_rows),
     )
-    conn.commit()
+    session.commit()
 
 
-def get_deal_id(conn: sqlite3.Connection, chat_id: str) -> str | None:
-    row = conn.execute("SELECT deal_id FROM conversation_meta WHERE chat_id = ?", (chat_id,)).fetchone()
-    return row[0] if row else None
+def delete_chat(session: Session, chat_id: str) -> None:
+    """Borra toda la data del chat (mensajes, deal_id, identidad, flags), incluida la fila raíz — usado por el panel admin."""
+    session.execute(delete(ConversationMessage).where(ConversationMessage.chat_id == chat_id))
+    session.execute(delete(ConversationMeta).where(ConversationMeta.chat_id == chat_id))
+    session.execute(delete(ConversationFlags).where(ConversationFlags.chat_id == chat_id))
+    session.execute(delete(ConversationIdentity).where(ConversationIdentity.chat_id == chat_id))
+    session.execute(delete(Conversation).where(Conversation.chat_id == chat_id))
+    session.commit()
 
 
-def set_deal_id(conn: sqlite3.Connection, chat_id: str, deal_id: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO conversation_meta (chat_id, deal_id) VALUES (?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET deal_id = excluded.deal_id
-        """,
-        (chat_id, deal_id),
-    )
-    conn.commit()
+def get_deal_id(session: Session, chat_id: str) -> str | None:
+    row = session.get(ConversationMeta, chat_id)
+    return row.deal_id if row else None
 
 
-def clear_deal_id(conn: sqlite3.Connection, chat_id: str) -> None:
-    conn.execute("DELETE FROM conversation_meta WHERE chat_id = ?", (chat_id,))
-    conn.commit()
+def set_deal_id(session: Session, chat_id: str, deal_id: str) -> None:
+    _ensure_conversation(session, chat_id)
+    row = session.get(ConversationMeta, chat_id)
+    if row is None:
+        session.add(ConversationMeta(chat_id=chat_id, deal_id=deal_id))
+    else:
+        row.deal_id = deal_id
+    session.commit()
 
 
-def get_confirmed_identity(conn: sqlite3.Connection, chat_id: str) -> tuple[str | None, str | None]:
-    row = conn.execute(
-        "SELECT confirmed_name, confirmed_phone FROM conversation_identity WHERE chat_id = ?", (chat_id,)
-    ).fetchone()
-    return (row[0], row[1]) if row else (None, None)
+def clear_deal_id(session: Session, chat_id: str) -> None:
+    session.execute(delete(ConversationMeta).where(ConversationMeta.chat_id == chat_id))
+    session.commit()
 
 
-def set_confirmed_name(conn: sqlite3.Connection, chat_id: str, name: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO conversation_identity (chat_id, confirmed_name) VALUES (?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET confirmed_name = excluded.confirmed_name
-        """,
-        (chat_id, name),
-    )
-    conn.commit()
+def get_confirmed_identity(session: Session, chat_id: str) -> tuple[str | None, str | None]:
+    row = session.get(ConversationIdentity, chat_id)
+    return (row.confirmed_name, row.confirmed_phone) if row else (None, None)
 
 
-def set_confirmed_phone(conn: sqlite3.Connection, chat_id: str, phone: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO conversation_identity (chat_id, confirmed_phone) VALUES (?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET confirmed_phone = excluded.confirmed_phone
-        """,
-        (chat_id, phone),
-    )
-    conn.commit()
+def _get_or_create_identity(session: Session, chat_id: str) -> ConversationIdentity:
+    _ensure_conversation(session, chat_id)
+    row = session.get(ConversationIdentity, chat_id)
+    if row is None:
+        row = ConversationIdentity(chat_id=chat_id)
+        session.add(row)
+    return row
 
 
-def get_pending_identity(conn: sqlite3.Connection, chat_id: str) -> tuple[str | None, str | None]:
+def set_confirmed_name(session: Session, chat_id: str, name: str) -> None:
+    _get_or_create_identity(session, chat_id).confirmed_name = name
+    session.commit()
+
+
+def set_confirmed_phone(session: Session, chat_id: str, phone: str) -> None:
+    _get_or_create_identity(session, chat_id).confirmed_phone = phone
+    session.commit()
+
+
+def get_pending_identity(session: Session, chat_id: str) -> tuple[str | None, str | None]:
     """Nombre/teléfono que el bot le propuso a la persona en su último mensaje, aún sin confirmar.
 
     Distinto de `confirmed_name`/`confirmed_phone`: sirve para que, si la
@@ -212,55 +178,38 @@ def get_pending_identity(conn: sqlite3.Connection, chat_id: str) -> tuple[str | 
     bot pueda promover estos valores a confirmados sin depender de que el
     LLM los repita en el JSON de ese turno.
     """
-    row = conn.execute(
-        "SELECT pending_name, pending_phone FROM conversation_identity WHERE chat_id = ?", (chat_id,)
-    ).fetchone()
-    return (row[0], row[1]) if row else (None, None)
+    row = session.get(ConversationIdentity, chat_id)
+    return (row.pending_name, row.pending_phone) if row else (None, None)
 
 
-def set_pending_name(conn: sqlite3.Connection, chat_id: str, name: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO conversation_identity (chat_id, pending_name) VALUES (?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET pending_name = excluded.pending_name
-        """,
-        (chat_id, name),
-    )
-    conn.commit()
+def set_pending_name(session: Session, chat_id: str, name: str) -> None:
+    _get_or_create_identity(session, chat_id).pending_name = name
+    session.commit()
 
 
-def set_pending_phone(conn: sqlite3.Connection, chat_id: str, phone: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO conversation_identity (chat_id, pending_phone) VALUES (?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET pending_phone = excluded.pending_phone
-        """,
-        (chat_id, phone),
-    )
-    conn.commit()
+def set_pending_phone(session: Session, chat_id: str, phone: str) -> None:
+    _get_or_create_identity(session, chat_id).pending_phone = phone
+    session.commit()
 
 
-def clear_pending_identity(conn: sqlite3.Connection, chat_id: str) -> None:
-    conn.execute(
-        "UPDATE conversation_identity SET pending_name = NULL, pending_phone = NULL WHERE chat_id = ?",
-        (chat_id,),
-    )
-    conn.commit()
+def clear_pending_identity(session: Session, chat_id: str) -> None:
+    row = session.get(ConversationIdentity, chat_id)
+    if row is not None:
+        row.pending_name = None
+        row.pending_phone = None
+        session.commit()
 
 
-def get_explanation_sent(conn: sqlite3.Connection, chat_id: str) -> bool:
-    row = conn.execute(
-        "SELECT explanation_sent FROM conversation_flags WHERE chat_id = ?", (chat_id,)
-    ).fetchone()
-    return bool(row[0]) if row else False
+def get_explanation_sent(session: Session, chat_id: str) -> bool:
+    row = session.get(ConversationFlags, chat_id)
+    return bool(row.explanation_sent) if row else False
 
 
-def set_explanation_sent(conn: sqlite3.Connection, chat_id: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO conversation_flags (chat_id, explanation_sent) VALUES (?, 1)
-        ON CONFLICT(chat_id) DO UPDATE SET explanation_sent = 1
-        """,
-        (chat_id,),
-    )
-    conn.commit()
+def set_explanation_sent(session: Session, chat_id: str) -> None:
+    _ensure_conversation(session, chat_id)
+    row = session.get(ConversationFlags, chat_id)
+    if row is None:
+        session.add(ConversationFlags(chat_id=chat_id, explanation_sent=True))
+    else:
+        row.explanation_sent = True
+    session.commit()

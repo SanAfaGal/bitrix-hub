@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import pytest
+from sqlalchemy import create_engine
 
 from app.crm.protocol import PropertyListing
 from app.flows.whatsapp_bot import BotConfig, ConversationStore, _parse_llm_output, process
+from app.flows.whatsapp_bot_models import Base
 from app.waha.inbound import InboundMessage
 from tests.fakes import FakeCrmClient
+
+
+def _sqlite_file_engine(db_path: str):
+    """Engine SQLite sobre un archivo real — para probar que dos `ConversationStore` apuntando
+    al mismo archivo ven los mismos datos (simula sobrevivir a un restart del proceso)."""
+    engine = create_engine(f"sqlite:///{db_path}", future=True)
+    Base.metadata.create_all(engine)
+    return engine
 
 
 @pytest.fixture(autouse=True)
@@ -466,6 +478,54 @@ def test_process_reuses_cached_deal_id_without_hitting_crm_lookup_twice() -> Non
     assert len(crm.deal_by_contact) == 1
 
 
+def test_process_serializes_deal_creation_for_same_chat_to_prevent_duplicates() -> None:
+    """Regresión de producción: dos mensajes casi simultáneos del mismo chat crearon dos deals
+    en Bitrix (race condition en `find_or_create_property_seller_deal`, sin lock). Ver el
+    docstring de `ConversationStore.chat_lock`."""
+    intervals: list[tuple[float, float]] = []
+    intervals_lock = threading.Lock()
+
+    class SlowFakeCrmClient(FakeCrmClient):
+        def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
+            start = time.monotonic()
+            time.sleep(0.05)
+            result = super().find_or_create_property_seller_deal(contact_id)
+            with intervals_lock:
+                intervals.append((start, time.monotonic()))
+            return result
+
+    crm = SlowFakeCrmClient()
+    store = ConversationStore()
+    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
+    store.set_confirmed_phone("573001112233@c.us", "573001112233")
+
+    def run(message_id: str) -> None:
+        process(
+            _inbound(message_id=message_id),
+            FakeWahaClient(),
+            FakeLlmClient(reply_text=_plain_reply("ok")),
+            crm,
+            _TRANSCRIPTION,
+            config=_enabled_config(),
+            store=store,
+        )
+
+    t1 = threading.Thread(target=run, args=("m1",))
+    t2 = threading.Thread(target=run, args=("m2",))
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    # El chat_lock serializa los dos process(): para cuando el segundo hilo
+    # entra, el primero ya dejó el deal_id cacheado en el store, así que ni
+    # siquiera vuelve a llamar a `find_or_create_property_seller_deal` — de
+    # ahí que `intervals` tenga un solo registro en vez de dos que se
+    # solapan (que es justo el bug que reproducía el race condition).
+    assert len(crm.deal_by_contact) == 1
+    assert len(intervals) == 1
+
+
 def test_process_recreates_deal_when_cached_deal_was_deleted_in_bitrix() -> None:
     # Identidad ya confirmada de antes (conversación previa) — el self-heal
     # no debe tener que pedirla de nuevo, solo recrear el deal.
@@ -533,7 +593,8 @@ def test_process_does_not_resolve_candidate_phone_once_deal_exists() -> None:
     assert waha.resolve_lid_to_phone_calls == []
 
 
-def test_process_sends_known_fields_to_llm_system_prompt() -> None:
+def test_process_does_not_send_property_listing_to_llm_system_prompt() -> None:
+    """El inmueble ya no se recolecta por chat, se llena en la Autorización de Corretaje."""
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("ok"))
     crm = FakeCrmClient()
@@ -544,7 +605,7 @@ def test_process_sends_known_fields_to_llm_system_prompt() -> None:
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     system_prompt = llm.calls[0][0]
-    assert "Calle 10 # 20-30" in system_prompt
+    assert "Calle 10 # 20-30" not in system_prompt
 
 
 def test_process_updates_property_listing_when_llm_extracts_fields() -> None:
@@ -1042,11 +1103,11 @@ def test_process_does_not_pause_when_handoff_not_requested() -> None:
 def test_conversation_store_history_survives_new_instance_same_db_file(tmp_path) -> None:
     db_path = str(tmp_path / "whatsapp_bot.db")
 
-    first = ConversationStore(db_path=db_path)
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
     first.add_turn("573001112233@c.us", "user", "hola")
     first.add_turn("573001112233@c.us", "assistant", "hola! como te ayudo?")
 
-    second = ConversationStore(db_path=db_path)
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_history("573001112233@c.us") == [
         {"role": "user", "content": "hola"},
@@ -1057,10 +1118,10 @@ def test_conversation_store_history_survives_new_instance_same_db_file(tmp_path)
 def test_conversation_store_deal_id_survives_new_instance_same_db_file(tmp_path) -> None:
     db_path = str(tmp_path / "whatsapp_bot.db")
 
-    first = ConversationStore(db_path=db_path)
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
     first.set_deal_id("573001112233@c.us", "6000")
 
-    second = ConversationStore(db_path=db_path)
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_deal_id("573001112233@c.us") == "6000"
 
@@ -1087,11 +1148,11 @@ def test_conversation_store_set_confirmed_name_and_phone_independently() -> None
 def test_conversation_store_confirmed_identity_survives_new_instance_same_db_file(tmp_path) -> None:
     db_path = str(tmp_path / "whatsapp_bot.db")
 
-    first = ConversationStore(db_path=db_path)
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
     first.set_confirmed_name("573001112233@c.us", "Juan Pérez")
     first.set_confirmed_phone("573001112233@c.us", "573001112233")
 
-    second = ConversationStore(db_path=db_path)
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
 
@@ -1118,11 +1179,11 @@ def test_conversation_store_set_and_clear_pending_identity() -> None:
 def test_conversation_store_pending_identity_survives_new_instance_same_db_file(tmp_path) -> None:
     db_path = str(tmp_path / "whatsapp_bot.db")
 
-    first = ConversationStore(db_path=db_path)
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
     first.set_pending_name("573001112233@c.us", "Juan Pérez")
     first.set_pending_phone("573001112233@c.us", "573001112233")
 
-    second = ConversationStore(db_path=db_path)
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_pending_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
 
@@ -1147,10 +1208,10 @@ def test_conversation_store_set_explanation_sent() -> None:
 def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(tmp_path) -> None:
     db_path = str(tmp_path / "whatsapp_bot.db")
 
-    first = ConversationStore(db_path=db_path)
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
     first.set_deal_id("573001112233@c.us", "6000")
     first.set_explanation_sent("573001112233@c.us")
 
-    second = ConversationStore(db_path=db_path)
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_explanation_sent("573001112233@c.us") is True

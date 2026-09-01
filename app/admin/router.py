@@ -164,6 +164,15 @@ def get_prospects(username: str = Depends(require_login)) -> HTMLResponse:
     return HTMLResponse(render_prospects_html(username=username, chats=chats))
 
 
+@router.post(
+    f"{PROSPECTS_PATH}/{{chat_id}}/delete",
+    summary="Elimina la conversación de un prospecto",
+)
+def post_delete_prospect(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
+    conversation_store.delete_chat(chat_id)
+    return RedirectResponse(url=PROSPECTS_PATH, status_code=303)
+
+
 @router.get(
     f"{PROSPECTS_PATH}/{{chat_id}}",
     response_class=HTMLResponse,

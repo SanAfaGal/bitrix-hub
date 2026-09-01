@@ -50,21 +50,6 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
 )
 
 
-def _known_fields_block(listing: PropertyListing) -> str:
-    def fmt(value: Any) -> str:
-        return str(value) if value not in (None, "") else "(vacío)"
-
-    return (
-        "Datos que ya tenemos del inmueble (no vuelva a preguntar por lo "
-        "que ya está lleno, solo confírmelo si la persona lo corrige):\n"
-        f"- Tipo de inmueble: {fmt(listing.property_type)}\n"
-        f"- Dirección: {fmt(listing.address)}\n"
-        f"- Sector/zona/ciudad: {fmt(listing.sector_zone_city)}\n"
-        f"- Precio de venta esperado: {fmt(listing.expected_sale_price)}\n"
-        f"- Matrícula inmobiliaria: {fmt(listing.registration_number)}"
-    )
-
-
 def _identity_block(
     confirmed_name: str | None,
     confirmed_phone: str | None,
@@ -92,7 +77,6 @@ def _identity_block(
 
 def _build_system_prompt(
     base_prompt: str,
-    listing: PropertyListing,
     confirmed_name: str | None,
     confirmed_phone: str | None,
     candidate_name: str | None = None,
@@ -100,7 +84,7 @@ def _build_system_prompt(
 ) -> str:
     return (
         f"{base_prompt}\n\n{_identity_block(confirmed_name, confirmed_phone, candidate_name, candidate_phone)}"
-        f"\n\n{_known_fields_block(listing)}{_OUTPUT_FORMAT_INSTRUCTIONS}"
+        f"{_OUTPUT_FORMAT_INSTRUCTIONS}"
     )
 
 

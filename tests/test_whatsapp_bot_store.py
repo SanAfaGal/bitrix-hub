@@ -4,7 +4,7 @@ from app.flows.whatsapp_bot import ConversationStore
 
 
 def test_get_full_history_returns_all_turns_in_order() -> None:
-    store = ConversationStore(db_path=":memory:", max_history_turns=6)
+    store = ConversationStore(max_history_turns=6)
     store.add_turn("573001112233@c.us", "user", "hola")
     store.add_turn("573001112233@c.us", "assistant", "hola, en qué te ayudo")
     store.add_turn("573001112233@c.us", "user", "quiero vender un apto")
@@ -19,7 +19,7 @@ def test_get_full_history_has_no_read_time_limit() -> None:
     """`get_full_history` no aplica un LIMIT propio en la lectura — muestra todo lo que
     `add_turn` haya dejado en la tabla (el recorte a `max_history_turns*2` ocurre al
     escribir, no al leer; ver `add_turn`)."""
-    store = ConversationStore(db_path=":memory:", max_history_turns=1)
+    store = ConversationStore(max_history_turns=1)
     for i in range(5):
         store.add_turn("573001112233@c.us", "user", f"mensaje {i}")
 
@@ -27,12 +27,12 @@ def test_get_full_history_has_no_read_time_limit() -> None:
 
 
 def test_list_chats_empty_store() -> None:
-    store = ConversationStore(db_path=":memory:")
+    store = ConversationStore()
     assert store.list_chats() == []
 
 
 def test_list_chats_returns_summary_ordered_by_last_message() -> None:
-    store = ConversationStore(db_path=":memory:")
+    store = ConversationStore()
     store.add_turn("111@c.us", "user", "primero")
     store.add_turn("222@c.us", "user", "segundo")
     store.add_turn("222@c.us", "assistant", "tercero, el más reciente")
