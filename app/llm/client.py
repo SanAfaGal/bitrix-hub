@@ -138,7 +138,7 @@ class LlmClient:
             return None
 
         input_tokens = getattr(response.usage, "prompt_tokens", 0) if response.usage else 0
-        output_tokens = getattr(response.usage, "output_tokens", 0) if response.usage else 0
+        output_tokens = getattr(response.usage, "completion_tokens", 0) if response.usage else 0
 
         cost = self._estimate_cost(model, input_tokens, output_tokens)
 
