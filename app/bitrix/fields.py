@@ -41,9 +41,9 @@ FIELD_FIRST_CONTACT = "UF_CRM_1773860044607"
 # (chat "@lid" en vez de "@c.us" — ver app.waha.phone.lid_from_chat_id).
 FIELD_USERNAME = "UF_CRM_1786458989056"
 
-# TODO: reemplazar por el ID real una vez creado en Bitrix (checkbox). Vacío/None
-# se interpreta como "activo" — ver BitrixClient.get_bot_active — así los deals
-# existentes sin el campo no quedan pausados por defecto.
+# Checkbox "bot activo". Vacío/None se interpreta como "activo" — ver
+# BitrixClient.get_bot_active — así los deals existentes sin el campo no
+# quedan pausados por defecto.
 FIELD_BOT_ACTIVE = "UF_CRM_1787762476957"
 
 # Pipeline "Consignación" donde caen los deals nuevos creados por el bot.
