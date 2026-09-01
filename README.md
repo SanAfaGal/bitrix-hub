@@ -312,11 +312,15 @@ el bot para un deal puntual marcando el checkbox `fields.FIELD_BOT_ACTIVE`
 en Bitrix — mientras esté desmarcado, `POST /webhook/waha-message` deja de
 responder ese chat (`skipped: "bot_paused"`) y el asesor sigue la
 conversación manualmente por WhatsApp normal. El bot también se autopausa
-así cuando el LLM detecta que la persona pidió expresamente hablar con un
-humano (`handoff_requested` en su salida JSON): manda el mensaje de
-despedida, marca el checkbox y deja un comentario en el timeline del deal.
-Para reactivar el bot en ese deal, el asesor vuelve a marcar el checkbox
-manualmente — no hay reactivación automática.
+así en dos casos: (1) cuando el LLM detecta que la persona pidió
+expresamente hablar con un humano (`handoff_requested` en su salida JSON),
+mandando antes el mensaje de despedida; (2) apenas se firma la
+Autorización de Corretaje (`app/forms/router.py::_mark_as_signed`) — de
+ahí en adelante el trámite lo sigue un asesor, no tiene sentido que el bot
+le siga preguntando por el inmueble. En ambos casos se marca el checkbox y
+se deja un comentario en el timeline del deal. Para reactivar el bot en
+ese deal, el asesor vuelve a marcar el checkbox manualmente — no hay
+reactivación automática.
 
 Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
 manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un

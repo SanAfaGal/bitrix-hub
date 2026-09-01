@@ -16,7 +16,8 @@ from app.crm.protocol import PropertyListing
 from app.forms.models import PROPERTY_TYPES
 
 AFFIRMATION_RE = re.compile(
-    r"^(s[ií]|correcto|exacto|as[ií] es|as[ií] mismo|eso es|confirmo|claro que s[ií])\W*$",
+    r"^(s[ií]|correcto|exacto|as[ií] es|as[ií] mismo|eso es|confirmo|claro(?: que s[ií])?|"
+    r"est[aá] bien|de acuerdo|dale|listo|vale|va|h[aá]gale|perfecto|bueno|ok(?:ay)?)\W*$",
     re.IGNORECASE,
 )
 
@@ -91,9 +92,14 @@ def _build_system_prompt(
 def _awaiting_acceptance_note() -> str:
     return (
         "\n\nYa se le explicó el proceso a la persona (mensaje + nota de voz) y se le "
-        "preguntó si desea continuar. Si su mensaje no es una confirmación clara, "
-        "respóndale su duda u objeción y termine reafirmando esa misma pregunta — no le "
-        "pida todavía los datos del inmueble."
+        "preguntó si desea continuar — no repita esa explicación. Su única tarea en este "
+        'turno es conseguir un "sí" o un "no" claro a esa pregunta: si el mensaje de la '
+        "persona es una duda u objeción, respóndala brevemente y termine reafirmando la "
+        'misma pregunta ("¿desea que continuemos con el proceso?"); si es un comentario '
+        'vago, evasivo o que no responde la pregunta (ej. "no sé", "está bien", "ya '
+        'veremos", "que quieres saber"), no lo interprete como aceptación ni cambie de '
+        "tema — repita la pregunta de forma directa. Bajo ninguna circunstancia pase a "
+        "otro tema ni pregunte por datos del inmueble mientras siga en este estado."
     )
 
 

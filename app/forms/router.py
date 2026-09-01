@@ -238,7 +238,12 @@ def _property_listing_from_payload(payload: BrokerageAuthorizationPayload) -> Pr
 def _mark_as_signed(payload: BrokerageAuthorizationPayload, pdf_bytes: bytes, signed_at: datetime) -> None:
     """Deja constancia de la firma en el deal: sube el PDF al drive, comenta en el timeline
     (con el link al documento si la subida funcionó), actualiza los datos del inmueble,
-    marca el estado 'Firmada' y le avisa al cliente por WhatsApp que la recibimos.
+    marca el estado 'Firmada', pausa el bot de WhatsApp y le avisa al cliente que la recibimos.
+
+    Pausar el bot acá (no solo cuando pide hablar con un humano) es
+    deliberado: una vez firmada la Autorización, el siguiente contacto con
+    el cliente lo debe llevar un asesor, no el bot conversando sobre el
+    inmueble (que ya no aplica, ver `app/flows/whatsapp_bot.py`).
 
     Best-effort: nunca rompe la descarga del PDF si Bitrix o Waha fallan.
     """
@@ -252,6 +257,8 @@ def _mark_as_signed(payload: BrokerageAuthorizationPayload, pdf_bytes: bytes, si
         crm_client.add_comment(deal_id, comment)
         crm_client.update_property_listing(deal_id, _property_listing_from_payload(payload))
         crm_client.set_authorization_status(deal_id, "firmada")
+        crm_client.set_bot_active(deal_id, False)
+        crm_client.add_comment(deal_id, "Bot: Autorización de Corretaje firmada, bot pausado automáticamente.")
         _notify_client_signed(crm_client, deal_id)
     except Exception:
         logger.exception("Error marcando la firma de la Autorización de Corretaje en el deal %s", deal_id)

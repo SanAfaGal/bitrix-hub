@@ -837,6 +837,34 @@ def test_parse_llm_output_ignores_blank_client_full_name() -> None:
     assert turn.client_full_name is None
 
 
+# ── AFFIRMATION_RE ────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "si", "Sí", "SI", "correcto", "exacto", "así es", "eso es", "confirmo",
+        "claro", "claro que si", "está bien", "esta bien.", "de acuerdo",
+        "dale", "listo", "vale", "va", "hágale", "hagale", "perfecto",
+        "bueno", "ok", "okay", "Sí!", "dale.",
+    ],
+)
+def test_affirmation_re_matches_natural_acceptance_phrases(text: str) -> None:
+    from app.flows.whatsapp_bot_llm import AFFIRMATION_RE
+
+    assert AFFIRMATION_RE.match(text.strip())
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["no sé", "usted es un tonto", "que quieres saber", "a ver", "no", "tal vez"],
+)
+def test_affirmation_re_does_not_match_ambiguous_or_negative_replies(text: str) -> None:
+    from app.flows.whatsapp_bot_llm import AFFIRMATION_RE
+
+    assert not AFFIRMATION_RE.match(text.strip())
+
+
 # ── Filtro de números permitidos (WHATSAPP_BOT_ALLOWED_NUMBERS) ─────────
 
 
@@ -1021,7 +1049,7 @@ def test_process_falls_back_to_llm_with_extra_context_when_reply_is_ambiguous() 
     }
     assert len(llm.calls) == 1
     system_prompt = llm.calls[0][0]
-    assert "reafirmando esa misma pregunta" in system_prompt
+    assert "reafirmando la misma pregunta" in system_prompt
 
 
 def test_process_does_not_resend_explanation_or_reask_once_link_already_sent() -> None:

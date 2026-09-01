@@ -15,15 +15,16 @@ def test_get_full_history_returns_all_turns_in_order() -> None:
     assert all("created_at" in m for m in history)
 
 
-def test_get_full_history_has_no_read_time_limit() -> None:
-    """`get_full_history` no aplica un LIMIT propio en la lectura — muestra todo lo que
-    `add_turn` haya dejado en la tabla (el recorte a `max_history_turns*2` ocurre al
-    escribir, no al leer; ver `add_turn`)."""
+def test_get_full_history_is_never_trimmed_while_get_history_caps_to_llm_context() -> None:
+    """`add_turn` ya no borra nada de la base — `get_full_history` (auditoría, panel admin)
+    siempre muestra todo. El recorte a `max_history_turns*2` es solo de lectura, para lo que
+    se le manda al LLM como contexto (`get_history`), ver `whatsapp_bot_store.py::add_turn`."""
     store = ConversationStore(max_history_turns=1)
     for i in range(5):
         store.add_turn("573001112233@c.us", "user", f"mensaje {i}")
 
-    assert len(store.get_full_history("573001112233@c.us")) == len(store.get_history("573001112233@c.us")) == 2
+    assert len(store.get_full_history("573001112233@c.us")) == 5
+    assert len(store.get_history("573001112233@c.us")) == 2
 
 
 def test_list_chats_empty_store() -> None:

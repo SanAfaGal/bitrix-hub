@@ -36,6 +36,7 @@ class FakeCrmClient:
         self.status_updates: list[tuple[str, str]] = []
         self.uploaded_files: list[tuple[str, str, bytes]] = []
         self.property_listing_updates: list[tuple[str, object]] = []
+        self.bot_active_updates: list[tuple[str, bool]] = []
         self.upload_file_result = upload_file_result
         self.contact_id = contact_id
         self.contact_phone = contact_phone
@@ -68,6 +69,9 @@ class FakeCrmClient:
 
     def update_property_listing(self, deal_id, listing):
         self.property_listing_updates.append((deal_id, listing))
+
+    def set_bot_active(self, deal_id, active):
+        self.bot_active_updates.append((deal_id, active))
 
 
 class FakeWahaClient:
@@ -433,11 +437,12 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
 
     assert response.status_code == 200
     assert response.content.startswith(b"%PDF")
-    assert len(fake_crm.comments) == 1
+    assert len(fake_crm.comments) == 2
     deal_id, comment = fake_crm.comments[0]
     assert deal_id == "42"
     assert "firm" in comment.lower()
     assert fake_crm.status_updates == [("42", "firmada")]
+    assert fake_crm.bot_active_updates == [("42", False)]
     assert len(fake_crm.property_listing_updates) == 1
     listing_deal_id, listing = fake_crm.property_listing_updates[0]
     assert listing_deal_id == "42"
@@ -445,6 +450,24 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
     assert listing.address == "CALLE 10 #20-30"
     assert listing.expected_sale_price == 500_000_000
     assert listing.registration_number == "001-12345"
+
+
+def test_post_form_with_deal_id_pauses_bot_when_signed(monkeypatch):
+    """Al firmar la Autorización de Corretaje, el bot de WhatsApp se pausa — de ahí en
+    adelante debe atenderlo un asesor, no seguir conversando sobre datos que ya no aplican."""
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    payload = _valid_form_payload()
+    payload["deal_id"] = "42"
+    payload["token"] = _token_for("42")
+
+    response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
+
+    assert response.status_code == 200
+    assert fake_crm.bot_active_updates == [("42", False)]
+    pause_comment = fake_crm.comments[-1][1]
+    assert "pausado" in pause_comment.lower()
 
 
 def test_post_form_with_deal_id_notifies_client_by_whatsapp_when_signed(monkeypatch):

@@ -91,28 +91,12 @@ def list_chats(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def add_turn(session: Session, chat_id: str, role: str, content: str, max_rows: int) -> None:
-    """Guarda un turno y recorta el historial del chat a `max_rows` filas."""
+def add_turn(session: Session, chat_id: str, role: str, content: str) -> None:
+    """Guarda un turno. No recorta nada — `conversation_messages` guarda la conversación
+    completa para siempre (auditoría, panel admin); el recorte a cuántos turnos recientes
+    se le mandan al LLM como contexto vive en la lectura (`get_history(limit)`), no acá."""
     _ensure_conversation(session, chat_id)
     session.add(ConversationMessage(chat_id=chat_id, role=role, content=content, created_at=time.time()))
-    session.flush()
-
-    # MySQL no soporta `LIMIT` dentro de un subquery usado con `IN`/`NOT IN`
-    # directamente ("LIMIT & IN/ALL/ANY/SOME subquery") — envolverlo en
-    # `.subquery()` lo materializa como derived table, que sí soporta.
-    keep_ids_subq = (
-        select(ConversationMessage.id)
-        .where(ConversationMessage.chat_id == chat_id)
-        .order_by(ConversationMessage.id.desc())
-        .limit(max_rows)
-        .subquery()
-    )
-    session.execute(
-        delete(ConversationMessage).where(
-            ConversationMessage.chat_id == chat_id,
-            ConversationMessage.id.notin_(select(keep_ids_subq.c.id)),
-        )
-    )
     session.commit()
 
 

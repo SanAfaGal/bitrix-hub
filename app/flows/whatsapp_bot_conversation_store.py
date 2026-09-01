@@ -89,7 +89,7 @@ class ConversationStore:
 
     def add_turn(self, chat_id: str, role: str, content: str) -> None:
         with self._SessionLocal() as session:
-            store_db.add_turn(session, chat_id, role, content, self.max_history_turns * 2)
+            store_db.add_turn(session, chat_id, role, content)
 
     def delete_chat(self, chat_id: str) -> None:
         with self._SessionLocal() as session:
