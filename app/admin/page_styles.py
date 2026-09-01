@@ -143,7 +143,7 @@ ADMIN_STYLE = """<style>
   /* ── App shell (plantillas / configuración) ─────────────────────────── */
 
   .page-outer {
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
     justify-content: center;
     padding: 24px;
@@ -173,12 +173,7 @@ ADMIN_STYLE = """<style>
     border-bottom: 1px solid #e7e9ee;
   }
   .topbar__brand { display: flex; align-items: center; gap: var(--space-3); flex: 0 0 auto; }
-  .topbar__mark {
-    width: 36px; height: 36px; border-radius: var(--radius-sm);
-    background: var(--color-navy); display: flex; align-items: center; justify-content: center;
-    color: var(--color-on-accent); font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
-    flex: 0 0 auto;
-  }
+  .topbar__mark { height: 36px; width: auto; flex: 0 0 auto; }
   .topbar__identity { display: flex; flex-direction: column; line-height: 1.15; }
   .topbar__name { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-navy); }
   .topbar__tagline { font-size: 11px; font-weight: 500; color: var(--color-teal); }
@@ -197,13 +192,16 @@ ADMIN_STYLE = """<style>
     text-decoration: none;
     display: inline-flex;
     align-items: center;
-    gap: 7px;
     cursor: pointer;
     transition: background-color 0.15s var(--ease-standard), color 0.15s var(--ease-standard);
   }
+  .navpill__icon { flex: 0 0 auto; margin-right: 6px; }
   .navpill--active { background: var(--color-teal); color: var(--color-on-accent); }
-  .navpill__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0; }
-  .navpill__dot--visible { opacity: 1; }
+  .navpill__dot {
+    width: 0; height: 6px; margin-left: 0; border-radius: 50%; background: currentColor; opacity: 0;
+    transition: width 0.15s var(--ease-standard), margin-left 0.15s var(--ease-standard), opacity 0.15s var(--ease-standard);
+  }
+  .navpill__dot--visible { width: 6px; margin-left: 7px; opacity: 1; }
 
   .topbar__user { margin-left: auto; display: flex; align-items: center; gap: var(--space-5); }
   .avatar {
@@ -251,7 +249,7 @@ ADMIN_STYLE = """<style>
   .sidebar__item--active .sidebar__item-chevron { color: var(--color-teal); }
 
   .content { flex: 1 1 auto; padding: var(--space-7) 40px; display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; overflow-y: auto; }
-  .content--config { max-width: 1240px; padding: var(--space-7) 48px; }
+  .content--config { padding: var(--space-7) 48px; }
 
   .content__title-row { display: flex; align-items: baseline; gap: 10px; }
   .content__title { margin: 0; font-size: 24px; font-weight: 700; color: var(--color-navy); }
@@ -288,6 +286,27 @@ ADMIN_STYLE = """<style>
   .char-count {
     position: absolute; right: 14px; bottom: 10px; font-size: 11px; color: var(--color-text-faint);
     background: rgba(255,255,255,0.9); padding: 1px 6px; border-radius: 6px; pointer-events: none;
+  }
+
+  /* Config: el prompt suele ser largo — que crezca el textarea a lo alto
+     disponible en vez de quedar chico con doble scroll (el de `.content` y
+     el del propio textarea). Un solo scroll, el del textarea. Solo en
+     pantallas anchas: en mobile el editor-grid se apila en columna y este
+     modo (contenedor sin scroll propio) recortaría la guía lateral. */
+  @media (min-width: 901px) {
+    .content--config { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+    .content--config .editor-grid { flex: 1 1 auto; min-height: 0; }
+    .content--config .editor-col { min-height: 0; align-self: stretch; }
+    /* El <form> que envuelve el textarea es hijo directo de .editor-col pero
+       no tenía flex-grow — sin esto, .editor-col se estira pero el form
+       adentro se queda con su alto de contenido y el hueco vacío reaparece. */
+    .content--config .editor-col form { flex: 1 1 auto; min-height: 0; }
+    .content--config .editor-wrap { flex: 1 1 auto; min-height: 0; display: flex; }
+    .content--config .editor-textarea { flex: 1 1 auto; height: 100%; resize: none; }
+    /* La columna lateral se queda en su alto natural, arriba — no se estira
+       a fuerza a que coincida con el fin del textarea (que crece según el
+       largo del prompt, no tiene por qué emparejar con estas tarjetas). */
+    .content--config .side-col { overflow-y: auto; max-height: 100%; }
   }
 
   .save-meta { margin-left: 4px; font-size: 12.5px; color: var(--color-text-faint); }
@@ -337,14 +356,119 @@ ADMIN_STYLE = """<style>
     .content, .content--config { padding: var(--space-6) var(--space-5); }
   }
 
+  /* ── Prospectos (layout tipo WhatsApp Web: lista + hilo) ────────────── */
+
+  .prospects-layout { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
+
+  .prospect-list-pane {
+    width: 340px; flex: 0 0 auto; min-height: 0; background: var(--color-card); border-right: 1px solid #e7e9ee;
+    overflow-y: auto; display: flex; flex-direction: column;
+  }
+  .prospect-list-pane::-webkit-scrollbar { width: 8px; }
+  .prospect-list-pane::-webkit-scrollbar-thumb { background: #d7dde3; border-radius: 8px; }
+
+  .prospect-row {
+    display: flex; align-items: flex-start; gap: 12px; padding: 13px var(--space-5);
+    border-bottom: 1px solid #eef0f3; text-decoration: none; color: inherit; position: relative;
+    transition: background-color 0.15s var(--ease-standard);
+  }
+  .prospect-row:hover { background: #f7f9fb; }
+  .prospect-row--active { background: var(--color-info-bg); }
+  .prospect-row--active::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--color-teal);
+  }
+
+  .prospect-row__avatar {
+    flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-teal), var(--color-navy));
+    color: var(--color-on-accent); display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .prospect-row__avatar--muted { background: linear-gradient(135deg, #b9c2c9, #8b96a0); }
+
+  .prospect-row__body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .prospect-row__top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+  .prospect-row__name { font-size: 14px; font-weight: 700; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prospect-row__name--muted { color: var(--color-text-faint); font-weight: 600; font-style: italic; }
+  .prospect-row__time { flex: 0 0 auto; font-size: 11px; color: var(--color-text-faint); }
+  .prospect-row__bottom { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .prospect-row__preview { min-width: 0; font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prospect-row__phone { font-size: 11px; color: var(--color-text-faint); }
+
+  .prospect-badge {
+    flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 2px 9px; border-radius: var(--radius-pill); white-space: nowrap;
+  }
+  .prospect-badge--deal { background: #dcecf1; color: var(--color-teal); }
+  .prospect-badge--nodeal { background: #f1f1f6; color: var(--color-text-faint); }
+
+  .prospect-empty { padding: var(--space-7); text-align: center; color: var(--color-text-muted); font-size: 14px; }
+
+  .prospect-thread-pane { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--color-bg); }
+  .prospect-thread-pane--empty { align-items: center; justify-content: center; }
+
+  .prospect-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 24px; background: var(--color-card); border-bottom: 1px solid #e7e9ee; flex: 0 0 auto;
+  }
+  .prospect-header__back {
+    display: none; flex: 0 0 auto; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 50%; color: var(--color-teal); text-decoration: none;
+    margin-left: -6px;
+  }
+  .prospect-header__back:hover { background: var(--color-info-bg); }
+  .prospect-header__avatar {
+    flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-teal), var(--color-navy));
+    color: var(--color-on-accent); display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .prospect-header__avatar--muted { background: linear-gradient(135deg, #b9c2c9, #8b96a0); }
+  .prospect-header__identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+  .prospect-header__name { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prospect-header__phone { font-size: 11.5px; line-height: 1.3; color: var(--color-text-muted); }
+
+  .prospect-thread {
+    flex: 1 1 auto; overflow-y: auto; padding: 24px 32px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .prospect-bubble { max-width: 65%; border-radius: 12px; padding: 9px 11px 7px; box-shadow: 0 1px 1px rgba(0,0,0,0.08); }
+  .prospect-bubble--user { align-self: flex-start; background: #ffffff; border-radius: 12px 12px 12px 2px; }
+  .prospect-bubble--assistant { align-self: flex-end; background: #d9fdd3; border-radius: 12px 12px 2px 12px; }
+  .prospect-bubble__text { font-size: 13.5px; line-height: 1.45; color: #111b21; white-space: pre-line; }
+  .prospect-bubble__time { display: block; text-align: right; margin-top: 3px; font-size: 10.5px; color: #667781; }
+
+  @media (max-width: 900px) {
+    /* Mobile: una sola columna a la vez, como WhatsApp Web en celular — la
+       lista o el hilo, nunca ambos. `prospects-layout--has-selection` (agregada
+       cuando hay un chat seleccionado) decide cuál se muestra. */
+    .prospects-layout { flex-direction: column; }
+    .prospect-list-pane { width: 100%; height: 100%; max-height: none; border-right: none; }
+    .prospect-thread-pane { display: none; }
+    .prospects-layout--has-selection .prospect-list-pane { display: none; }
+    .prospects-layout--has-selection .prospect-thread-pane { display: flex; width: 100%; }
+    .prospect-header__back { display: inline-flex; }
+    .prospect-thread { padding: 18px; }
+    .prospect-header { padding: 10px 16px; }
+  }
+
   @media (max-width: 640px) {
     .topbar { padding: var(--space-3) var(--space-4); height: auto; }
     .topbar__tagline { display: none; }
     .topbar__divider { display: none; }
+    .topbar__nav { width: 100%; justify-content: flex-start; }
     .topbar__user { margin-left: 0; width: 100%; justify-content: space-between; }
     .content, .content--config { padding: var(--space-5) var(--space-4); gap: var(--space-4); }
     .content__title { font-size: 20px; }
     .btn-row { gap: var(--space-2); }
     .save-meta { width: 100%; margin-left: 0; }
+  }
+
+  /* Pills icon-only en pantallas angostas — la etiqueta sigue disponible por
+     `title` (tooltip) y como texto accesible para lectores de pantalla. */
+  @media (max-width: 480px) {
+    .navpill { padding: 8px; }
+    .navpill__icon { margin-right: 0; }
+    .navpill__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .navpill__dot--visible { margin-left: 3px; }
   }
 </style>"""

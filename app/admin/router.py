@@ -13,11 +13,14 @@ from app.admin.models import LoginPayload, TemplateUpdatePayload
 from app.admin.page import (
     CONFIG_PATH,
     LOGIN_PATH,
+    PROSPECTS_PATH,
     TEMPLATES_PATH,
     render_config_html,
     render_login_html,
     render_template_editor_html,
 )
+from app.admin.prospects_page import render_prospects_html
+from app.flows.whatsapp_bot import conversation_store
 from app.message_templates import store as templates_store
 
 logger = logging.getLogger(__name__)
@@ -152,4 +155,35 @@ def post_restore_config(username: str = Depends(require_login)) -> HTMLResponse:
     templates_store.set_template(templates_store.CONFIG_KEY, default_content, updated_by=username)
     return HTMLResponse(
         render_config_html(username=username, content=default_content, flash="Restaurado al valor por defecto.")
+    )
+
+
+@router.get(PROSPECTS_PATH, response_class=HTMLResponse, summary="Lista los prospectos que el bot está atendiendo")
+def get_prospects(username: str = Depends(require_login)) -> HTMLResponse:
+    chats = conversation_store.list_chats()
+    return HTMLResponse(render_prospects_html(username=username, chats=chats))
+
+
+@router.get(
+    f"{PROSPECTS_PATH}/{{chat_id}}",
+    response_class=HTMLResponse,
+    summary="Muestra el hilo de un prospecto junto con la lista completa",
+)
+def get_prospect_detail(chat_id: str, username: str = Depends(require_login)) -> HTMLResponse:
+    chats = conversation_store.list_chats()
+    confirmed_name, confirmed_phone = conversation_store.get_confirmed_identity(chat_id)
+    selected_meta = {
+        "confirmed_name": confirmed_name,
+        "confirmed_phone": confirmed_phone,
+        "deal_id": conversation_store.get_deal_id(chat_id),
+    }
+    selected_messages = conversation_store.get_full_history(chat_id)
+    return HTMLResponse(
+        render_prospects_html(
+            username=username,
+            chats=chats,
+            selected_chat_id=chat_id,
+            selected_meta=selected_meta,
+            selected_messages=selected_messages,
+        )
     )

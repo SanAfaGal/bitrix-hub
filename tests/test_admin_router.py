@@ -7,7 +7,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.admin import auth as admin_auth
+from app.admin import router as admin_router
 from app.admin.settings import AdminSettings
+from app.flows.whatsapp_bot import ConversationStore
 from app.main import app
 from app.message_templates import db as templates_db
 from app.message_templates import store as templates_store
@@ -177,6 +179,81 @@ def test_logout_then_templates_page_redirects_again(client: TestClient) -> None:
 
     client.post("/admin/logout")
     response = client.get(f"/admin/templates/{_FIRST_TEMPLATE_KEY}", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/login"
+
+
+def test_prospects_list_requires_login(client: TestClient) -> None:
+    response = client.get("/admin/prospects", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/login"
+
+
+def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = ConversationStore(db_path=":memory:")
+    store.add_turn("573001112233@c.us", "user", "hola, quiero vender mi apto")
+    store.set_confirmed_name("573001112233@c.us", "Ana")
+    store.set_confirmed_phone("573001112233@c.us", "573001112233")
+    store.set_deal_id("573001112233@c.us", "42")
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    _log_in(client)
+    response = client.get("/admin/prospects")
+
+    assert response.status_code == 200
+    assert "Ana" in response.text
+    assert "Deal 42" in response.text
+    assert "hola, quiero vender mi apto" in response.text
+
+
+def test_prospects_list_shows_empty_state(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(admin_router, "conversation_store", ConversationStore(db_path=":memory:"))
+
+    _log_in(client)
+    response = client.get("/admin/prospects")
+
+    assert response.status_code == 200
+    assert "Todavía no hay conversaciones" in response.text
+
+
+def test_prospect_detail_shows_full_history(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = ConversationStore(db_path=":memory:", max_history_turns=1)
+    chat_id = "573001112233@c.us"
+    store.add_turn(chat_id, "user", "hola")
+    store.add_turn(chat_id, "assistant", "hola, en qué te ayudo")
+    store.add_turn(chat_id, "user", "quiero vender un apto")
+    store.set_confirmed_name(chat_id, "Ana")
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    _log_in(client)
+    response = client.get(f"/admin/prospects/{chat_id}")
+
+    assert response.status_code == 200
+    assert "Ana" in response.text
+    assert "hola" in response.text
+    assert "quiero vender un apto" in response.text
+
+
+def test_prospect_detail_keeps_the_chat_list_visible(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Layout tipo WhatsApp Web: la lista sigue visible aunque haya un chat seleccionado."""
+    store = ConversationStore(db_path=":memory:")
+    store.add_turn("111@c.us", "user", "chat uno")
+    store.add_turn("222@c.us", "user", "chat dos")
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    _log_in(client)
+    response = client.get("/admin/prospects/111@c.us")
+
+    assert response.status_code == 200
+    assert "chat uno" in response.text
+    assert "chat dos" in response.text
+    assert 'prospect-row--active' in response.text
+
+
+def test_prospect_detail_requires_login(client: TestClient) -> None:
+    response = client.get("/admin/prospects/573001112233@c.us", follow_redirects=False)
 
     assert response.status_code == 303
     assert response.headers["location"] == "/admin/login"

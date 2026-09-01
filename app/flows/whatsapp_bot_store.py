@@ -13,6 +13,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from pathlib import Path
+from typing import Any
 
 
 def init_db(db_path: str) -> sqlite3.Connection:
@@ -78,6 +79,61 @@ def get_history(conn: sqlite3.Connection, chat_id: str, limit: int) -> list[dict
         (chat_id, limit),
     ).fetchall()
     return [{"role": role, "content": content} for role, content in reversed(rows)]
+
+
+def get_full_history(conn: sqlite3.Connection, chat_id: str) -> list[dict[str, str]]:
+    """Todo el historial del chat (sin recorte), en orden cronológico — para la vista de detalle del panel admin."""
+    rows = conn.execute(
+        "SELECT role, content, created_at FROM conversation_messages WHERE chat_id = ? ORDER BY id ASC",
+        (chat_id,),
+    ).fetchall()
+    return [{"role": role, "content": content, "created_at": created_at} for role, content, created_at in rows]
+
+
+def list_chats(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Un resumen por chat (último mensaje, deal_id, identidad confirmada), para la lista del panel admin.
+
+    Ordenado por último mensaje descendente — los chats sin ningún mensaje
+    en `conversation_messages` no aparecen (no hay nada que mostrar de
+    ellos).
+    """
+    rows = conn.execute(
+        """
+        SELECT
+            m.chat_id,
+            m.last_content,
+            m.last_created_at,
+            m.message_count,
+            meta.deal_id,
+            identity.confirmed_name,
+            identity.confirmed_phone
+        FROM (
+            SELECT
+                chat_id,
+                content AS last_content,
+                created_at AS last_created_at,
+                id AS last_id,
+                (SELECT COUNT(*) FROM conversation_messages c2 WHERE c2.chat_id = c1.chat_id) AS message_count
+            FROM conversation_messages c1
+            WHERE id IN (SELECT MAX(id) FROM conversation_messages GROUP BY chat_id)
+        ) m
+        LEFT JOIN conversation_meta meta ON meta.chat_id = m.chat_id
+        LEFT JOIN conversation_identity identity ON identity.chat_id = m.chat_id
+        ORDER BY m.last_id DESC
+        """
+    ).fetchall()
+    return [
+        {
+            "chat_id": chat_id,
+            "last_content": last_content,
+            "last_created_at": last_created_at,
+            "message_count": message_count,
+            "deal_id": deal_id,
+            "confirmed_name": confirmed_name,
+            "confirmed_phone": confirmed_phone,
+        }
+        for chat_id, last_content, last_created_at, message_count, deal_id, confirmed_name, confirmed_phone in rows
+    ]
 
 
 def add_turn(conn: sqlite3.Connection, chat_id: str, role: str, content: str, max_rows: int) -> None:

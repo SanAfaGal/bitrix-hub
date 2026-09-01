@@ -22,6 +22,7 @@ LOGIN_PATH = "/admin/login"
 LOGOUT_PATH = "/admin/logout"
 TEMPLATES_PATH = "/admin/templates"
 CONFIG_PATH = "/admin/config"
+PROSPECTS_PATH = "/admin/prospects"
 
 _FIRST_TEMPLATE_KEY = TEMPLATE_SECTIONS[0]["keys"][0]  # type: ignore[index]
 
@@ -79,16 +80,46 @@ def render_login_html(*, error: str | None = None) -> str:
 """
 
 
+_NAVPILL_ICONS = {
+    "templates": (
+        '<svg class="navpill__icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
+    ),
+    "config": (
+        '<svg class="navpill__icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<circle cx="12" cy="12" r="3"/>'
+        '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 '
+        '1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 '
+        '1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 '
+        '9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 '
+        '2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 '
+        '0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
+    ),
+    "prospects": (
+        '<svg class="navpill__icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'
+        '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
+    ),
+}
+
+
 def _topbar(*, username: str, active_view: str) -> str:
-    def pill(view: str, label: str, href: str) -> str:
+    def pill(view: str, label: str, href: str, *, has_unsaved_indicator: bool = False) -> str:
         active = " navpill--active" if view == active_view else ""
-        dot = '<span class="navpill__dot" data-badge></span>' if view == active_view else ""
-        return f'<a class="navpill{active}" href="{href}">{label}{dot}</a>'
+        dot = '<span class="navpill__dot" data-badge></span>' if has_unsaved_indicator and view == active_view else ""
+        icon = _NAVPILL_ICONS.get(view, "")
+        return (
+            f'<a class="navpill{active}" href="{href}" title="{escape(label)}">'
+            f'{icon}<span class="navpill__label">{label}</span>{dot}</a>'
+        )
 
     return f"""
     <div class="topbar">
       <div class="topbar__brand">
-        <div class="topbar__mark">AA</div>
+        <img class="topbar__mark" src="{LOGO_URL}" alt="Alberto Álvarez">
         <div class="topbar__identity">
           <span class="topbar__name">Alberto Álvarez</span>
           <span class="topbar__tagline">Panel del bot de WhatsApp</span>
@@ -96,8 +127,9 @@ def _topbar(*, username: str, active_view: str) -> str:
       </div>
       <div class="topbar__divider"></div>
       <div class="topbar__nav">
-        {pill("templates", "Plantillas", f"{TEMPLATES_PATH}/{_FIRST_TEMPLATE_KEY}")}
-        {pill("config", "Configuración del bot", CONFIG_PATH)}
+        {pill("templates", "Plantillas", f"{TEMPLATES_PATH}/{_FIRST_TEMPLATE_KEY}", has_unsaved_indicator=True)}
+        {pill("config", "Configuración del bot", CONFIG_PATH, has_unsaved_indicator=True)}
+        {pill("prospects", "Prospectos", PROSPECTS_PATH)}
       </div>
       <div class="topbar__user">
         <div class="userchip">
@@ -213,7 +245,9 @@ def render_template_editor_html(
       </div>
     </div>
     """
-    return _app_shell(username=username, active_view="templates", sidebar=_sidebar(selected_key=key), body=body)
+    return render_app_shell(
+        username=username, active_view="templates", title="Plantillas de WhatsApp", sidebar=_sidebar(selected_key=key), body=body
+    )
 
 
 def render_config_html(*, username: str, content: str, flash: str | None = None, flash_error: bool = False) -> str:
@@ -274,11 +308,10 @@ def render_config_html(*, username: str, content: str, flash: str | None = None,
       </div>
     </div>
     """
-    return _app_shell(username=username, active_view="config", sidebar="", body=body)
+    return render_app_shell(username=username, active_view="config", title="Configuración del bot", sidebar="", body=body)
 
 
-def _app_shell(*, username: str, active_view: str, sidebar: str, body: str) -> str:
-    title = "Configuración del bot" if active_view == "config" else "Plantillas de WhatsApp"
+def render_app_shell(*, username: str, active_view: str, title: str, sidebar: str, body: str) -> str:
     return f"""<!doctype html>
 <html lang="es">
 <head>

@@ -172,6 +172,12 @@ class ConversationStore:
     def set_explanation_sent(self, chat_id: str) -> None:
         store_db.set_explanation_sent(self._conn, chat_id)
 
+    def get_full_history(self, chat_id: str) -> list[dict[str, str]]:
+        return store_db.get_full_history(self._conn, chat_id)
+
+    def list_chats(self) -> list[dict[str, Any]]:
+        return store_db.list_chats(self._conn)
+
 
 # Singleton a nivel de proceso: un archivo SQLite real, sobrevive a un restart.
 conversation_store = ConversationStore(db_path=DEFAULT_DB_PATH)
