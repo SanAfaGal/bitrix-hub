@@ -154,6 +154,9 @@ def test_webhook_waha_message_creates_deal_and_updates_property_listing(monkeypa
         def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
             return True
 
+        def send_voice(self, chat_id: str, audio_base64: str, *, session: str | None = None, **_: object) -> bool:
+            return True
+
     class FakeLlmClient:
         def reply(self, system_prompt: str, history: list[dict], user_text: str) -> str | None:
             return json_module.dumps(

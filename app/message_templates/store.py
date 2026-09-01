@@ -87,6 +87,11 @@ DEFAULT_TEMPLATES: dict[str, str] = {
     ),
     "whatsapp_transcription_failed": "No pude escuchar tu audio, ¿me lo puedes escribir? 🙏",
     "whatsapp_unsupported_message": "Por ahora solo puedo leer texto o notas de voz, ¿me lo puedes escribir? 🙏",
+    "whatsapp_process_explanation": (
+        "¡Perfecto! Ahora te voy a explicar cómo funciona todo el proceso para vender tu "
+        "inmueble con nosotros 🏡"
+    ),
+    "whatsapp_ask_acceptance": "¿Deseas continuar con el proceso?",
     "bitrix_authorization_link_message": (
         "Para continuar, necesitamos que completes y firmes la Autorización de Corretaje aquí: {{link}}"
     ),
@@ -105,6 +110,8 @@ TEMPLATE_LABELS: dict[str, str] = {
     "whatsapp_system_prompt": "Comportamiento del bot",
     "whatsapp_transcription_failed": "No se pudo transcribir el audio",
     "whatsapp_unsupported_message": "Mensaje con contenido no soportado",
+    "whatsapp_process_explanation": "Explicación del proceso (antes del audio)",
+    "whatsapp_ask_acceptance": "Pregunta de aceptación (después del audio)",
     "bitrix_authorization_link_message": "Link de firma",
     "whatsapp_authorization_signed_message": "Confirmación de firma recibida",
 }
@@ -128,6 +135,8 @@ TEMPLATE_HINTS: dict[str, str] = {
     "whatsapp_welcome_known": "Automático · bot de WhatsApp",
     "whatsapp_transcription_failed": "Automático · bot de WhatsApp",
     "whatsapp_unsupported_message": "Automático · bot de WhatsApp",
+    "whatsapp_process_explanation": "Automático · bot de WhatsApp",
+    "whatsapp_ask_acceptance": "Automático · bot de WhatsApp",
     "bitrix_authorization_link_message": "Manual · lo dispara un asesor en Bitrix",
     "whatsapp_authorization_signed_message": "Automático · al firmar el formulario público",
 }
@@ -151,6 +160,15 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
         "documento, sticker, ubicación, contacto, etc.) — cualquier tipo de mensaje distinto "
         "de texto o nota de voz."
     ),
+    "whatsapp_process_explanation": (
+        "Se envía apenas se crea el negocio y el contacto en Bitrix (nombre y teléfono ya "
+        "confirmados), justo antes de la nota de voz que explica el proceso."
+    ),
+    "whatsapp_ask_acceptance": (
+        "Se envía justo después de la nota de voz que explica el proceso, para preguntarle a "
+        "la persona si quiere continuar antes de mandarle el link de la Autorización de "
+        "Corretaje."
+    ),
     "bitrix_authorization_link_message": (
         "Lo dispara un asesor desde Bitrix al cambiar la etapa del negocio, con el enlace "
         "único para firmar desde el celular — no pasa por el bot conversacional."
@@ -169,6 +187,10 @@ TEMPLATE_SECTIONS: list[dict[str, object]] = [
     {
         "name": "Durante la conversación",
         "keys": ["whatsapp_transcription_failed", "whatsapp_unsupported_message"],
+    },
+    {
+        "name": "Explicación del proceso",
+        "keys": ["whatsapp_process_explanation", "whatsapp_ask_acceptance"],
     },
     {
         "name": "Autorización de corretaje",

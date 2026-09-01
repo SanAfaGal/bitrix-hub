@@ -45,6 +45,14 @@ def init_db(db_path: str) -> sqlite3.Connection:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS conversation_flags (
+            chat_id TEXT PRIMARY KEY,
+            explanation_sent INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS conversation_identity (
             chat_id TEXT PRIMARY KEY,
             confirmed_name TEXT,
@@ -177,6 +185,24 @@ def set_pending_phone(conn: sqlite3.Connection, chat_id: str, phone: str) -> Non
 def clear_pending_identity(conn: sqlite3.Connection, chat_id: str) -> None:
     conn.execute(
         "UPDATE conversation_identity SET pending_name = NULL, pending_phone = NULL WHERE chat_id = ?",
+        (chat_id,),
+    )
+    conn.commit()
+
+
+def get_explanation_sent(conn: sqlite3.Connection, chat_id: str) -> bool:
+    row = conn.execute(
+        "SELECT explanation_sent FROM conversation_flags WHERE chat_id = ?", (chat_id,)
+    ).fetchone()
+    return bool(row[0]) if row else False
+
+
+def set_explanation_sent(conn: sqlite3.Connection, chat_id: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO conversation_flags (chat_id, explanation_sent) VALUES (?, 1)
+        ON CONFLICT(chat_id) DO UPDATE SET explanation_sent = 1
+        """,
         (chat_id,),
     )
     conn.commit()

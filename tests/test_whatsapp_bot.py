@@ -27,6 +27,7 @@ class FakeWahaClient:
     ) -> None:
         self.send_result = send_result
         self.calls: list[tuple[str, str, str | None]] = []
+        self.voice_calls: list[tuple[str, str, str | None]] = []
         self._resolved_lids = resolved_lids or {}
         self.resolve_lid_to_phone_calls: list[tuple[str, str | None]] = []
         self._media_bytes = media_bytes
@@ -35,6 +36,10 @@ class FakeWahaClient:
     def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
         self.calls.append((chat_id, text, session))
         return self.send_result
+
+    def send_voice(self, chat_id: str, audio_base64: str, *, session: str | None = None, **_: object) -> bool:
+        self.voice_calls.append((chat_id, audio_base64, session))
+        return True
 
     def resolve_lid_to_phone(self, lid: str, session: str | None = None) -> str | None:
         self.resolve_lid_to_phone_calls.append((lid, session))
@@ -860,6 +865,129 @@ def test_process_skips_unresolved_lid_when_allowed_numbers_configured() -> None:
     assert llm.calls == []
 
 
+# ── Explicación del proceso + link de Autorización ──────────────────────
+
+_LINK_SECRET = "test-secret"
+_PUBLIC_BASE_URL = "https://hub.example.com"
+
+
+def test_process_sends_explanation_right_after_creating_deal_from_confirmed_identity() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {"reply": "gracias!", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+        )
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(_inbound(chat_id="573001112233@c.us"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
+    assert store.get_deal_id("573001112233@c.us") == "6000"
+    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert len(waha.voice_calls) == 1
+    # El "gracias!" del LLM se manda primero, la explicación (texto+audio+pregunta) después.
+    assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
+    assert len(waha.calls) == 3
+
+
+def test_process_does_not_send_explanation_for_deal_that_already_existed_before_this_turn() -> None:
+    # Reproduce el caso de un deal cacheado que ya venía de antes (conversación en curso, o
+    # cacheado directo en el store como acá) — no debe disparar la explicación de nuevo.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("todo bien"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+
+    process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert waha.voice_calls == []
+    assert store.get_explanation_sent("573001112233@c.us") is False
+
+
+def test_process_sends_authorization_link_when_person_accepts() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient(contacts={"5000": {"PHONE": "3001112233"}})
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_explanation_sent("573001112233@c.us")
+    crm._deals["6000"] = {"ID": "6000", "CONTACT_ID": "5000"}
+
+    result = process(
+        _inbound(text="si"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "authorization_link_sent"}
+    assert crm.authorization_status_updates == [("6000", "pendiente_firma")]
+    assert llm.calls == []
+
+
+def test_process_falls_back_to_llm_with_extra_context_when_reply_is_ambiguous() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("claro, no tiene ningún costo. ¿deseas continuar?"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_explanation_sent("573001112233@c.us")
+
+    result = process(
+        _inbound(text="esto tiene costo?"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {
+        "ok": True,
+        "chat_id": "573001112233@c.us",
+        "reply": "claro, no tiene ningún costo. ¿deseas continuar?",
+    }
+    assert len(llm.calls) == 1
+    system_prompt = llm.calls[0][0]
+    assert "reafirmando esa misma pregunta" in system_prompt
+
+
+def test_process_does_not_resend_explanation_or_reask_once_link_already_sent() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("perfecto, seguimos"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_explanation_sent("573001112233@c.us")
+    crm._deals["6000"] = {"ID": "6000", "AUTHORIZATION_STATUS": "pendiente_firma"}
+
+    result = process(
+        _inbound(text="si"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "perfecto, seguimos"}
+    assert len(llm.calls) == 1
+
+
 # ── Pausa manual / handoff automático ───────────────────────────────────
 
 
@@ -997,3 +1125,32 @@ def test_conversation_store_pending_identity_survives_new_instance_same_db_file(
     second = ConversationStore(db_path=db_path)
 
     assert second.get_pending_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
+
+
+# ── Explicación del proceso enviada (nombre/teléfono confirmados, deal recién creado) ─
+
+
+def test_conversation_store_explanation_sent_defaults_to_false() -> None:
+    store = ConversationStore()
+
+    assert store.get_explanation_sent("573001112233@c.us") is False
+
+
+def test_conversation_store_set_explanation_sent() -> None:
+    store = ConversationStore()
+
+    store.set_explanation_sent("573001112233@c.us")
+
+    assert store.get_explanation_sent("573001112233@c.us") is True
+
+
+def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(db_path=db_path)
+    first.set_deal_id("573001112233@c.us", "6000")
+    first.set_explanation_sent("573001112233@c.us")
+
+    second = ConversationStore(db_path=db_path)
+
+    assert second.get_explanation_sent("573001112233@c.us") is True
