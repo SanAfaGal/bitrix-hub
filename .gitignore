@@ -41,7 +41,7 @@ logs/
 
 # ── Historial del bot de WhatsApp (SQLite) ───────────────────────────────────
 .whatsapp-bot-data/
-data/whatsapp_bot.db
+data/
 
 # ── Modelo de whisper descargado (transcripción de audio) ────────────────────
 .whisper-data/
