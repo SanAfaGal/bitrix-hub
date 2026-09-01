@@ -11,6 +11,8 @@ guardó.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -20,6 +22,33 @@ from app.message_templates import db
 from app.message_templates.models import MessageTemplate
 
 logger = logging.getLogger(__name__)
+
+# Tras un fallo de conexión a MySQL, no se reintenta por este rato — evita
+# que cada mensaje de una ráfaga del bot espere el connect_timeout completo
+# mientras la base está caída. Mismo patrón que TranscriptionClient.
+COOLDOWN_SECONDS = 30
+
+_lock = threading.Lock()
+_unavailable_until = 0.0
+
+
+def _mark_unavailable() -> None:
+    global _unavailable_until
+    with _lock:
+        _unavailable_until = time.monotonic() + COOLDOWN_SECONDS
+
+
+def _is_in_cooldown() -> bool:
+    with _lock:
+        return time.monotonic() < _unavailable_until
+
+
+def reset_circuit() -> None:
+    """Solo para tests: limpia el estado de "MySQL caído" entre casos."""
+    global _unavailable_until
+    with _lock:
+        _unavailable_until = 0.0
+
 
 DEFAULT_TEMPLATES: dict[str, str] = {
     "whatsapp_welcome_unknown": (
@@ -209,6 +238,9 @@ def _open_session(session: Session | None) -> tuple[Session, bool]:
 
 def get_template(key: str, session: Session | None = None) -> str:
     """Lee el texto de `key` desde MySQL; si falla o no existe todavía, retorna el default."""
+    if session is None and _is_in_cooldown():
+        return DEFAULT_TEMPLATES[key]
+
     active_session, owns_session = _open_session(session)
     try:
         row = active_session.get(MessageTemplate, key)
@@ -216,6 +248,8 @@ def get_template(key: str, session: Session | None = None) -> str:
             return row.content
     except SQLAlchemyError:
         logger.exception("No se pudo leer la plantilla %s de MySQL, se usa el valor por defecto", key)
+        if owns_session:
+            _mark_unavailable()
     finally:
         if owns_session:
             active_session.close()
@@ -253,11 +287,16 @@ def set_template(key: str, content: str, updated_by: str | None, session: Sessio
 
 def list_templates(session: Session | None = None) -> dict[str, str]:
     """`key -> content` para todas las keys conocidas (default si falta la fila en MySQL)."""
+    if session is None and _is_in_cooldown():
+        return dict(DEFAULT_TEMPLATES)
+
     active_session, owns_session = _open_session(session)
     try:
         rows = {row.key: row.content for row in active_session.query(MessageTemplate).all()}
     except SQLAlchemyError:
         logger.exception("No se pudo listar las plantillas de MySQL, se usan los valores por defecto")
+        if owns_session:
+            _mark_unavailable()
         rows = {}
     finally:
         if owns_session:
