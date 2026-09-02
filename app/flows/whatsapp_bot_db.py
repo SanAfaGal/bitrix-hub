@@ -17,11 +17,6 @@ from app.message_templates.db import engine
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
-def ensure_schema() -> None:
-    """Crea las tablas de conversación si no existen. Se llama una vez al arrancar la app."""
-    Base.metadata.create_all(engine)
-
-
 def build_sqlite_engine(url: str = "sqlite:///:memory:") -> Engine:
     """Motor SQLite standalone, aislado del MySQL de producción — usado por `ConversationStore` por defecto (tests).
 

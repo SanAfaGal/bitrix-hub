@@ -15,10 +15,8 @@ from starlette.middleware.sessions import SessionMiddleware
 mimetypes.add_type("image/webp", ".webp")
 
 from app.admin.router import router as admin_router
-from app.flows import whatsapp_bot_db
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
-from app.message_templates import db as templates_db
 from app.message_templates import store as templates_store
 from app.waha.router import router as waha_router
 from app.xposure.router import router as xposure_router
@@ -69,22 +67,19 @@ tags_metadata = [
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Crea el esquema de plantillas y de conversación en MySQL, y siembra los defaults de plantillas si hace falta.
+    """Siembra los defaults de plantillas en MySQL si hace falta.
 
+    El esquema (tablas de plantillas y de conversación) lo crea Alembic al
+    arrancar el contenedor (ver scripts/entrypoint.sh), no la app.
     Best-effort: si MySQL no está disponible (ej. desarrollo local sin
     docker compose), solo loguea — el bot de WhatsApp sigue funcionando con
     los defaults hardcodeados en app/message_templates/store.py (el
     historial de conversación sí necesita MySQL, sin él no persiste).
     """
     try:
-        templates_db.ensure_schema()
         templates_store.seed_defaults()
     except Exception:
         logger.exception("No se pudo inicializar la base de plantillas de MySQL, se seguirá con los defaults")
-    try:
-        whatsapp_bot_db.ensure_schema()
-    except Exception:
-        logger.exception("No se pudo inicializar las tablas de conversación del bot de WhatsApp en MySQL")
     yield
 
 

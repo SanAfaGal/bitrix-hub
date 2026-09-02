@@ -10,7 +10,6 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.message_templates.models import Base
 from app.message_templates.settings import load_message_templates_settings
 
 
@@ -25,8 +24,3 @@ def _build_engine():
 
 engine = _build_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
-
-
-def ensure_schema() -> None:
-    """Crea la tabla `message_templates` si no existe. Se llama una vez al arrancar la app."""
-    Base.metadata.create_all(engine)

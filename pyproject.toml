@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Hub de integraciones disparadas por webhooks de Bitrix (Waha, y a futuro Mobilia, etc.)"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.13.0",
     "beautifulsoup4>=4.15.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",

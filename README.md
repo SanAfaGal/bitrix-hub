@@ -500,6 +500,26 @@ El contenedor `mysql` (+ `adminer` para inspeccionarlo en
 este archivo — `MYSQL_HOST`/`MYSQL_PORT` deben apuntar a un MySQL externo o
 gestionado aparte.
 
+El esquema (tablas de plantillas y de conversación) lo maneja Alembic
+(`migrations/`), no `create_all`. Un `Column` nuevo en
+`app/flows/whatsapp_bot_models.py` o `app/message_templates/models.py`
+necesita su propia revisión (`uv run alembic revision --autogenerate -m
+"..."`, revisada a mano) antes de desplegar.
+
+**La migración solo se auto-aplica en desarrollo** —
+`docker-compose.override.yml` antepone `alembic upgrade head` al comando de
+`api`. El contenedor de producción (`CMD` del `Dockerfile`) nunca corre
+Alembic al arrancar: es un paso manual y deliberado del operador, separado
+del deploy, para no correr un `ALTER TABLE` sin control en medio de un
+restart del contenedor (y porque con más de una réplica de `api`, dos
+arranques simultáneos corriendo la misma migración es justo el tipo de
+condición de carrera que se quiere evitar). Antes de desplegar código que
+depende de una revisión nueva, correrla a mano:
+
+```bash
+docker compose -f docker-compose.yml exec api alembic upgrade head
+```
+
 ### Cambio de etapa de deal -> bienvenida + Autorización de Corretaje por WhatsApp
 
 Apuntar acá la regla de automatización de Bitrix de la etapa que dispara el

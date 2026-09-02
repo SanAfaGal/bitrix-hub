@@ -30,9 +30,17 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app app ./app
+COPY --chown=app:app alembic.ini ./alembic.ini
+COPY --chown=app:app migrations ./migrations
 
 USER app
 
 EXPOSE 8000
 
+# El contenedor NUNCA corre migraciones solo — ni acá ni en desarrollo
+# (docker-compose.override.yml) se auto-aplican contra producción. `alembic
+# upgrade head` en prod es un paso manual y deliberado del operador (ver
+# README, sección de despliegue) — `alembic.ini`/`migrations/` quedan en la
+# imagen solo para poder correrlo con `docker compose exec api alembic
+# upgrade head`, nunca al arrancar.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
