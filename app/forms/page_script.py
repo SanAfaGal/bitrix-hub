@@ -54,14 +54,14 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     if (el) formatAsCurrency(el);
   });
 
-  // Solo letras en el nombre y municipio — bloquea números y símbolos al
-  // escribir, en vez de dejar que se note hasta que el backend lo rechace al
-  // enviar (misma regla que `_NAME_RE` en app/forms/models.py). Todo el
-  // formulario va en mayúscula, salvo el correo.
+  // Solo letras en el nombre — bloquea números y símbolos al escribir, en
+  // vez de dejar que se note hasta que el backend lo rechace al enviar
+  // (misma regla que `_NAME_RE` en app/forms/models.py). Todo el formulario
+  // va en mayúscula, salvo el correo.
   function onlyLettersUppercase(value) {
     return collapseSpacesLive(value.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ'\-\s]/g, '')).toUpperCase();
   }
-  ['field-interested_party', 'field-municipality'].forEach(function (id) {
+  ['field-interested_party'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('input', function () { transformPreservingCursor(el, onlyLettersUppercase); });
   });
@@ -87,15 +87,153 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     if (el) el.addEventListener('input', function () { transformPreservingCursor(el, onlyAlnumHyphenUppercase); });
   });
 
-  // Dirección: sin espacios al principio ni dobles, y en mayúscula.
+  // Dirección y ubicación: sin espacios al principio ni dobles, y en
+  // mayúscula. Ubicación no se restringe a solo letras (a diferencia del
+  // nombre) porque su valor real incluye coma y punto (ej. "EL POBLADO,
+  // MEDELLÍN, ANTIOQUIA", "BOGOTÁ D.C.") — mismo criterio que `_LOCATION_RE`
+  // en app/forms/models.py; las sugerencias del datalist ya guían el formato.
   function collapseSpacesAndUppercase(value) {
     return collapseSpacesLive(value).toUpperCase();
   }
-  var addressInput = document.getElementById('field-address');
-  if (addressInput) {
-    addressInput.addEventListener('input', function () {
-      transformPreservingCursor(addressInput, collapseSpacesAndUppercase);
+  ['field-address', 'field-location'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', function () { transformPreservingCursor(el, collapseSpacesAndUppercase); });
+  });
+
+  // Sugerencias de ubicación: desplegable propio (no <datalist> nativo, para
+  // poder limitarlo a 5 filas y usar la tipografía de marca — ver
+  // .location-suggest en page_styles.py). El catálogo completo se trae una
+  // sola vez al abrir el formulario desde /formularios/ubicaciones (backend
+  // cachea en memoria, ver app/location_catalog/) y se filtra en el cliente
+  // en cada tecla. Si el fetch falla (red caída, backend sin conexión a la
+  // base externa), el campo sigue siendo texto libre sin sugerencias — nunca
+  // bloquea el resto del formulario.
+  var locationInput = document.getElementById('field-location');
+  var locationList = document.getElementById('location-suggestions');
+  // true solo entre el momento en que se hace clic en una sugerencia y el
+  // siguiente cambio manual del campo — el envío se bloquea si no está en
+  // true (ver validateLocationSelection más abajo, usado por el submit).
+  var locationSelected = false;
+  function validateLocationSelection() {
+    if (locationInput && locationInput.value.trim() && !locationSelected) {
+      showFieldError(locationInput, 'Selecciona una ubicación de la lista de sugerencias.');
+      return locationInput;
+    }
+    return null;
+  }
+  if (locationInput && locationList) {
+    var allLocations = [];
+
+    fetch('/formularios/ubicaciones')
+      .then(function (response) { return response.ok ? response.json() : { locations: [] }; })
+      .then(function (data) { allLocations = data.locations || []; })
+      .catch(function () { /* sin sugerencias, el campo sigue siendo texto libre */ });
+
+    // Regex construido con new RegExp() (en vez de /literal/) a propósito:
+    // evita que el archivo fuente tenga que llevar el propio carácter Unicode
+    // combinante en medio del código.
+    var COMBINING_MARKS_RE = new RegExp('[\\u0300-\\u036f]', 'g');
+    function normalize(value) {
+      return value.normalize('NFKD').replace(COMBINING_MARKS_RE, '').toLowerCase();
+    }
+
+    // Coincidencias visibles y cuál está resaltada con las flechas — se
+    // recalculan en cada showSuggestions()/hideSuggestions(), las usa el
+    // manejador de teclado de más abajo para saber qué seleccionar con Enter.
+    var currentMatches = [];
+    var activeIndex = -1;
+
+    function hideSuggestions() {
+      locationList.hidden = true;
+      locationList.innerHTML = '';
+      currentMatches = [];
+      activeIndex = -1;
+    }
+
+    function selectLocation(location) {
+      // Mayúsculas igual que si la persona lo hubiera tecleado (mismo
+      // criterio que el resto del formulario) — se aplica acá en vez de
+      // disparar un evento 'input' sintético, porque ese evento también
+      // dispararía el listener de abajo que invalida `locationSelected`.
+      locationInput.value = collapseSpacesAndUppercase(location.display_label);
+      locationSelected = true;
+      clearFieldError(locationInput);
+      hideSuggestions();
+    }
+
+    // Mueve el resaltado a `index` (con wraparound) y lo refleja en el DOM
+    // (clase .location-suggest__item--active) y con scroll si queda fuera
+    // de las ~5 filas visibles del contenedor.
+    function setActiveIndex(index) {
+      var items = locationList.children;
+      if (!items.length) {
+        activeIndex = -1;
+        return;
+      }
+      activeIndex = (index + items.length) % items.length;
+      Array.prototype.forEach.call(items, function (item, i) {
+        item.classList.toggle('location-suggest__item--active', i === activeIndex);
+      });
+      items[activeIndex].scrollIntoView({ block: 'nearest' });
+    }
+
+    function showSuggestions() {
+      var query = normalize(locationInput.value.trim());
+      if (!query) return hideSuggestions();
+
+      // Sin límite acá: se muestran todas las coincidencias, el contenedor
+      // (.location-suggest en page_styles.py) es el que fija la altura a 5
+      // filas y hace scroll para el resto.
+      currentMatches = allLocations.filter(function (location) {
+        return normalize(location.display_label).indexOf(query) !== -1;
+      });
+      activeIndex = -1;
+      if (!currentMatches.length) return hideSuggestions();
+
+      locationList.innerHTML = '';
+      currentMatches.forEach(function (location) {
+        var item = document.createElement('li');
+        item.className = 'location-suggest__item';
+        item.textContent = location.display_label;
+        // 'mousedown' (no 'click'): dispara antes que el 'blur' del input,
+        // así el desplegable no se esconde antes de registrar la selección.
+        item.addEventListener('mousedown', function (event) {
+          event.preventDefault();
+          selectLocation(location);
+        });
+        locationList.appendChild(item);
+      });
+      locationList.hidden = false;
+    }
+
+    locationInput.addEventListener('input', function () {
+      // Cualquier edición manual invalida la selección anterior — solo
+      // vuelve a quedar válida si la persona elige de nuevo una sugerencia.
+      locationSelected = false;
+      showSuggestions();
     });
+    locationInput.addEventListener('focus', showSuggestions);
+
+    // Flechas para moverse entre sugerencias sin soltar el teclado, Enter
+    // para elegir la resaltada (sin enviar el formulario de paso) y Escape
+    // para cerrar el desplegable sin perder lo ya escrito.
+    locationInput.addEventListener('keydown', function (event) {
+      if (locationList.hidden) return;
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActiveIndex(activeIndex + 1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActiveIndex(activeIndex - 1);
+      } else if (event.key === 'Enter') {
+        if (activeIndex === -1) return;
+        event.preventDefault();
+        selectLocation(currentMatches[activeIndex]);
+      } else if (event.key === 'Escape') {
+        hideSuggestions();
+      }
+    });
+    locationInput.addEventListener('blur', hideSuggestions);
   }
 
   // Matrícula: dígitos, letras (código de oficina, ej. "50C") y guion, sin
@@ -672,8 +810,10 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     clearFormError();
 
     var missingField = markMissingRequiredFields();
-    if (missingField) {
-      missingField.focus();
+    var invalidLocation = !missingField ? validateLocationSelection() : null;
+    var firstInvalid = missingField || invalidLocation;
+    if (firstInvalid) {
+      firstInvalid.focus();
       return;
     }
     if (processingSignature) {

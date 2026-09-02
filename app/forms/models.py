@@ -46,6 +46,11 @@ PropertyType = Literal[*PROPERTY_TYPES]
 YesNo = Literal["si", "no"]
 
 _NAME_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-\s]+$")
+# Ubicación: "sector, ciudad, departamento" — mismo alfabeto que _NAME_RE más
+# coma y punto (necesarios para valores reales como "Bogotá D.C." o el
+# formato con comas que arma el catálogo de ubicaciones, ver
+# app/location_catalog/client.py).
+_LOCATION_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-,.\s]+$")
 # Dominio hecho de etiquetas separadas por un solo punto (sin puntos dobles,
 # sin punto al inicio/final del dominio) y TLD de al menos 2 letras — más
 # estricto que "algo@algo.algo" (que dejaba pasar "juan@example..com" o
@@ -114,7 +119,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     email: str
     property_type: PropertyType
     address: str
-    municipality: str
+    location: str
     registration_number: str
     sale_price: int = 0
     mortgage_loan: YesNo
@@ -152,10 +157,13 @@ class BrokerageAuthorizationPayload(BaseModel):
             raise ValueError("Dirección del inmueble inválida.")
         return cleaned
 
-    @field_validator("municipality", mode="before")
+    @field_validator("location", mode="before")
     @classmethod
-    def _validate_municipality(cls, value: str) -> str:
-        return _clean_and_check_name(value, field_label="Municipio", min_length=3)
+    def _validate_location(cls, value: str) -> str:
+        cleaned = clean_name(value)
+        if len(cleaned) < 3 or not _LOCATION_RE.match(cleaned):
+            raise ValueError("Ubicación inválida.")
+        return cleaned
 
     @field_validator("registration_number", mode="before")
     @classmethod

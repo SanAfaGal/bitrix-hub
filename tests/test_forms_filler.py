@@ -52,7 +52,7 @@ def test_fill_and_sign_writes_field_values_as_real_text_and_signature():
         "email": "juan@example.com",
         "property_type": "Apartamento",
         "address": "Calle 10 #20-30",
-        "municipality": "Medellín",
+        "location": "El Poblado, Medellín, Antioquia",
         "registration_number": "001-12345",
         "sale_price": "500000000",
         "term_months": "6",

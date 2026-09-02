@@ -224,7 +224,7 @@ def _upload_signed_pdf(crm_client, deal_id: str, address: str, pdf_bytes: bytes,
 def _property_listing_from_payload(payload: BrokerageAuthorizationPayload) -> PropertyListing:
     """Solo los campos del inmueble que ya tienen mapeo definido a Bitrix.
 
-    `municipality` queda pendiente: todavía no se define qué campo de Bitrix
+    `location` queda pendiente: todavía no se define qué campo de Bitrix
     (sector/zona/ciudad) le corresponde, así que por ahora solo va al PDF.
     """
     return PropertyListing(

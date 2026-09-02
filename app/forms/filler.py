@@ -76,7 +76,7 @@ _FIELDS: dict[str, _Field] = {
     "email": _Field(0, (128.42, 118.66, 306.60, 128.40), (128.42, 126.74), 8),
     "property_type": _Field(0, (160.70, 239.74, 293.08, 249.48), (160.70, 247.82), 8),
     "address": _Field(0, (128.53, 249.46, 281.28, 259.20), (128.53, 257.54), 8),
-    "municipality": _Field(0, (129.02, 259.18, 230.88, 268.92), (129.02, 267.26), 8),
+    "location": _Field(0, (129.02, 259.18, 230.88, 268.92), (129.02, 267.26), 8),
     "registration_number": _Field(0, (177.60, 268.90, 289.59, 278.64), (177.60, 276.98), 8),
     # "$" es texto propio de la plantilla, pegado al subrayado (mismo span) —
     # se deja intacto y el borrado empieza justo después, en el primer "_".

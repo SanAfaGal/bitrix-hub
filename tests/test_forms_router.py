@@ -123,7 +123,7 @@ def _valid_form_payload() -> dict:
         "email": "juan@example.com",
         "property_type": "Apartamento",
         "address": "Calle 10 #20-30",
-        "municipality": "Medellín",
+        "location": "El Poblado, Medellín, Antioquia",
         "registration_number": "001-12345",
         "sale_price": "500000000",
         "mortgage_loan": "no",
@@ -273,7 +273,7 @@ def test_post_form_cleans_dirty_input():
 
 @pytest.mark.parametrize(
     "field",
-    ["interested_party", "id_number", "email", "address", "municipality", "registration_number", "signer_id_number"],
+    ["interested_party", "id_number", "email", "address", "location", "registration_number", "signer_id_number"],
 )
 def test_post_form_rejects_missing_required_field(field):
     payload = _valid_form_payload()

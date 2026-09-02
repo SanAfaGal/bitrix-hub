@@ -277,6 +277,40 @@ FORM_STYLE = """<style>
     display: block;
   }
 
+  /* Desplegable de sugerencias de ubicación — propio en vez de <datalist>
+     nativo, para poder fijar la tipografía de marca y limitar cuántas filas
+     se ven sin scroll (máx. 5, altura fija por fila). */
+  .field__input-wrap { position: relative; }
+  .location-suggest {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    left: 0;
+    right: 0;
+    z-index: 10;
+    margin: 0;
+    padding: var(--space-1) 0;
+    list-style: none;
+    background: var(--color-card);
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-card);
+    max-height: calc(5 * 38px);
+    overflow-y: auto;
+  }
+  .location-suggest[hidden] { display: none; }
+  .location-suggest__item {
+    font-family: var(--font-family);
+    font-size: 15px;
+    font-weight: 500;
+    padding: 9px 12px;
+    color: var(--color-navy);
+    cursor: pointer;
+  }
+  .location-suggest__item:hover,
+  .location-suggest__item--active {
+    background: var(--color-info-bg);
+  }
+
   .field-group {
     background: var(--color-bg);
     border-radius: var(--radius-md);

@@ -83,10 +83,10 @@ _FIELDS = [
         placeholder="Ej: Cra 7 # 12-34, Apto 302",
     ),
     dict(
-        name="municipality", label="Municipio", kind="text", input_type="text", required=True,
-        section="property",
-        hint="Municipio donde está ubicado el inmueble.",
-        placeholder="Ej: Envigado",
+        name="location", label="Ubicación", kind="text", input_type="text", required=True,
+        section="property", suggest="location-suggestions",
+        hint="Sector, ciudad y departamento donde está ubicado el inmueble.",
+        placeholder="Ej: El Poblado, Medellín, Antioquia",
     ),
     dict(
         name="registration_number", label="Matrícula inmobiliaria", kind="text", input_type="text",
@@ -303,15 +303,32 @@ def render_already_signed_html() -> str:
 
 def _render_text_input(field: dict) -> str:
     placeholder = field.get("placeholder")
-    return (
-        '          <input class="field__input" id="field-{name}" type="{input_type}" '
-        'name="{name}"{placeholder}{inputmode}{required}>'.format(
+    suggest = field.get("suggest")
+    input_html = (
+        '<input class="field__input" id="field-{name}" type="{input_type}" '
+        'name="{name}"{placeholder}{inputmode}{autocomplete}{required}>'.format(
             name=field["name"],
             input_type=field["input_type"],
             placeholder=f' placeholder="{escape(placeholder)}"' if placeholder else "",
             inputmode=f' inputmode="{field["inputmode"]}"' if field.get("inputmode") else "",
+            # Sin esto el navegador compite con nuestro propio desplegable de
+            # sugerencias (ver el bloque `suggest` debajo) con el suyo propio.
+            autocomplete=' autocomplete="off"' if suggest else "",
             required=" required" if field["required"] else "",
         )
+    )
+    if not suggest:
+        return f"          {input_html}"
+    # Desplegable propio (no <datalist>: el nativo del navegador no se puede
+    # limitar a N filas ni tomar la tipografía de marca). Arranca vacío y
+    # oculto — page_script.py lo puebla con un fetch al cargar la página (ver
+    # /formularios/ubicaciones) y lo filtra/muestra mientras se escribe. El
+    # <input> sigue siendo texto libre: las opciones solo sugieren.
+    return (
+        f'          <div class="field__input-wrap">\n'
+        f"            {input_html}\n"
+        f'            <ul class="location-suggest" id="{suggest}" hidden></ul>\n'
+        f"          </div>"
     )
 
 

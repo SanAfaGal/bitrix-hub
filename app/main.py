@@ -17,6 +17,7 @@ mimetypes.add_type("image/webp", ".webp")
 from app.admin.router import router as admin_router
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
+from app.location_catalog.router import router as location_catalog_router
 from app.message_templates import store as templates_store
 from app.waha.router import router as waha_router
 from app.xposure.router import router as xposure_router
@@ -105,6 +106,7 @@ app.include_router(xposure_router)
 app.include_router(flows_router)
 app.include_router(waha_router)
 app.include_router(forms_router)
+app.include_router(location_catalog_router)
 app.include_router(admin_router)
 
 # Assets de marca (favicon, logo) usados por app/forms y app/admin.
