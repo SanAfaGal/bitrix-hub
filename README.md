@@ -162,6 +162,10 @@ app/
   message_templates/
     store.py                # get_template/set_template/render_template + DEFAULT_TEMPLATES (fallback si MySQL no responde)
     models.py, db.py, settings.py  # SQLAlchemy: MessageTemplate, engine/sesión, MYSQL_*
+  location_catalog/
+    client.py, db.py, settings.py  # Lectura de solo lectura al DWH de Mobilia (MOBILIA_DWH_*), fallback a [] si falla
+    cache.py                # Cache en memoria (TTL + cooldown) del catálogo de sectores/ciudades
+    router.py                 # GET /formularios/ubicaciones (tag "Formularios") — consumido por app/forms/
   admin/
     router.py                 # GET/POST /admin/login, /admin/templates (tag "Admin")
     auth.py, deps.py            # Login único (ADMIN_USERNAME/PASSWORD), sesión en cookie firmada
@@ -552,6 +556,18 @@ Bitrix necesita el scope "disk" habilitado y su usuario debe ser miembro
 del grupo "Ventas" para poder subir archivos ahí. Si la carpeta cambia
 (se borra y se recrea), resuelve el nuevo ID con
 `uv run python scripts/resolve_bitrix_drive_folder.py <texto>`.
+
+El campo "Ubicación" de ese mismo formulario sigue siendo texto libre, pero
+sugiere valores mientras se escribe (`<datalist>` nativo del navegador),
+tomados del catálogo de sectores/ciudades del DWH de Mobilia
+(`app/location_catalog/`, endpoint interno `GET /formularios/ubicaciones`,
+consumido solo por la propia página del formulario). El catálogo se cachea
+en memoria varias horas para no consultar esa base externa en cada carga de
+página; si no es alcanzable, el campo simplemente queda sin sugerencias —
+nunca bloquea el envío. Variables de entorno en `.env.example`
+(`MOBILIA_DWH_*`). Este campo todavía no tiene mapeo a ningún campo de
+Bitrix (`FIELD_SECTOR_ZONE_CITY` en `app/bitrix/fields.py` sigue sin usarse)
+ni lógica de cobertura — solo asiste el texto que termina en el PDF.
 
 ## Corte de producción pendiente (MLS -> bitrix-hub)
 
