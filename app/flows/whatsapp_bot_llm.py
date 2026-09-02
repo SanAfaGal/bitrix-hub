@@ -72,10 +72,13 @@ def _identity_block(
     def fmt(value: str | None) -> str:
         return value if value else "(no confirmado)"
 
+    def fmt_phone(value: str | None) -> str:
+        return f"+{value}" if value else "(no confirmado)"
+
     lines = [
         "Datos de contacto de la persona:",
         f"- Nombre completo: {fmt(confirmed_name)}",
-        f"- Teléfono: {fmt(confirmed_phone)}",
+        f"- Teléfono: {fmt_phone(confirmed_phone)}",
     ]
     if confirmed_name is None and candidate_name:
         lines.append(
@@ -83,7 +86,7 @@ def _identity_block(
         )
     if confirmed_phone is None and candidate_phone:
         lines.append(
-            f"- Teléfono detectado del chat (sin confirmar, pregúntele si es correcto): {candidate_phone}"
+            f"- Teléfono detectado del chat (sin confirmar, pregúntele si es correcto): +{candidate_phone}"
         )
     return "\n".join(lines)
 
