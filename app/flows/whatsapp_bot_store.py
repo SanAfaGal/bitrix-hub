@@ -1,15 +1,13 @@
-"""Persistencia en MySQL (SQLAlchemy) del historial de conversación del bot de WhatsApp.
+"""Persistencia en MySQL (SQLAlchemy) del historial y estado de conversación del bot de WhatsApp.
 
-Solo el historial de turnos y el cache de `deal_id` por chat viven acá —
-sobreviven a un restart/deploy del proceso, a diferencia del dedup de
-mensajes (`ConversationStore._seen_message_ids` en `whatsapp_bot.py`), que
-sigue en memoria porque es solo un TTL corto de reintentos de Waha y no
-importa perderlo.
+Todo lo 1:1 por chat (identidad, deal_id, estado de la explicación) vive en
+`Conversation`; el historial de turnos vive en `ConversationMessage` (1:N).
+Distinto del dedup de mensajes (`ConversationStore._seen_message_ids` en
+`whatsapp_bot.py`), que sigue en memoria porque es solo un TTL corto de
+reintentos de Waha y no importa perderlo.
 
 Funciones puras sobre una `Session` ya abierta (la abre y cierra
-`ConversationStore` por cada operación, ver `whatsapp_bot_db.py`). Todas las
-tablas cuelgan de `conversations` con `chat_id` como FK — `_ensure_conversation`
-crea esa fila raíz antes de insertar en cualquier tabla hija.
+`ConversationStore` por cada operación, ver `whatsapp_bot_db.py`).
 """
 from __future__ import annotations
 
@@ -19,13 +17,16 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.flows.whatsapp_bot_models import Conversation, ConversationFlags, ConversationIdentity, ConversationMessage, ConversationMeta
+from app.flows.whatsapp_bot_models import Conversation, ConversationMessage
 
 
-def _ensure_conversation(session: Session, chat_id: str) -> None:
-    if session.get(Conversation, chat_id) is None:
-        session.add(Conversation(chat_id=chat_id))
+def _get_or_create(session: Session, chat_id: str) -> Conversation:
+    row = session.get(Conversation, chat_id)
+    if row is None:
+        row = Conversation(chat_id=chat_id)
+        session.add(row)
         session.flush()
+    return row
 
 
 def get_history(session: Session, chat_id: str, limit: int) -> list[dict[str, str]]:
@@ -66,14 +67,13 @@ def list_chats(session: Session) -> list[dict[str, Any]]:
             msg.content,
             msg.created_at,
             count_subq.c.message_count,
-            ConversationMeta.deal_id,
-            ConversationIdentity.confirmed_name,
-            ConversationIdentity.confirmed_phone,
+            Conversation.deal_id,
+            Conversation.name,
+            Conversation.phone,
         )
         .join(last_id_subq, (msg.chat_id == last_id_subq.c.chat_id) & (msg.id == last_id_subq.c.last_id))
         .join(count_subq, count_subq.c.chat_id == msg.chat_id)
-        .outerjoin(ConversationMeta, ConversationMeta.chat_id == msg.chat_id)
-        .outerjoin(ConversationIdentity, ConversationIdentity.chat_id == msg.chat_id)
+        .outerjoin(Conversation, Conversation.chat_id == msg.chat_id)
         .order_by(msg.id.desc())
     )
     rows = session.execute(stmt).all()
@@ -84,10 +84,10 @@ def list_chats(session: Session) -> list[dict[str, Any]]:
             "last_created_at": last_created_at,
             "message_count": message_count,
             "deal_id": deal_id,
-            "confirmed_name": confirmed_name,
-            "confirmed_phone": confirmed_phone,
+            "confirmed_name": name,
+            "confirmed_phone": phone,
         }
-        for chat_id, last_content, last_created_at, message_count, deal_id, confirmed_name, confirmed_phone in rows
+        for chat_id, last_content, last_created_at, message_count, deal_id, name, phone in rows
     ]
 
 
@@ -95,105 +95,80 @@ def add_turn(session: Session, chat_id: str, role: str, content: str) -> None:
     """Guarda un turno. No recorta nada — `conversation_messages` guarda la conversación
     completa para siempre (auditoría, panel admin); el recorte a cuántos turnos recientes
     se le mandan al LLM como contexto vive en la lectura (`get_history(limit)`), no acá."""
-    _ensure_conversation(session, chat_id)
+    _get_or_create(session, chat_id)
     session.add(ConversationMessage(chat_id=chat_id, role=role, content=content, created_at=time.time()))
     session.commit()
 
 
 def delete_chat(session: Session, chat_id: str) -> None:
-    """Borra toda la data del chat (mensajes, deal_id, identidad, flags), incluida la fila raíz — usado por el panel admin."""
+    """Borra toda la data del chat (mensajes + fila de conversación) — usado por el panel admin."""
     session.execute(delete(ConversationMessage).where(ConversationMessage.chat_id == chat_id))
-    session.execute(delete(ConversationMeta).where(ConversationMeta.chat_id == chat_id))
-    session.execute(delete(ConversationFlags).where(ConversationFlags.chat_id == chat_id))
-    session.execute(delete(ConversationIdentity).where(ConversationIdentity.chat_id == chat_id))
     session.execute(delete(Conversation).where(Conversation.chat_id == chat_id))
     session.commit()
 
 
 def get_deal_id(session: Session, chat_id: str) -> str | None:
-    row = session.get(ConversationMeta, chat_id)
+    row = session.get(Conversation, chat_id)
     return row.deal_id if row else None
 
 
 def set_deal_id(session: Session, chat_id: str, deal_id: str) -> None:
-    _ensure_conversation(session, chat_id)
-    row = session.get(ConversationMeta, chat_id)
-    if row is None:
-        session.add(ConversationMeta(chat_id=chat_id, deal_id=deal_id))
-    else:
-        row.deal_id = deal_id
+    row = _get_or_create(session, chat_id)
+    row.deal_id = deal_id
     session.commit()
 
 
 def clear_deal_id(session: Session, chat_id: str) -> None:
-    session.execute(delete(ConversationMeta).where(ConversationMeta.chat_id == chat_id))
-    session.commit()
-
-
-def get_confirmed_identity(session: Session, chat_id: str) -> tuple[str | None, str | None]:
-    row = session.get(ConversationIdentity, chat_id)
-    return (row.confirmed_name, row.confirmed_phone) if row else (None, None)
-
-
-def _get_or_create_identity(session: Session, chat_id: str) -> ConversationIdentity:
-    _ensure_conversation(session, chat_id)
-    row = session.get(ConversationIdentity, chat_id)
-    if row is None:
-        row = ConversationIdentity(chat_id=chat_id)
-        session.add(row)
-    return row
-
-
-def set_confirmed_name(session: Session, chat_id: str, name: str) -> None:
-    _get_or_create_identity(session, chat_id).confirmed_name = name
-    session.commit()
-
-
-def set_confirmed_phone(session: Session, chat_id: str, phone: str) -> None:
-    _get_or_create_identity(session, chat_id).confirmed_phone = phone
-    session.commit()
-
-
-def get_pending_identity(session: Session, chat_id: str) -> tuple[str | None, str | None]:
-    """Nombre/teléfono que el bot le propuso a la persona en su último mensaje, aún sin confirmar.
-
-    Distinto de `confirmed_name`/`confirmed_phone`: sirve para que, si la
-    persona responde con un simple "sí" a la pregunta de confirmación, el
-    bot pueda promover estos valores a confirmados sin depender de que el
-    LLM los repita en el JSON de ese turno.
-    """
-    row = session.get(ConversationIdentity, chat_id)
-    return (row.pending_name, row.pending_phone) if row else (None, None)
-
-
-def set_pending_name(session: Session, chat_id: str, name: str) -> None:
-    _get_or_create_identity(session, chat_id).pending_name = name
-    session.commit()
-
-
-def set_pending_phone(session: Session, chat_id: str, phone: str) -> None:
-    _get_or_create_identity(session, chat_id).pending_phone = phone
-    session.commit()
-
-
-def clear_pending_identity(session: Session, chat_id: str) -> None:
-    row = session.get(ConversationIdentity, chat_id)
+    row = session.get(Conversation, chat_id)
     if row is not None:
-        row.pending_name = None
-        row.pending_phone = None
+        row.deal_id = None
         session.commit()
 
 
+def get_confirmed_identity(session: Session, chat_id: str) -> tuple[str | None, str | None]:
+    row = session.get(Conversation, chat_id)
+    if row is None:
+        return (None, None)
+    return (row.name, row.phone)
+
+
+def set_confirmed_identity(session: Session, chat_id: str, name: str, phone: str) -> None:
+    """Guarda nombre y teléfono juntos — solo se llama una vez el LLM ya tiene ambos
+    confirmados (ver `_apply_confirmed_identity` en whatsapp_bot.py), nunca con uno solo."""
+    row = _get_or_create(session, chat_id)
+    row.name = name
+    row.phone = phone
+    session.commit()
+
+
 def get_explanation_sent(session: Session, chat_id: str) -> bool:
-    row = session.get(ConversationFlags, chat_id)
+    row = session.get(Conversation, chat_id)
     return bool(row.explanation_sent) if row else False
 
 
 def set_explanation_sent(session: Session, chat_id: str) -> None:
-    _ensure_conversation(session, chat_id)
-    row = session.get(ConversationFlags, chat_id)
-    if row is None:
-        session.add(ConversationFlags(chat_id=chat_id, explanation_sent=True))
-    else:
-        row.explanation_sent = True
+    row = _get_or_create(session, chat_id)
+    row.explanation_sent = True
+    session.commit()
+
+
+def get_explanation_offered(session: Session, chat_id: str) -> bool:
+    row = session.get(Conversation, chat_id)
+    return bool(row.explanation_offered) if row else False
+
+
+def set_explanation_offered(session: Session, chat_id: str) -> None:
+    row = _get_or_create(session, chat_id)
+    row.explanation_offered = True
+    session.commit()
+
+
+def get_authorization_link_sent(session: Session, chat_id: str) -> bool:
+    row = session.get(Conversation, chat_id)
+    return bool(row.authorization_link_sent) if row else False
+
+
+def set_authorization_link_sent(session: Session, chat_id: str) -> None:
+    row = _get_or_create(session, chat_id)
+    row.authorization_link_sent = True
     session.commit()

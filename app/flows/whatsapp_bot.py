@@ -28,6 +28,17 @@ Si un asesor pausa el bot para un deal puntual (checkbox en Bitrix,
 persona pidió hablar con un humano, el webhook deja de responder para ese
 chat hasta que el campo se reactive manualmente.
 
+La nota de voz que explica el proceso nunca se manda sola: primero se
+pregunta si la persona la quiere (`whatsapp_offer_explanation`, ver
+`whatsapp_bot_welcome.py`/`whatsapp_bot_explanation.py`) y solo se envía si
+confirma — si declina, el bot no vuelve a ofrecerla ni avanza por su
+cuenta al link de Autorización, pero se la manda igual si la pide después
+en cualquier turno (`LlmTurn.explanation_requested`,
+`maybe_handle_delayed_explanation_request`). Si el cliente afirma en el
+chat que ya firmó la Autorización de Corretaje (`LlmTurn.signed_claim`)
+pero el campo de Bitrix todavía no dice `"firmada"`, el bot se lo aclara y
+reenvía el link en vez de darlo por bueno.
+
 Para pruebas en desarrollo, `WHATSAPP_BOT_ALLOWED_NUMBERS` (lista separada
 por comas, mismo formato que devuelve `app.waha.phone.from_chat_id` —
 código de país + número, sin `+`) restringe las respuestas a esos números
@@ -43,8 +54,14 @@ from typing import Any
 from app.crm.protocol import CrmClient, PropertyListing
 from app.flows import whatsapp_bot_db as store_engine
 from app.flows.settings import load_public_base_url
+from app.flows.welcome_authorization import process_welcome_and_authorization
 from app.flows.whatsapp_bot_conversation_store import ConversationStore
-from app.flows.whatsapp_bot_explanation import maybe_handle_acceptance, maybe_send_explanation
+from app.flows.whatsapp_bot_explanation import (
+    maybe_handle_acceptance,
+    maybe_handle_delayed_explanation_request,
+    maybe_handle_explanation_response,
+    maybe_send_explanation,
+)
 from app.flows.whatsapp_bot_llm import (
     AFFIRMATION_RE as _AFFIRMATION_RE,
     LlmTurn,
@@ -92,6 +109,24 @@ def load_bot_config() -> BotConfig:
 # Singleton a nivel de proceso: el MySQL real, sobrevive a un restart. Ver
 # `ConversationStore` en `whatsapp_bot_conversation_store.py`.
 conversation_store = ConversationStore(engine=store_engine.engine)
+
+
+def _resolve_authorization_link_config(
+    public_base_url: str | None, link_secret: str | None
+) -> tuple[str | None, str | None]:
+    """Resuelve `(public_base_url, link_secret)` para el link de Autorización, cargando de env si falta alguno."""
+    resolved_base_url = public_base_url
+    resolved_secret = link_secret
+    if resolved_base_url is None or resolved_secret is None:
+        try:
+            resolved_base_url = resolved_base_url or load_public_base_url()
+            resolved_secret = resolved_secret or load_form_link_secret()
+        except RuntimeError:
+            logger.error(
+                "Bot de WhatsApp: falta HUB_PUBLIC_BASE_URL/FORM_LINK_SECRET, no se puede mandar el link de Autorización"
+            )
+            return None, None
+    return resolved_base_url, resolved_secret
 
 
 def _resolve_phone(chat_id: str, waha_client: WahaClient, session: str) -> tuple[str | None, str | None]:
@@ -240,6 +275,15 @@ def _process(
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "transcription_failed"}
     inbound = replace(inbound, text=text)
 
+    if store.get_explanation_offered(inbound.chat_id) and not store.get_explanation_sent(inbound.chat_id):
+        if maybe_handle_explanation_response(inbound.chat_id, inbound.text, waha_client, inbound.session, store):
+            return {"ok": True, "chat_id": inbound.chat_id, "skipped": "explanation_response_handled"}
+        # Sin `explanation_declined` persistido, no hay forma de distinguir acá "todavía no
+        # respondió la oferta" de "ya dijo que no y ahora habla de otra cosa" — forzar una nota
+        # de "consiga un sí/no" en el segundo caso lo trababa insistiendo con el audio sin parar
+        # (el mismo patrón de bug de `awaiting_acceptance`/autorización, visto en producción).
+        # Se deja en manos del LLM, que ya ve el ofrecimiento + la respuesta en el historial.
+
     deal_id = store.get_deal_id(inbound.chat_id)
     if deal_id is not None and not crm_client.deal_exists(deal_id):
         logger.info("Deal cacheado %s (chat %s) ya no existe en el CRM, se resuelve uno nuevo", deal_id, inbound.chat_id)
@@ -252,24 +296,12 @@ def _process(
 
     deal_id_before_identity_resolution = deal_id
     if deal_id is None:
-        _maybe_promote_pending_identity(inbound.chat_id, inbound.text, store)
         deal_id = _create_deal_from_confirmed_identity(inbound.chat_id, crm_client, store)
 
     awaiting_acceptance = False
     if deal_id is not None and store.get_explanation_sent(inbound.chat_id):
-        deal = crm_client.get_deal(deal_id)
-        if crm_client.get_authorization_status(deal) is None:
-            resolved_base_url = public_base_url
-            resolved_secret = link_secret
-            if resolved_base_url is None or resolved_secret is None:
-                try:
-                    resolved_base_url = resolved_base_url or load_public_base_url()
-                    resolved_secret = resolved_secret or load_form_link_secret()
-                except RuntimeError:
-                    logger.error(
-                        "Bot de WhatsApp: falta HUB_PUBLIC_BASE_URL/FORM_LINK_SECRET, no se puede mandar el link de Autorización"
-                    )
-                    resolved_base_url = resolved_secret = None
+        if not store.get_authorization_link_sent(inbound.chat_id):
+            resolved_base_url, resolved_secret = _resolve_authorization_link_config(public_base_url, link_secret)
 
             if resolved_base_url and resolved_secret and maybe_handle_acceptance(
                 inbound.chat_id,
@@ -316,15 +348,26 @@ def _process(
 
     turn = _parse_llm_output(raw_output)
 
+    if deal_id is not None and turn.signed_claim:
+        deal = crm_client.get_deal(deal_id)
+        if crm_client.get_authorization_status(deal) != "firmada":
+            resolved_base_url, resolved_secret = _resolve_authorization_link_config(public_base_url, link_secret)
+            if resolved_base_url and resolved_secret:
+                clarification = templates_store.get_template("whatsapp_authorization_not_received_yet")
+                waha_client.send_text(inbound.chat_id, clarification, session=inbound.session)
+                process_welcome_and_authorization(
+                    deal_id, crm_client, waha_client, resolved_base_url, resolved_secret, session=inbound.session
+                )
+                store.add_turn(inbound.chat_id, "user", inbound.text)
+                store.add_turn(inbound.chat_id, "assistant", clarification)
+                return {"ok": True, "chat_id": inbound.chat_id, "skipped": "signed_claim_not_yet_received"}
+
     sent = waha_client.send_text(inbound.chat_id, turn.reply, session=inbound.session)
     if sent:
         store.add_turn(inbound.chat_id, "user", inbound.text)
         store.add_turn(inbound.chat_id, "assistant", turn.reply)
 
         deal_id = _apply_confirmed_identity(inbound.chat_id, turn, deal_id, crm_client, store)
-
-        if deal_id is None:
-            _capture_pending_identity(inbound.chat_id, turn, store)
 
         if deal_id is not None and turn.listing != PropertyListing():
             crm_client.update_property_listing(deal_id, turn.listing)
@@ -333,7 +376,26 @@ def _process(
             crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
         if deal_id_before_identity_resolution is None and deal_id is not None:
-            maybe_send_explanation(inbound.chat_id, inbound.session, waha_client, store)
+            if not maybe_send_explanation(inbound.chat_id, inbound.session, waha_client, store):
+                # Cliente conocido: la explicación ya se había ofrecido/mandado antes de
+                # confirmar identidad (`whatsapp_bot_welcome.py`), así que la afirmación
+                # original a `whatsapp_ask_acceptance` se perdió respondiendo nombre/teléfono
+                # en su lugar. El deal recién se crea acá — hay que volver a pedirla, si no
+                # la conversación queda esperando sin que el bot pida nada.
+                if store.get_explanation_sent(inbound.chat_id) and not store.get_authorization_link_sent(
+                    inbound.chat_id
+                ):
+                    resolved_base_url, resolved_secret = _resolve_authorization_link_config(
+                        public_base_url, link_secret
+                    )
+                    if resolved_base_url and resolved_secret:
+                        ask_text = templates_store.get_template("whatsapp_ask_acceptance")
+                        if waha_client.send_text(inbound.chat_id, ask_text, session=inbound.session):
+                            store.add_turn(inbound.chat_id, "assistant", ask_text)
+
+        maybe_handle_delayed_explanation_request(
+            inbound.chat_id, turn.explanation_requested, waha_client, inbound.session, store
+        )
 
     return {"ok": sent, "chat_id": inbound.chat_id, "reply": turn.reply}
 
@@ -345,67 +407,30 @@ def _normalize_phone(raw: str | None) -> str | None:
     return from_chat_id(chat_id_form) if chat_id_form else None
 
 
-def _maybe_promote_pending_identity(chat_id: str, text: str, store: ConversationStore) -> None:
-    """Promueve a confirmado el nombre/teléfono que el bot propuso en su mensaje anterior.
-
-    Red de seguridad para cuando la persona confirma con un simple "sí" y
-    el LLM no repite esos valores en `client_full_name`/`client_phone` de
-    ese mismo turno (`proposed_full_name`/`proposed_phone`, guardados en el
-    turno anterior vía `_capture_pending_identity`, cubren ese hueco).
-    """
-    confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
-    if confirmed_name is not None and confirmed_phone is not None:
-        return
-    if not _AFFIRMATION_RE.match(text.strip()):
-        return
-
-    pending_name, pending_phone = store.get_pending_identity(chat_id)
-    if pending_name is None and pending_phone is None:
-        return
-
-    if confirmed_name is None and pending_name is not None:
-        store.set_confirmed_name(chat_id, pending_name)
-    if confirmed_phone is None and pending_phone is not None:
-        store.set_confirmed_phone(chat_id, pending_phone)
-    store.clear_pending_identity(chat_id)
-
-
-def _capture_pending_identity(chat_id: str, turn: LlmTurn, store: ConversationStore) -> None:
-    """Guarda el nombre/teléfono que el bot le acaba de proponer a la persona para confirmar."""
-    if turn.proposed_full_name is not None:
-        store.set_pending_name(chat_id, turn.proposed_full_name)
-
-    normalized_phone = _normalize_phone(turn.proposed_phone)
-    if normalized_phone is not None:
-        store.set_pending_phone(chat_id, normalized_phone)
-
-
 def _apply_confirmed_identity(
     chat_id: str, turn: LlmTurn, deal_id: str | None, crm_client: CrmClient, store: ConversationStore
 ) -> str | None:
-    """Guarda el nombre/teléfono que la persona confirmó en este turno, en el store y en Bitrix.
+    """Si el LLM ya tiene nombre Y teléfono confirmados en este turno, los guarda juntos (nunca
+    uno solo — ver `ConversationStore.set_confirmed_identity`) y crea el deal. El LLM es quien
+    lleva la cuenta de qué ya se confirmó en turnos anteriores (ve el historial completo) y
+    repite ambos datos en el mismo turno la primera vez que tiene los dos, aunque uno se haya
+    confirmado antes — así no hace falta persistir un estado "a medias" acá.
 
-    Sin deal todavía, no crea nada en Bitrix hasta que el store tenga
-    nombre Y teléfono confirmados (no alcanza con uno de los dos, ni con
-    que se hayan confirmado en turnos distintos) — así no quedan
-    negociaciones a medio llenar visibles para un asesor. Si el contacto
-    ya existe (deal ya creado), en cambio, cualquier confirmación nueva se
-    aplica de una (backfill de un contacto creado antes solo con
-    `username`, o corrección del nombre). Retorna el `deal_id` vigente
-    (puede ser uno nuevo, si se acaba de crear).
+    Si el deal ya existe, en cambio, cualquier confirmación nueva (aunque sea una sola) se
+    aplica directo en Bitrix (backfill de un contacto creado antes solo con `username`, o
+    corrección del nombre/teléfono) — no hace falta esperar a tener los dos para eso. Retorna
+    el `deal_id` vigente (puede ser uno nuevo, si se acaba de crear).
     """
     normalized_phone = _normalize_phone(turn.client_phone)
-    if normalized_phone is not None:
-        store.set_confirmed_phone(chat_id, normalized_phone)
 
-    if turn.client_full_name is not None:
-        store.set_confirmed_name(chat_id, turn.client_full_name)
+    if deal_id is None:
+        if turn.client_full_name is not None and normalized_phone is not None:
+            store.set_confirmed_identity(chat_id, turn.client_full_name, normalized_phone)
+            return _create_deal_from_confirmed_identity(chat_id, crm_client, store)
+        return deal_id
 
     if normalized_phone is None and turn.client_full_name is None:
         return deal_id
-
-    if deal_id is None:
-        return _create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
     contact_id = crm_client.get_deal_contact_id(crm_client.get_deal(deal_id))
     if contact_id is not None:

@@ -38,8 +38,7 @@ def test_list_chats_returns_summary_ordered_by_last_message() -> None:
     store.add_turn("222@c.us", "user", "segundo")
     store.add_turn("222@c.us", "assistant", "tercero, el más reciente")
     store.set_deal_id("222@c.us", "42")
-    store.set_confirmed_name("222@c.us", "Ana")
-    store.set_confirmed_phone("222@c.us", "573001112233")
+    store.set_confirmed_identity("222@c.us", "Ana", "573001112233")
 
     chats = store.list_chats()
 

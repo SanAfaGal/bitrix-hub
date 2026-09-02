@@ -286,11 +286,21 @@ el bot conversa y responde normal por WhatsApp, pero nada queda en
 Bitrix — así un asesor nunca ve negociaciones a medio llenar de alguien
 que escribió una vez y no volvió. Apenas ambos datos están confirmados
 se busca (o crea) el contacto y el deal de consignación (pipeline
-`CATEGORY_ID=34`), se le explica el proceso y se le pide firmar la
-Autorización de Corretaje — el bot ya no recolecta los datos del
-inmueble por chat: eso se llena en el formulario de la Autorización
-(`app/forms/`, `app.crm.protocol.PropertyListing`) cuando la persona lo
-firma, no en la conversación de WhatsApp. Ver `app/flows/whatsapp_bot.py`.
+`CATEGORY_ID=34`), se le explica el proceso por texto y se le pregunta si
+quiere que se lo expliquen también por nota de voz (`whatsapp_offer_explanation`)
+antes de mandársela — el audio nunca sale sin que la persona confirme
+primero, tanto acá como en la bienvenida al cliente ya conocido en Bitrix
+(`app/flows/whatsapp_bot_welcome.py`). Si declina, el bot no vuelve a
+ofrecerla ni avanza por su cuenta a pedir la firma (queda a la espera de
+que la persona pregunte algo), pero se la manda igual si la pide más
+adelante en cualquier turno (`app/flows/whatsapp_bot_explanation.py`). Una
+vez la persona acepta la explicación, se le pide firmar la Autorización de
+Corretaje — el bot ya no recolecta los datos del inmueble por chat: eso se
+llena en el formulario de la Autorización (`app/forms/`,
+`app.crm.protocol.PropertyListing`) cuando la persona lo firma, no en la
+conversación de WhatsApp. Si el cliente afirma en el chat que ya firmó
+pero el campo de Bitrix todavía no dice "firmada", el bot se lo aclara y
+reenvía el link en vez de darlo por bueno. Ver `app/flows/whatsapp_bot.py`.
 
 La creación de contacto/deal por chat corre serializada con un
 `threading.Lock` por `chat_id` (`ConversationStore.chat_lock`) — sin esto,
@@ -350,9 +360,9 @@ El cliente LLM (`app/llm/`) usa el SDK de OpenAI apuntado a `LLM_BASE_URL`
 protocolo (Groq, Together, DeepSeek, OpenRouter, Azure OpenAI, un modelo
 local con Ollama/vLLM, etc.), solo cambiando `LLM_BASE_URL`/`LLM_MODEL` en
 `.env`, sin tocar código. El LLM responde en JSON estricto
-(`{"reply": "...", "fields": {...}, "handoff_requested": ...}`, ver
-`_OUTPUT_FORMAT_INSTRUCTIONS` en `app/flows/whatsapp_bot.py`) — si algún
-proveedor no respeta el formato,
+(`{"reply": "...", "fields": {...}, "handoff_requested": ..., "signed_claim":
+..., "explanation_requested": ...}`, ver `_OUTPUT_FORMAT_INSTRUCTIONS` en
+`app/flows/whatsapp_bot_llm.py`) — si algún proveedor no respeta el formato,
 `_parse_llm_output` cae a modo seguro: manda el texto tal cual como
 respuesta y no actualiza ningún campo, nunca rompe la conversación.
 

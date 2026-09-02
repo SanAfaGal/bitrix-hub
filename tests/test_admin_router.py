@@ -194,8 +194,7 @@ def test_prospects_list_requires_login(client: TestClient) -> None:
 def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     store = ConversationStore()
     store.add_turn("573001112233@c.us", "user", "hola, quiero vender mi apto")
-    store.set_confirmed_name("573001112233@c.us", "Ana")
-    store.set_confirmed_phone("573001112233@c.us", "573001112233")
+    store.set_confirmed_identity("573001112233@c.us", "Ana", "573001112233")
     store.set_deal_id("573001112233@c.us", "42")
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
@@ -224,7 +223,7 @@ def test_prospect_detail_shows_full_history(client: TestClient, monkeypatch: pyt
     store.add_turn(chat_id, "user", "hola")
     store.add_turn(chat_id, "assistant", "hola, en qué te ayudo")
     store.add_turn(chat_id, "user", "quiero vender un apto")
-    store.set_confirmed_name(chat_id, "Ana")
+    store.set_confirmed_identity(chat_id, "Ana", "573001112233")
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
     _log_in(client)

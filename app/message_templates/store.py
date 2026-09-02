@@ -86,7 +86,11 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         "información sobre inmuebles, disponibilidad ni la empresa.\n\n"
         "Antes de seguir, confirme con la persona su nombre completo (nombre "
         "y apellido) y su teléfono — sin esto no se puede registrar su "
-        "solicitud. Si el sistema le muestra un nombre de perfil de WhatsApp "
+        "solicitud. Nunca invente ni complete de su cuenta un dato que la "
+        "persona no le haya dado o confirmado — si falta el nombre, el "
+        "teléfono, o ambos, pregunte específicamente por el dato que falta "
+        "(uno a la vez si hace falta) en vez de asumirlo o de explicarle el "
+        "proceso mientras la identidad siga incompleta. Si el sistema le muestra un nombre de perfil de WhatsApp "
         "o un teléfono detectado sin confirmar, no los dé por buenos: "
         "pregúntele si son correctos (ej. \"¿usted es Juan Pérez, cierto?\", "
         "\"¿y escribe desde su número personal?\") en vez de pedírselos de "
@@ -132,7 +136,14 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         "¡Perfecto! Ahora te voy a explicar cómo funciona todo el proceso para vender tu "
         "inmueble con nosotros 🏡"
     ),
-    "whatsapp_ask_acceptance": "¿Deseas continuar con el proceso?",
+    "whatsapp_offer_explanation": "¿Te gustaría que te explique cómo funciona el proceso? 🎙️",
+    "whatsapp_explanation_declined_ack": "¡Listo! Cualquier duda que tengas, aquí estoy.",
+    "whatsapp_ask_acceptance": (
+        "El siguiente paso es firmar la Autorización de Corretaje, que le permite a "
+        "Inmobiliaria Alberto Álvarez administrar la venta de tu inmueble: publicarlo, "
+        "mostrarlo a compradores interesados y gestionar todo el proceso hasta cerrar el "
+        "negocio 🤝 ¿Deseas que te la envíe para que la firmes?"
+    ),
     "bitrix_authorization_link_message": (
         "Para continuar, necesitamos que completes y firmes la Autorización de Corretaje aquí: {{link}}"
     ),
@@ -140,6 +151,10 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         "¡Gracias! Hemos recibido tu Autorización de Corretaje firmada ✅ En breve uno de "
         "nuestros asesores se pondrá en contacto contigo para solicitarte la demás "
         "documentación y continuar con el proceso."
+    ),
+    "whatsapp_authorization_not_received_yet": (
+        "Todavía no nos ha llegado tu Autorización de Corretaje firmada. Te comparto de nuevo "
+        "el enlace para que la completes:"
     ),
 }
 
@@ -152,9 +167,12 @@ TEMPLATE_LABELS: dict[str, str] = {
     "whatsapp_transcription_failed": "No se pudo transcribir el audio",
     "whatsapp_unsupported_message": "Mensaje con contenido no soportado",
     "whatsapp_process_explanation": "Explicación del proceso (antes del audio)",
+    "whatsapp_offer_explanation": "Oferta del audio explicativo",
+    "whatsapp_explanation_declined_ack": "Confirmación cuando rechaza el audio",
     "whatsapp_ask_acceptance": "Pregunta de aceptación (después del audio)",
     "bitrix_authorization_link_message": "Link de firma",
     "whatsapp_authorization_signed_message": "Confirmación de firma recibida",
+    "whatsapp_authorization_not_received_yet": "Aviso cuando el cliente dice haber firmado pero no ha llegado",
 }
 
 TEMPLATE_VARIABLES: dict[str, list[str]] = {
@@ -177,9 +195,12 @@ TEMPLATE_HINTS: dict[str, str] = {
     "whatsapp_transcription_failed": "Automático · bot de WhatsApp",
     "whatsapp_unsupported_message": "Automático · bot de WhatsApp",
     "whatsapp_process_explanation": "Automático · bot de WhatsApp",
+    "whatsapp_offer_explanation": "Automático · bot de WhatsApp",
+    "whatsapp_explanation_declined_ack": "Automático · bot de WhatsApp",
     "whatsapp_ask_acceptance": "Automático · bot de WhatsApp",
     "bitrix_authorization_link_message": "Manual · lo dispara un asesor en Bitrix",
     "whatsapp_authorization_signed_message": "Automático · al firmar el formulario público",
+    "whatsapp_authorization_not_received_yet": "Automático · bot de WhatsApp",
 }
 
 TEMPLATE_WHEN_USED: dict[str, str] = {
@@ -203,7 +224,16 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
     ),
     "whatsapp_process_explanation": (
         "Se envía apenas se crea el negocio y el contacto en Bitrix (nombre y teléfono ya "
-        "confirmados), justo antes de la nota de voz que explica el proceso."
+        "confirmados), justo antes de preguntar si quiere que se le explique el proceso."
+    ),
+    "whatsapp_offer_explanation": (
+        "Se envía justo después de la explicación escrita del proceso (cliente nuevo) o de la "
+        "bienvenida (cliente ya conocido en Bitrix), preguntando si quiere la nota de voz antes "
+        "de mandarla — nunca se manda el audio sin que la persona confirme primero."
+    ),
+    "whatsapp_explanation_declined_ack": (
+        "Se envía cuando la persona responde que no quiere la explicación del proceso — el bot "
+        "no vuelve a ofrecerla ni avanza por su cuenta a pedir la firma, queda a la espera."
     ),
     "whatsapp_ask_acceptance": (
         "Se envía justo después de la nota de voz que explica el proceso, para preguntarle a "
@@ -218,6 +248,11 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
         "Se envía apenas el cliente completa y firma el formulario público de Autorización de "
         "Corretaje, para confirmarle que la recibimos y que un asesor la continuará."
     ),
+    "whatsapp_authorization_not_received_yet": (
+        "Se envía cuando el cliente escribe por el chat que ya firmó la Autorización de "
+        "Corretaje pero en Bitrix todavía no está marcada como firmada — antes de reenviarle "
+        "el enlace de firma."
+    ),
 }
 
 # Agrupación de las plantillas (mensajes reales) en el panel admin — el
@@ -231,11 +266,20 @@ TEMPLATE_SECTIONS: list[dict[str, object]] = [
     },
     {
         "name": "Explicación del proceso",
-        "keys": ["whatsapp_process_explanation", "whatsapp_ask_acceptance"],
+        "keys": [
+            "whatsapp_process_explanation",
+            "whatsapp_offer_explanation",
+            "whatsapp_explanation_declined_ack",
+            "whatsapp_ask_acceptance",
+        ],
     },
     {
         "name": "Autorización de corretaje",
-        "keys": ["bitrix_authorization_link_message", "whatsapp_authorization_signed_message"],
+        "keys": [
+            "bitrix_authorization_link_message",
+            "whatsapp_authorization_signed_message",
+            "whatsapp_authorization_not_received_yet",
+        ],
     },
 ]
 

@@ -21,6 +21,11 @@ AFFIRMATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+NEGATION_RE = re.compile(
+    r"^(no(?: gracias| quiero| es necesario| hace falta)?|ahora no|despu[eé]s|luego|m[aá]s tarde)\W*$",
+    re.IGNORECASE,
+)
+
 _OUTPUT_FORMAT_INSTRUCTIONS = (
     "\n\nFormato de salida (obligatorio, sin excepción): responda ÚNICAMENTE "
     "con un objeto JSON válido, sin texto antes ni después, con esta forma "
@@ -30,24 +35,31 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
     '"expected_sale_price": <número entero o null>, "registration_number": '
     '<string o null>}, "client_full_name": <nombre y apellido de la persona, '
     'string o null>, "client_phone": <teléfono de la persona, string o '
-    'null>, "proposed_full_name": <string o null>, "proposed_phone": '
-    '<string o null>, "handoff_requested": <true o false>}\n'
+    'null>, "handoff_requested": <true o false>, "signed_claim": '
+    '<true o false>, "explanation_requested": <true o false>}\n'
     'En "fields" solo van los datos que la persona haya mencionado o '
     'confirmado en ESTE turno — todo lo demás va en null, aunque ya lo '
     "sepamos de antes. No repita en \"fields\" un dato que ya aparece en la "
     'lista de "Datos que ya tenemos" salvo que la persona lo esté '
-    "corrigiendo. Lo mismo aplica a \"client_full_name\" y \"client_phone\": "
-    "solo van si la persona los dijo/confirmó en ESTE turno, null en "
-    "cualquier otro caso — incluyendo cuando ya están confirmados.\n"
-    '"proposed_full_name" y "proposed_phone" van cuando, en "reply", usted '
-    "le está preguntando a la persona si un nombre o teléfono es correcto "
-    "(sea porque la persona lo acaba de escribir, o porque usted se lo "
-    "propuso a partir del perfil de WhatsApp o el número del chat) — van "
-    "con el valor exacto que usted está proponiéndole confirmar, en "
-    "cualquier otro turno van en null.\n"
+    'corrigiendo.\n'
+    '"client_full_name" y "client_phone" no se guardan hasta que usted '
+    "tenga los DOS confirmados a la vez — repórtelos juntos, los dos en el "
+    "mismo turno, la primera vez que los tenga completos (así el nombre se "
+    "haya confirmado en un turno anterior y el teléfono recién en este: "
+    "repita el que ya tenía, no solo el nuevo). Antes de tener ambos, "
+    "repórtelos como null. Una vez que la sección \"Datos de contacto de la "
+    'persona" ya muestra los dos, no vuelva a repetirlos salvo que la '
+    "persona esté corrigiendo alguno.\n"
     '"handoff_requested" es true únicamente cuando "reply" es el mensaje en '
     "el que usted le avisa a la persona que la va a conectar con un asesor "
-    '(según las condiciones ya indicadas) — en cualquier otro caso, false.'
+    '(según las condiciones ya indicadas) — en cualquier otro caso, false.\n'
+    '"signed_claim" es true únicamente cuando la persona afirma en ESTE turno '
+    'que ya firmó la Autorización de Corretaje (ej. "ya firmé", "ya la firmé", '
+    '"listo, firmé eso") — en cualquier otro caso, false.\n'
+    '"explanation_requested" es true cuando, en cualquier momento de la '
+    "conversación (incluso si antes dijo que no quería), la persona pide "
+    "explícitamente que le expliquen el proceso o que le manden el audio — "
+    "en cualquier otro caso, false."
 )
 
 
@@ -134,10 +146,10 @@ class LlmTurn:
     reply: str
     listing: PropertyListing
     handoff_requested: bool = False
+    signed_claim: bool = False
+    explanation_requested: bool = False
     client_full_name: str | None = None
     client_phone: str | None = None
-    proposed_full_name: str | None = None
-    proposed_phone: str | None = None
 
 
 def _parse_llm_output(raw: str) -> LlmTurn:
@@ -174,8 +186,8 @@ def _parse_llm_output(raw: str) -> LlmTurn:
         reply=reply.strip(),
         listing=_to_property_listing(fields_data),
         handoff_requested=data.get("handoff_requested") is True,
+        signed_claim=data.get("signed_claim") is True,
+        explanation_requested=data.get("explanation_requested") is True,
         client_full_name=_as_text(data.get("client_full_name")),
         client_phone=_as_text(data.get("client_phone")),
-        proposed_full_name=_as_text(data.get("proposed_full_name")),
-        proposed_phone=_as_text(data.get("proposed_phone")),
     )

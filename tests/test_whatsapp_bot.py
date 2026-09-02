@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from app.crm.protocol import PropertyListing
 from app.flows.whatsapp_bot import BotConfig, ConversationStore, _parse_llm_output, process
 from app.flows.whatsapp_bot_models import Base
+from app.message_templates import store as templates_store
 from app.waha.inbound import InboundMessage
 from tests.fakes import FakeCrmClient
 
@@ -364,7 +365,10 @@ def test_process_creates_contact_and_deal_once_name_and_phone_confirmed_same_tur
     assert crm.find_or_create_property_seller_contact_calls[-1] == ("573001112233", None, "Juan Pérez")
 
 
-def test_process_waits_for_both_name_and_phone_confirmed_across_turns() -> None:
+def test_process_waits_for_both_name_and_phone_together_in_the_same_turn() -> None:
+    """No hay estado "a medias" persistido: aunque el nombre se haya confirmado en un turno y
+    el teléfono en otro, no se crea nada hasta que el LLM reporte los DOS juntos en el mismo
+    turno (repitiendo el que ya tenía) — así lo instruye el prompt (`_OUTPUT_FORMAT_INSTRUCTIONS`)."""
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=json.dumps({"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez"}))
     crm = FakeCrmClient()
@@ -375,65 +379,32 @@ def test_process_waits_for_both_name_and_phone_confirmed_across_turns() -> None:
     assert store.get_deal_id("573001112233@c.us") is None
     assert crm.deal_by_contact == {}
 
-    store._last_message_time["573001112233@c.us"] = 0.0  # evita el rate limit entre los 2 turnos del test
+    store._last_message_time["573001112233@c.us"] = 0.0  # evita el rate limit entre turnos del test
     llm.reply_text = json.dumps({"reply": "listo", "fields": {}, "client_phone": "3001112233"})
     process(_inbound(message_id="m2", text="mi numero es ese"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
-    assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert crm.deal_by_contact == {"5000": "6000"}
-
-
-def test_process_creates_deal_when_person_confirms_proposed_identity_with_plain_si() -> None:
-    """Reproduce el bug real: el LLM propone nombre/teléfono para confirmar, la persona
-    responde solo "Si" en el siguiente turno y, aunque el LLM no repita esos valores en
-    `client_full_name`/`client_phone` de ese turno, el bot debe crear igual el deal."""
-    waha = FakeWahaClient()
-    llm = FakeLlmClient(
-        reply_text=json.dumps(
-            {
-                "reply": "Confirma que su nombre es Juan Pérez y su número es 3001112233, ¿es correcto?",
-                "fields": {},
-                "proposed_full_name": "Juan Pérez",
-                "proposed_phone": "3001112233",
-            }
-        )
-    )
-    crm = FakeCrmClient()
-    store = ConversationStore()
-
-    process(_inbound(message_id="m1", text="Juan Pérez\n3001112233"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
-
+    # El teléfono solo, sin repetir el nombre en el mismo turno, tampoco crea nada.
     assert store.get_deal_id("573001112233@c.us") is None
+    assert crm.deal_by_contact == {}
 
     store._last_message_time["573001112233@c.us"] = 0.0
-    llm.reply_text = json.dumps({"reply": "Perfecto, gracias", "fields": {}})
-    process(_inbound(message_id="m2", text="Si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+    llm.reply_text = json.dumps(
+        {"reply": "Perfecto, gracias", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+    )
+    process(_inbound(message_id="m3", text="si, ese mismo"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("573001112233@c.us") == "6000"
     assert crm.deal_by_contact == {"5000": "6000"}
     assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
 
 
-def test_process_does_not_promote_pending_identity_without_affirmative_reply() -> None:
+def test_process_does_nothing_without_client_full_name_or_client_phone_in_the_turn() -> None:
     waha = FakeWahaClient()
-    llm = FakeLlmClient(
-        reply_text=json.dumps(
-            {
-                "reply": "Confirma que su nombre es Juan Pérez, ¿es correcto?",
-                "fields": {},
-                "proposed_full_name": "Juan Pérez",
-                "proposed_phone": "3001112233",
-            }
-        )
-    )
+    llm = FakeLlmClient(reply_text=_plain_reply("entendido"))
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    process(_inbound(message_id="m1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
-
-    store._last_message_time["573001112233@c.us"] = 0.0
-    llm.reply_text = json.dumps({"reply": "entendido", "fields": {}})
-    process(_inbound(message_id="m2", text="No, mi nombre es otro"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+    process(_inbound(message_id="m1", text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("573001112233@c.us") is None
     assert store.get_confirmed_identity("573001112233@c.us") == (None, None)
@@ -496,8 +467,7 @@ def test_process_serializes_deal_creation_for_same_chat_to_prevent_duplicates() 
 
     crm = SlowFakeCrmClient()
     store = ConversationStore()
-    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
-    store.set_confirmed_phone("573001112233@c.us", "573001112233")
+    store.set_confirmed_identity("573001112233@c.us", "Juan Pérez", "573001112233")
 
     def run(message_id: str) -> None:
         process(
@@ -536,8 +506,7 @@ def test_process_recreates_deal_when_cached_deal_was_deleted_in_bitrix() -> None
     crm.contact_by_phone["573001112233"] = "5000"
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "40510")  # deal cacheado que ya no existe
-    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
-    store.set_confirmed_phone("573001112233@c.us", "573001112233")
+    store.set_confirmed_identity("573001112233@c.us", "Juan Pérez", "573001112233")
     crm.deleted_deals.add("40510")
 
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
@@ -585,8 +554,7 @@ def test_process_does_not_resolve_candidate_phone_once_deal_exists() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("123456789012345@lid", "6000")
-    store.set_confirmed_name("123456789012345@lid", "Juan Pérez")
-    store.set_confirmed_phone("123456789012345@lid", "573001112233")
+    store.set_confirmed_identity("123456789012345@lid", "Juan Pérez", "573001112233")
 
     process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
@@ -644,21 +612,25 @@ def test_process_does_not_call_update_property_listing_when_no_fields_extracted(
 # ── Identidad confirmada (nombre/teléfono pedidos por el bot) ───────────
 
 
-def test_process_sends_confirmed_identity_block_to_llm_system_prompt() -> None:
+def test_process_shows_no_confirmado_for_both_fields_before_anything_is_known() -> None:
+    """Ya no hay estado "a medias" persistido (ver `set_confirmed_identity`): mientras el LLM
+    no tenga nombre Y teléfono confirmados a la vez, el system prompt muestra los dos como sin
+    confirmar, sin importar cuántos turnos lleve la conversación."""
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("ok"))
     crm = FakeCrmClient()
     store = ConversationStore()
-    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
 
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     system_prompt = llm.calls[0][0]
-    assert "Juan Pérez" in system_prompt
-    assert "(no confirmado)" in system_prompt  # teléfono todavía sin confirmar
+    assert system_prompt.count("(no confirmado)") == 2  # nombre y teléfono, ninguno confirmado todavía
 
 
-def test_process_stores_and_saves_confirmed_full_name_on_existing_contact() -> None:
+def test_process_saves_confirmed_full_name_on_existing_contact_without_caching_it_locally() -> None:
+    """Con el deal ya creado, una corrección de un solo dato se aplica directo en Bitrix — no
+    hace falta que el store la tenga (ver `_apply_confirmed_identity`, solo cachea localmente
+    cuando tiene los dos juntos, y acá el deal ya existía de antes)."""
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps({"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez"})
@@ -670,7 +642,7 @@ def test_process_stores_and_saves_confirmed_full_name_on_existing_contact() -> N
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.contact_identity_updates == [("5000", None, "Juan Pérez")]
-    assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", None)
+    assert store.get_confirmed_identity("573001112233@c.us") == (None, None)
 
 
 def test_process_backfills_phone_on_contact_found_only_by_username() -> None:
@@ -687,7 +659,7 @@ def test_process_backfills_phone_on_contact_found_only_by_username() -> None:
     process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.contact_identity_updates == [("5000", "573001112233", None)]
-    assert store.get_confirmed_identity("123456789012345@lid") == (None, "573001112233")
+    assert store.get_confirmed_identity("123456789012345@lid") == (None, None)
 
 
 def test_process_creates_contact_using_confirmed_phone_and_name_when_lid_unresolved() -> None:
@@ -705,7 +677,9 @@ def test_process_creates_contact_using_confirmed_phone_and_name_when_lid_unresol
     assert store.get_deal_id("123456789012345@lid") is None  # falta el nombre
 
     store._last_message_time["123456789012345@lid"] = 0.0  # evita el rate limit entre los 2 turnos del test
-    llm.reply_text = json.dumps({"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez"})
+    llm.reply_text = json.dumps(
+        {"reply": "gracias", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+    )
     process(
         _inbound(chat_id="123456789012345@lid", message_id="m2", text="Juan Pérez"),
         waha,
@@ -809,15 +783,6 @@ def test_parse_llm_output_extracts_client_full_name_and_phone() -> None:
     assert turn.client_phone == "3001112233"
 
 
-def test_parse_llm_output_extracts_proposed_full_name_and_phone() -> None:
-    raw = json.dumps(
-        {"reply": "confirma?", "fields": {}, "proposed_full_name": "Juan Pérez", "proposed_phone": "3001112233"}
-    )
-
-    turn = _parse_llm_output(raw)
-
-    assert turn.proposed_full_name == "Juan Pérez"
-    assert turn.proposed_phone == "3001112233"
 
 
 def test_parse_llm_output_defaults_client_identity_to_none() -> None:
@@ -863,6 +828,66 @@ def test_affirmation_re_does_not_match_ambiguous_or_negative_replies(text: str) 
     from app.flows.whatsapp_bot_llm import AFFIRMATION_RE
 
     assert not AFFIRMATION_RE.match(text.strip())
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["no", "No", "no gracias", "ahora no", "despues", "después", "luego", "no quiero", "no es necesario"],
+)
+def test_negation_re_matches_clear_declines(text: str) -> None:
+    from app.flows.whatsapp_bot_llm import NEGATION_RE
+
+    assert NEGATION_RE.match(text.strip())
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["si", "claro que si", "no sé", "tal vez", "y esto cuanto dura?"],
+)
+def test_negation_re_does_not_match_affirmative_or_ambiguous_replies(text: str) -> None:
+    from app.flows.whatsapp_bot_llm import NEGATION_RE
+
+    assert not NEGATION_RE.match(text.strip())
+
+
+def test_parse_llm_output_extracts_signed_claim() -> None:
+    from app.flows.whatsapp_bot_llm import _parse_llm_output
+
+    raw = json.dumps({"reply": "listo", "fields": {}, "signed_claim": True})
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.signed_claim is True
+
+
+def test_parse_llm_output_defaults_signed_claim_to_false() -> None:
+    from app.flows.whatsapp_bot_llm import _parse_llm_output
+
+    raw = json.dumps({"reply": "hola", "fields": {}})
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.signed_claim is False
+
+
+def test_parse_llm_output_extracts_explanation_requested() -> None:
+    from app.flows.whatsapp_bot_llm import _parse_llm_output
+
+    raw = json.dumps({"reply": "listo", "fields": {}, "explanation_requested": True})
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.explanation_requested is True
+
+
+def test_parse_llm_output_defaults_explanation_requested_to_false() -> None:
+    from app.flows.whatsapp_bot_llm import _parse_llm_output
+
+    raw = json.dumps({"reply": "hola", "fields": {}})
+
+    turn = _parse_llm_output(raw)
+
+    assert turn.explanation_requested is False
 
 
 # ── Filtro de números permitidos (WHATSAPP_BOT_ALLOWED_NUMBERS) ─────────
@@ -960,7 +985,7 @@ _LINK_SECRET = "test-secret"
 _PUBLIC_BASE_URL = "https://hub.example.com"
 
 
-def test_process_sends_explanation_right_after_creating_deal_from_confirmed_identity() -> None:
+def test_process_offers_explanation_right_after_creating_deal_from_confirmed_identity() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps(
@@ -974,11 +999,49 @@ def test_process_sends_explanation_right_after_creating_deal_from_confirmed_iden
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
     assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert store.get_explanation_sent("573001112233@c.us") is True
-    assert len(waha.voice_calls) == 1
-    # El "gracias!" del LLM se manda primero, la explicación (texto+audio+pregunta) después.
+    assert store.get_explanation_offered("573001112233@c.us") is True
+    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert waha.voice_calls == []  # el audio no se manda sin que la persona confirme primero
+    # El "gracias!" del LLM se manda primero, la explicación (texto+pregunta) después.
     assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
     assert len(waha.calls) == 3
+
+
+def test_process_reasks_acceptance_when_deal_created_after_explanation_already_sent() -> None:
+    # Regresión de producción: cliente conocido (`whatsapp_bot_welcome.py` ya ofreció y mandó
+    # la explicación + pregunta de aceptación ANTES de que la identidad estuviera confirmada).
+    # La afirmación original se perdió respondiendo nombre/teléfono en su lugar; el deal recién
+    # se crea en este turno. Como `maybe_send_explanation` no hace nada (ya se había ofrecido),
+    # el bot no debe quedarse callado esperando: debe volver a pedir la aceptación.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {"reply": "gracias!", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+        )
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_explanation_offered("573001112233@c.us")
+    store.set_explanation_sent("573001112233@c.us")
+
+    result = process(
+        _inbound(chat_id="573001112233@c.us"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
+    assert store.get_deal_id("573001112233@c.us") == "6000"
+    assert store.get_authorization_link_sent("573001112233@c.us") is False
+    # "gracias!" primero, la re-pregunta de aceptación después — no se queda parado.
+    assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
+    assert len(waha.calls) == 2
 
 
 def test_process_does_not_send_explanation_for_deal_that_already_existed_before_this_turn() -> None:
@@ -1020,6 +1083,35 @@ def test_process_sends_authorization_link_when_person_accepts() -> None:
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "authorization_link_sent"}
     assert crm.authorization_status_updates == [("6000", "pendiente_firma")]
     assert llm.calls == []
+
+
+def test_process_sends_authorization_link_despite_bitrix_ambiguous_default_status() -> None:
+    """Regresión de producción: un deal recién creado en Bitrix ya trae `"pendiente_envio"`
+    (default del picklist) en `AUTHORIZATION_STATUS` sin que el link se haya mandado nunca —
+    el bot quedaba prometiéndolo sin mandarlo jamás. Ver `maybe_handle_acceptance`."""
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient(contacts={"5000": {"PHONE": "3001112233"}})
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_explanation_sent("573001112233@c.us")
+    crm._deals["6000"] = {"ID": "6000", "CONTACT_ID": "5000", "AUTHORIZATION_STATUS": "pendiente_envio"}
+
+    result = process(
+        _inbound(text="si"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "authorization_link_sent"}
+    assert crm.authorization_status_updates == [("6000", "pendiente_firma")]
+    assert store.get_authorization_link_sent("573001112233@c.us") is True
 
 
 def test_process_falls_back_to_llm_with_extra_context_when_reply_is_ambiguous() -> None:
@@ -1075,6 +1167,149 @@ def test_process_does_not_resend_explanation_or_reask_once_link_already_sent() -
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "perfecto, seguimos"}
     assert len(llm.calls) == 1
+
+
+# ── Oferta de explicación (pregunta antes del audio) ────────────────────
+
+
+def test_process_sends_audio_and_ask_acceptance_when_person_accepts_explanation_offer() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_explanation_offered("573001112233@c.us")
+
+    result = process(_inbound(text="si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "explanation_response_handled"}
+    assert len(waha.voice_calls) == 1
+    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert llm.calls == []
+
+
+def test_process_marks_declined_when_person_declines_explanation_offer() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_explanation_offered("573001112233@c.us")
+
+    result = process(_inbound(text="no gracias"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "explanation_response_handled"}
+    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert llm.calls == []
+
+
+def test_process_falls_back_to_llm_without_forcing_a_note_when_offer_reply_is_ambiguous() -> None:
+    """Ya no hay una nota especial forzando un sí/no (ver el docstring del gate de
+    `maybe_handle_explanation_response` en `_process`) — una respuesta ambigua a la oferta cae
+    al turno normal del LLM, que igual ve la oferta en el historial reciente."""
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("no tiene costo, ¿quieres que te explique?"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_explanation_offered("573001112233@c.us")
+
+    result = process(
+        _inbound(text="eso tiene costo?"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {
+        "ok": True,
+        "chat_id": "573001112233@c.us",
+        "reply": "no tiene costo, ¿quieres que te explique?",
+    }
+    assert len(llm.calls) == 1
+
+
+def test_process_sends_audio_when_person_asks_for_it_after_having_declined() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "claro, ahora te la mando", "fields": {}, "explanation_requested": True})
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_explanation_offered("573001112233@c.us")
+
+    result = process(
+        _inbound(text="bueno, mándame el audio"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "claro, ahora te la mando"}
+    assert len(waha.voice_calls) == 1
+    assert waha.calls[-1] == ("573001112233@c.us", templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"], "default")
+    assert store.get_explanation_sent("573001112233@c.us") is True
+
+
+def test_process_does_not_reoffer_explanation_once_already_sent() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("todo bien"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_explanation_offered("573001112233@c.us")
+    store.set_explanation_sent("573001112233@c.us")
+
+    process(_inbound(text="si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert len(llm.calls) == 1  # ya se mandó el audio antes, este turno sigue el flujo normal
+
+
+# ── Reclamo de firma sin haber firmado en Bitrix ────────────────────────
+
+
+def test_process_clarifies_and_resends_link_when_person_claims_signed_but_not_in_bitrix() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "listo, ya firmé", "fields": {}, "signed_claim": True})
+    )
+    crm = FakeCrmClient(
+        deals={"6000": {"ID": "6000", "CONTACT_ID": "5000"}},
+        contacts={"5000": {"PHONE": "3001112233"}},
+    )
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+
+    result = process(
+        _inbound(text="ya firmé"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "signed_claim_not_yet_received"}
+    assert waha.calls[0][1] == templates_store.DEFAULT_TEMPLATES["whatsapp_authorization_not_received_yet"]
+    assert crm.authorization_status_updates == [("6000", "pendiente_firma")]
+
+
+def test_process_does_not_clarify_when_authorization_already_firmada() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps({"reply": "listo, gracias por confirmar", "fields": {}, "signed_claim": True})
+    )
+    crm = FakeCrmClient(deals={"6000": {"ID": "6000", "AUTHORIZATION_STATUS": "firmada"}})
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+
+    result = process(
+        _inbound(text="ya firmé"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "listo, gracias por confirmar"}
+    assert crm.authorization_status_updates == []
 
 
 # ── Pausa manual / handoff automático ───────────────────────────────────
@@ -1163,13 +1398,11 @@ def test_conversation_store_confirmed_identity_defaults_to_none() -> None:
     assert store.get_confirmed_identity("573001112233@c.us") == (None, None)
 
 
-def test_conversation_store_set_confirmed_name_and_phone_independently() -> None:
+def test_conversation_store_set_confirmed_identity_writes_both_together() -> None:
     store = ConversationStore()
 
-    store.set_confirmed_name("573001112233@c.us", "Juan Pérez")
-    assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", None)
+    store.set_confirmed_identity("573001112233@c.us", "Juan Pérez", "573001112233")
 
-    store.set_confirmed_phone("573001112233@c.us", "573001112233")
     assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
 
 
@@ -1177,43 +1410,11 @@ def test_conversation_store_confirmed_identity_survives_new_instance_same_db_fil
     db_path = str(tmp_path / "whatsapp_bot.db")
 
     first = ConversationStore(engine=_sqlite_file_engine(db_path))
-    first.set_confirmed_name("573001112233@c.us", "Juan Pérez")
-    first.set_confirmed_phone("573001112233@c.us", "573001112233")
+    first.set_confirmed_identity("573001112233@c.us", "Juan Pérez", "573001112233")
 
     second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
-
-
-def test_conversation_store_pending_identity_defaults_to_none() -> None:
-    store = ConversationStore()
-
-    assert store.get_pending_identity("573001112233@c.us") == (None, None)
-
-
-def test_conversation_store_set_and_clear_pending_identity() -> None:
-    store = ConversationStore()
-
-    store.set_pending_name("573001112233@c.us", "Juan Pérez")
-    store.set_pending_phone("573001112233@c.us", "573001112233")
-
-    assert store.get_pending_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
-
-    store.clear_pending_identity("573001112233@c.us")
-
-    assert store.get_pending_identity("573001112233@c.us") == (None, None)
-
-
-def test_conversation_store_pending_identity_survives_new_instance_same_db_file(tmp_path) -> None:
-    db_path = str(tmp_path / "whatsapp_bot.db")
-
-    first = ConversationStore(engine=_sqlite_file_engine(db_path))
-    first.set_pending_name("573001112233@c.us", "Juan Pérez")
-    first.set_pending_phone("573001112233@c.us", "573001112233")
-
-    second = ConversationStore(engine=_sqlite_file_engine(db_path))
-
-    assert second.get_pending_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
 
 
 # ── Explicación del proceso enviada (nombre/teléfono confirmados, deal recién creado) ─
@@ -1243,3 +1444,31 @@ def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(
     second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_explanation_sent("573001112233@c.us") is True
+
+
+# ── Oferta de explicación (pregunta antes de mandar el audio) ───────────
+
+
+def test_conversation_store_explanation_offered_defaults_to_false() -> None:
+    store = ConversationStore()
+
+    assert store.get_explanation_offered("573001112233@c.us") is False
+
+
+def test_conversation_store_set_explanation_offered() -> None:
+    store = ConversationStore()
+
+    store.set_explanation_offered("573001112233@c.us")
+
+    assert store.get_explanation_offered("573001112233@c.us") is True
+
+
+def test_conversation_store_explanation_offered_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
+    first.set_explanation_offered("573001112233@c.us")
+
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
+
+    assert second.get_explanation_offered("573001112233@c.us") is True

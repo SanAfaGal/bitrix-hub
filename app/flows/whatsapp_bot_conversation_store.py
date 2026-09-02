@@ -111,29 +111,9 @@ class ConversationStore:
         with self._SessionLocal() as session:
             return store_db.get_confirmed_identity(session, chat_id)
 
-    def set_confirmed_name(self, chat_id: str, name: str) -> None:
+    def set_confirmed_identity(self, chat_id: str, name: str, phone: str) -> None:
         with self._SessionLocal() as session:
-            store_db.set_confirmed_name(session, chat_id, name)
-
-    def set_confirmed_phone(self, chat_id: str, phone: str) -> None:
-        with self._SessionLocal() as session:
-            store_db.set_confirmed_phone(session, chat_id, phone)
-
-    def get_pending_identity(self, chat_id: str) -> tuple[str | None, str | None]:
-        with self._SessionLocal() as session:
-            return store_db.get_pending_identity(session, chat_id)
-
-    def set_pending_name(self, chat_id: str, name: str) -> None:
-        with self._SessionLocal() as session:
-            store_db.set_pending_name(session, chat_id, name)
-
-    def set_pending_phone(self, chat_id: str, phone: str) -> None:
-        with self._SessionLocal() as session:
-            store_db.set_pending_phone(session, chat_id, phone)
-
-    def clear_pending_identity(self, chat_id: str) -> None:
-        with self._SessionLocal() as session:
-            store_db.clear_pending_identity(session, chat_id)
+            store_db.set_confirmed_identity(session, chat_id, name, phone)
 
     def get_explanation_sent(self, chat_id: str) -> bool:
         with self._SessionLocal() as session:
@@ -142,6 +122,22 @@ class ConversationStore:
     def set_explanation_sent(self, chat_id: str) -> None:
         with self._SessionLocal() as session:
             store_db.set_explanation_sent(session, chat_id)
+
+    def get_explanation_offered(self, chat_id: str) -> bool:
+        with self._SessionLocal() as session:
+            return store_db.get_explanation_offered(session, chat_id)
+
+    def set_explanation_offered(self, chat_id: str) -> None:
+        with self._SessionLocal() as session:
+            store_db.set_explanation_offered(session, chat_id)
+
+    def get_authorization_link_sent(self, chat_id: str) -> bool:
+        with self._SessionLocal() as session:
+            return store_db.get_authorization_link_sent(session, chat_id)
+
+    def set_authorization_link_sent(self, chat_id: str) -> None:
+        with self._SessionLocal() as session:
+            store_db.set_authorization_link_sent(session, chat_id)
 
     def get_full_history(self, chat_id: str) -> list[dict[str, str]]:
         with self._SessionLocal() as session:

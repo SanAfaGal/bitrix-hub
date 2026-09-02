@@ -6,10 +6,11 @@ el chat no tiene historial todavía, se resuelve si Bitrix ya conoce al
 cliente por su teléfono (`CrmClient.find_contact_by_phone`) y se envía la
 plantilla correspondiente (`whatsapp_welcome_known`/`whatsapp_welcome_unknown`,
 ver `app/message_templates/store.py`) tal cual, sin generarla con el LLM. Si
-el cliente es conocido, además se manda la nota de voz fija que explica el
+el cliente es conocido, además se le pregunta si quiere que le expliquen el
+proceso (`whatsapp_offer_explanation`) — la nota de voz fija que explica el
 proceso (`process_explanation_voice_base64`, definida acá y reusada también
-por `whatsapp_bot_explanation.py` para clientes nuevos) justo después del
-texto.
+por `whatsapp_bot_explanation.py` para clientes nuevos) recién se manda si
+la persona confirma, ver `maybe_handle_explanation_response` en ese módulo.
 """
 from __future__ import annotations
 
@@ -83,8 +84,10 @@ def maybe_send_first_contact_welcome(
         logger.error("No se pudo enviar la bienvenida de primer contacto a %s", chat_id)
 
     if sent and name:
-        audio_base64 = process_explanation_voice_base64()
-        if audio_base64 is not None:
-            waha_client.send_voice(chat_id, audio_base64, session=session)
+        offer_text = templates_store.get_template("whatsapp_offer_explanation")
+        offer_sent = waha_client.send_text(chat_id, offer_text, session=session)
+        if offer_sent:
+            store.add_turn(chat_id, "assistant", offer_text)
+            store.set_explanation_offered(chat_id)
 
     return True
