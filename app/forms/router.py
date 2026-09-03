@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import logging
 from datetime import datetime
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -11,14 +12,16 @@ from fastapi.responses import HTMLResponse
 
 from app.crm.deps import get_crm_client
 from app.crm.protocol import PropertyListing
+from app.flows.registry_live_check import check_registration_number_live
 from app.forms.cleaning import slugify_filename
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
 from app.forms.link_token import verify_deal_id_token
-from app.forms.models import BrokerageAuthorizationPayload, CleanSignaturePhotoPayload
+from app.forms.models import BrokerageAuthorizationPayload, CleanSignaturePhotoPayload, VerifyRegistrationNumberPayload
 from app.forms.page import (
     CLEAN_SIGNATURE_PATH,
     FORM_PATH,
     TEMPLATE_PATH_URL,
+    VERIFY_MATRICULA_PATH,
     render_already_signed_html,
     render_form_html,
     render_link_invalid_html,
@@ -30,6 +33,7 @@ from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 from app.waha.deps import get_waha_client
 from app.waha.phone import to_chat_id
+from app.xposure.deps import get_xposure_client
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,7 @@ router = APIRouter(tags=["Formularios"])
 # que el envío final (que además genera el PDF), pero sigue acotado.
 _CLEAN_SIGNATURE_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
 _SUBMIT_FORM_RATE_LIMIT = {"max_requests": 6, "window_seconds": 60}
+_VERIFY_MATRICULA_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
 
 
 def _limit_clean_signature(request: Request) -> None:
@@ -47,6 +52,10 @@ def _limit_clean_signature(request: Request) -> None:
 
 def _limit_submit_form(request: Request) -> None:
     rate_limit(request, "enviar-formulario", **_SUBMIT_FORM_RATE_LIMIT)
+
+
+def _limit_verify_matricula(request: Request) -> None:
+    rate_limit(request, "verify-matricula", **_VERIFY_MATRICULA_RATE_LIMIT)
 
 
 _YES_NO_LABELS = {"si": "Sí", "no": "No"}
@@ -146,6 +155,32 @@ def post_clean_signature_photo(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {"cleaned_png": "data:image/png;base64," + base64.b64encode(cleaned_png_bytes).decode()}
+
+
+@router.post(
+    VERIFY_MATRICULA_PATH,
+    summary="Chequeo en vivo (paso del wizard): matrícula ya publicada en el MLS vía Xposure",
+)
+def post_verify_registration_number(
+    payload: VerifyRegistrationNumberPayload, _: None = Depends(_limit_verify_matricula)
+) -> dict[str, Any]:
+    """Paso de excepción del wizard (ver app/forms/coverage.py): si la ubicación no tiene
+    cobertura, el cliente teclea la matrícula/ID y esto la consulta en Xposure en vivo, antes
+    de mostrarle el resto del formulario. Si hay `deal_id`, deja constancia en Bitrix
+    (`check_registration_number_live`) aunque el cliente quede bloqueado acá."""
+    crm_client = None
+    if payload.deal_id:
+        if not _is_valid_link(payload.deal_id, payload.token):
+            raise HTTPException(status_code=403, detail="Enlace inválido.")
+        try:
+            crm_client = get_crm_client()
+        except (HTTPException, RuntimeError):
+            logger.exception("No se pudo obtener el cliente de CRM para verificar-matricula")
+            crm_client = None
+
+    return check_registration_number_live(
+        payload.registration_number, get_xposure_client, crm_client=crm_client, deal_id=payload.deal_id
+    )
 
 
 @router.get(

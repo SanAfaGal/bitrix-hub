@@ -11,12 +11,15 @@ from html import escape
 from app.forms.models import PROPERTY_TYPES
 from app.forms.page_script import FORM_SCRIPT
 from app.forms.page_styles import FORM_STYLE
+from app.forms.page_wizard import WIZARD_STYLE, render_wizard_html
+from app.forms.page_wizard_script import WIZARD_SCRIPT
 
 # Rutas públicas: en español y con nombre claro — las abre el cliente final
 # desde un link de WhatsApp, tiene que entender qué es antes de tocarlo.
 FORM_PATH = "/formularios/autorizacion-de-corretaje"
 TEMPLATE_PATH_URL = f"{FORM_PATH}/plantilla.pdf"
 CLEAN_SIGNATURE_PATH = f"{FORM_PATH}/limpiar-firma"
+VERIFY_MATRICULA_PATH = f"{FORM_PATH}/verify-matricula"
 
 # Assets de marca (favicon, logo) — copiados de flash-view, ver app/static/imgs/.
 FAVICON_URL = "/static/imgs/favicon.ico"
@@ -83,12 +86,6 @@ _FIELDS = [
         placeholder="Ej: Cra 7 # 12-34, Apto 302",
     ),
     dict(
-        name="location", label="Ubicación", kind="text", input_type="text", required=True,
-        section="property", suggest="location-suggestions",
-        hint="Sector, ciudad y departamento donde está ubicado el inmueble.",
-        placeholder="Ej: El Poblado, Medellín, Antioquia",
-    ),
-    dict(
         name="registration_number", label="Matrícula inmobiliaria", kind="text", input_type="text",
         required=True, section="property",
         hint="Número de identificación del inmueble en el registro de instrumentos públicos.",
@@ -127,6 +124,18 @@ _FIELDS = [
     ),
 ]
 
+# Ubicación: se pide en el paso de cobertura del wizard (antes del formulario
+# completo, ver page_wizard.py), no en la sección "Datos del inmueble" — pero
+# es el mismo campo (`name="location"`, mismo id, mismo desplegable de
+# sugerencias) así que se renderiza con `_render_field` igual que el resto,
+# solo que fuera de `_FIELDS`/`_render_fields_with_sections`.
+_LOCATION_FIELD = dict(
+    name="location", label="Ubicación", kind="text", input_type="text", required=True,
+    suggest="location-suggestions", form="authorization-form",
+    hint="Sector, ciudad y departamento donde está ubicado el inmueble.",
+    placeholder="Ej: El Poblado, Medellín, Antioquia",
+)
+
 _HTML = """<!doctype html>
 <html lang="es">
 <head>
@@ -162,7 +171,8 @@ __STYLE__
         <span class="document-cta__arrow">›</span>
       </a>
     </div>
-    <div class="card">
+__WIZARD_HTML__
+    <div id="full-form-card" class="card card--hidden">
       <div class="card__header">
         <h2 class="card__title">Completa la información</h2>
         <p class="card__subtitle">Datos del interesado, del inmueble y firma al final.</p>
@@ -306,7 +316,7 @@ def _render_text_input(field: dict) -> str:
     suggest = field.get("suggest")
     input_html = (
         '<input class="field__input" id="field-{name}" type="{input_type}" '
-        'name="{name}"{placeholder}{inputmode}{autocomplete}{required}>'.format(
+        'name="{name}"{placeholder}{inputmode}{autocomplete}{required}{form}>'.format(
             name=field["name"],
             input_type=field["input_type"],
             placeholder=f' placeholder="{escape(placeholder)}"' if placeholder else "",
@@ -315,6 +325,11 @@ def _render_text_input(field: dict) -> str:
             # sugerencias (ver el bloque `suggest` debajo) con el suyo propio.
             autocomplete=' autocomplete="off"' if suggest else "",
             required=" required" if field["required"] else "",
+            # `form`: asocia el input a un <form> del que no es descendiente en
+            # el DOM (atributo HTML5) — lo usa el campo "location", que vive
+            # visualmente en el paso de ubicación del wizard pero debe viajar
+            # igual en el submit de #authorization-form (ver page_wizard.py).
+            form=f' form="{escape(field["form"])}"' if field.get("form") else "",
         )
     )
     if not suggest:
@@ -389,13 +404,20 @@ def render_form_html(deal_id: str | None = None, token: str | None = None) -> st
     )
     token_field_html = f'        <input type="hidden" name="token" value="{escape(token)}">' if token else ""
     fields_html = _render_fields_with_sections(_FIELDS)
+    location_field_html = _render_field(_LOCATION_FIELD)
+    wizard_html = render_wizard_html(location_field_html)
     return (
-        _HTML.replace("__DEAL_ID_FIELD__", deal_id_field_html)
+        _HTML.replace("__WIZARD_HTML__", wizard_html)
+        .replace("__DEAL_ID_FIELD__", deal_id_field_html)
         .replace("__TOKEN_FIELD__", token_field_html)
         .replace("__FIELDS_HTML__", fields_html)
         .replace("__TEMPLATE_PATH_URL__", TEMPLATE_PATH_URL)
         .replace("__FAVICON_URL__", FAVICON_URL)
         .replace("__LOGO_URL__", LOGO_URL)
-        .replace("__STYLE__", FORM_STYLE)
-        .replace("__SCRIPT__", FORM_SCRIPT.replace("__CLEAN_SIGNATURE_PATH__", CLEAN_SIGNATURE_PATH))
+        .replace("__STYLE__", FORM_STYLE + WIZARD_STYLE)
+        .replace(
+            "__SCRIPT__",
+            FORM_SCRIPT.replace("__CLEAN_SIGNATURE_PATH__", CLEAN_SIGNATURE_PATH)
+            + WIZARD_SCRIPT.replace("__VERIFY_MATRICULA_PATH__", VERIFY_MATRICULA_PATH),
+        )
     )

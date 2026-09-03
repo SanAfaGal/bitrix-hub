@@ -11,8 +11,17 @@ from fastapi.testclient import TestClient
 import app.forms.rate_limit as rate_limit_module
 from app.forms.link_token import sign_deal_id
 from app.main import app
+from app.xposure.models import PropertySearchResult
 
 client = TestClient(app)
+
+
+class FakeXposureClient:
+    def __init__(self, result: PropertySearchResult) -> None:
+        self._result = result
+
+    def search_property(self, tax_roll: str, tax_roll_area_code: str | None = None) -> PropertySearchResult:
+        return self._result
 
 _LINK_SECRET = "test-secret"
 
@@ -37,6 +46,8 @@ class FakeCrmClient:
         self.uploaded_files: list[tuple[str, str, bytes]] = []
         self.property_listing_updates: list[tuple[str, object]] = []
         self.bot_active_updates: list[tuple[str, bool]] = []
+        self.pins: list[tuple[int, str]] = []
+        self.duplicado_updates: list[tuple[str, bool]] = []
         self.upload_file_result = upload_file_result
         self.contact_id = contact_id
         self.contact_phone = contact_phone
@@ -72,6 +83,12 @@ class FakeCrmClient:
 
     def set_bot_active(self, deal_id, active):
         self.bot_active_updates.append((deal_id, active))
+
+    def pin_comment(self, comment_id, deal_id):
+        self.pins.append((comment_id, deal_id))
+
+    def set_duplicado_status(self, deal_id, has_duplicate):
+        self.duplicado_updates.append((deal_id, has_duplicate))
 
 
 class FakeWahaClient:
@@ -160,6 +177,64 @@ def test_get_form_embeds_deal_id_and_token_as_hidden_fields_when_present(monkeyp
     assert response.status_code == 200
     assert '<input type="hidden" name="deal_id" value="42">' in response.text
     assert f'<input type="hidden" name="token" value="{_token_for("42")}">' in response.text
+
+
+def test_get_form_shows_authorization_step_before_full_form():
+    response = client.get("/formularios/autorizacion-de-corretaje")
+
+    assert response.status_code == 200
+    assert 'id="wizard-step-authorization"' in response.text
+    assert 'id="wizard-authorize-yes"' in response.text
+    assert 'id="wizard-authorize-no"' in response.text
+    # El formulario completo arranca oculto hasta pasar el wizard.
+    assert 'id="full-form-card" class="card card--hidden"' in response.text
+
+
+def test_get_form_requires_data_treatment_consent_checkbox():
+    response = client.get("/formularios/autorizacion-de-corretaje")
+
+    assert response.status_code == 200
+    assert 'id="wizard-data-consent"' in response.text
+    assert "LEY 1581 DE 2012" in response.text
+
+
+def test_get_form_shows_law_text_in_scrollable_readonly_textarea():
+    response = client.get("/formularios/autorizacion-de-corretaje")
+
+    assert response.status_code == 200
+    assert 'id="wizard-law-textarea" readonly' in response.text
+    assert "LEY 1581 DE 2012" in response.text
+    assert "Superintendencia de Industria y Comercio" in response.text
+    # La pregunta vieja ya no está: el texto de la ley reemplaza la pregunta.
+    assert "¿Autorizas a Alberto Álvarez a representarte" not in response.text
+
+
+def test_get_form_declined_step_uses_centered_success_view_style():
+    response = client.get("/formularios/autorizacion-de-corretaje")
+
+    assert response.status_code == 200
+    assert 'class="card success-view card--hidden" id="wizard-step-declined"' in response.text
+    assert "success-view__icon--info" in response.text
+
+
+def test_get_form_law_textarea_has_no_company_mentions():
+    response = client.get("/formularios/autorizacion-de-corretaje")
+
+    start = response.text.index('id="wizard-law-textarea"')
+    end = response.text.index("</textarea>", start)
+    textarea_content = response.text[start:end]
+
+    assert "Alberto Álvarez" not in textarea_content
+
+
+def test_get_form_location_field_lives_only_in_the_wizard_step():
+    response = client.get("/formularios/autorizacion-de-corretaje")
+
+    assert response.status_code == 200
+    assert 'id="wizard-step-location"' in response.text
+    # No debe pedirse dos veces: solo aparece dentro del paso del wizard.
+    assert response.text.count('name="location"') == 1
+    assert 'id="field-location"' in response.text
 
 
 def test_get_form_has_no_deal_id_field_when_absent():
@@ -626,3 +701,95 @@ def test_post_form_still_returns_pdf_when_bitrix_comment_fails(monkeypatch):
 
     assert response.status_code == 200
     assert response.content.startswith(b"%PDF")
+
+
+_VERIFY_MATRICULA_PATH = "/formularios/autorizacion-de-corretaje/verify-matricula"
+
+
+def test_verify_matricula_blocks_when_already_published_in_xposure(monkeypatch):
+    fake_xposure = FakeXposureClient(
+        PropertySearchResult(tax_roll="1945945", exists=True, mls="999", url="https://example.com/999")
+    )
+    monkeypatch.setattr("app.forms.router.get_xposure_client", lambda: fake_xposure)
+
+    response = client.post(_VERIFY_MATRICULA_PATH, json={"registration_number": "50C-1945945"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duplicate"] is True
+    assert body["message"] != ""
+
+
+def test_verify_matricula_allows_when_not_found_in_xposure(monkeypatch):
+    fake_xposure = FakeXposureClient(
+        PropertySearchResult(tax_roll="123456", exists=False, reason="No se encontraron resultados")
+    )
+    monkeypatch.setattr("app.forms.router.get_xposure_client", lambda: fake_xposure)
+
+    response = client.post(_VERIFY_MATRICULA_PATH, json={"registration_number": "001-123456"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duplicate"] is False
+    assert body["message"] == ""
+
+
+def test_verify_matricula_rejects_invalid_format():
+    response = client.post(_VERIFY_MATRICULA_PATH, json={"registration_number": "ABC1234"})
+
+    assert response.status_code == 422
+
+
+def test_verify_matricula_with_deal_id_records_duplicate_on_deal(monkeypatch):
+    fake_crm = FakeCrmClient()
+    fake_xposure = FakeXposureClient(
+        PropertySearchResult(tax_roll="1945945", exists=True, mls="999", url="https://example.com/999")
+    )
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+    monkeypatch.setattr("app.forms.router.get_xposure_client", lambda: fake_xposure)
+
+    response = client.post(
+        _VERIFY_MATRICULA_PATH,
+        json={"registration_number": "50C-1945945", "deal_id": "42", "token": _token_for("42")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["duplicate"] is True
+    assert fake_crm.duplicado_updates == [("42", True)]
+    assert fake_crm.pins == [(1, "42")]
+
+
+def test_verify_matricula_rejects_deal_id_without_valid_token(monkeypatch):
+    fake_xposure = FakeXposureClient(PropertySearchResult(tax_roll="1945945", exists=False))
+    monkeypatch.setattr("app.forms.router.get_xposure_client", lambda: fake_xposure)
+
+    response = client.post(
+        _VERIFY_MATRICULA_PATH, json={"registration_number": "50C-1945945", "deal_id": "42"}
+    )
+
+    assert response.status_code == 403
+
+
+def test_verify_matricula_without_deal_id_does_not_touch_bitrix(monkeypatch):
+    def fail_if_called():
+        raise AssertionError("no debería construirse un cliente de CRM sin deal_id")
+
+    fake_xposure = FakeXposureClient(PropertySearchResult(tax_roll="1945945", exists=False))
+    monkeypatch.setattr("app.forms.router.get_crm_client", fail_if_called)
+    monkeypatch.setattr("app.forms.router.get_xposure_client", lambda: fake_xposure)
+
+    response = client.post(_VERIFY_MATRICULA_PATH, json={"registration_number": "50C-1945945"})
+
+    assert response.status_code == 200
+
+
+def test_verify_matricula_is_rate_limited(monkeypatch):
+    fake_xposure = FakeXposureClient(PropertySearchResult(tax_roll="1945945", exists=False))
+    monkeypatch.setattr("app.forms.router.get_xposure_client", lambda: fake_xposure)
+
+    responses = [
+        client.post(_VERIFY_MATRICULA_PATH, json={"registration_number": "50C-1945945"}) for _ in range(16)
+    ]
+
+    assert responses[-1].status_code == 429
+    assert any(r.status_code == 200 for r in responses)
