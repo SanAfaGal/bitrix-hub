@@ -1,7 +1,7 @@
 """Pruebas de las reglas de negocio de process_deal_event, sin pasar por HTTP."""
 from __future__ import annotations
 
-from app.flows.registry_duplicate_check import process_deal_event
+from app.flows.registry_duplicate_check import check_matricula_in_xposure, process_deal_event
 from app.xposure.models import PropertySearchResult
 from tests.fakes import FakeCrmClient
 
@@ -16,6 +16,63 @@ class FakeXposureClient:
         self.called_with = tax_roll
         self.called_with_area_code = tax_roll_area_code
         return self._result
+
+
+class FakeXposureClientDirect:
+    def __init__(self, result: PropertySearchResult) -> None:
+        self._result = result
+        self.called_with: str | None = None
+        self.called_with_area_code: str | None = None
+
+    def search_property(self, tax_roll: str, tax_roll_area_code: str | None = None) -> PropertySearchResult:
+        self.called_with = tax_roll
+        self.called_with_area_code = tax_roll_area_code
+        return self._result
+
+
+def test_check_matricula_in_xposure_found_with_mls_is_duplicado() -> None:
+    fake_xposure = FakeXposureClientDirect(
+        PropertySearchResult(tax_roll="1945945", exists=True, mls="999", url="https://example.com/999")
+    )
+
+    is_duplicate, comment = check_matricula_in_xposure("50C-1945945", fake_xposure)
+
+    assert is_duplicate is True
+    assert comment == "Inmueble encontrado en Xposure. MLS: 999. Ver: https://example.com/999"
+    assert fake_xposure.called_with == "1945945"
+    assert fake_xposure.called_with_area_code == "50C"
+
+
+def test_check_matricula_in_xposure_not_found_is_not_duplicado() -> None:
+    fake_xposure = FakeXposureClientDirect(
+        PropertySearchResult(tax_roll="123456", exists=False, reason="No se encontraron resultados")
+    )
+
+    is_duplicate, comment = check_matricula_in_xposure("001-123456", fake_xposure)
+
+    assert is_duplicate is False
+    assert comment == "No se encontró el inmueble en Xposure para la matrícula 001-123456."
+    assert fake_xposure.called_with == "123456"
+    assert fake_xposure.called_with_area_code == "001"
+
+
+def test_check_matricula_in_xposure_found_without_mls_is_not_duplicado() -> None:
+    fake_xposure = FakeXposureClientDirect(
+        PropertySearchResult(tax_roll="123456", exists=True, reason="No se encontró MLS en la página")
+    )
+
+    is_duplicate, _ = check_matricula_in_xposure("001-123456", fake_xposure)
+
+    assert is_duplicate is False
+
+
+def test_check_matricula_in_xposure_without_office_code() -> None:
+    fake_xposure = FakeXposureClientDirect(PropertySearchResult(tax_roll="1945945", exists=False))
+
+    check_matricula_in_xposure("1945945", fake_xposure)
+
+    assert fake_xposure.called_with == "1945945"
+    assert fake_xposure.called_with_area_code is None
 
 
 def test_process_deal_event_found_marks_duplicado() -> None:

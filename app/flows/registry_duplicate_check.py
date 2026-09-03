@@ -20,6 +20,31 @@ logger = logging.getLogger(__name__)
 MATRICULA_PATTERN = re.compile(r"^\d{2,3}[A-Za-z]?-\d{4,10}$|^\d{4,10}$")
 
 
+def check_matricula_in_xposure(matricula: str, xposure_client: XposureClient) -> tuple[bool, str]:
+    """Consulta una matrícula ya validada (formato correcto) en Xposure.
+
+    Retorna `(is_duplicate, comment)` — `is_duplicate` solo es `True` si
+    el inmueble existe Y tiene un MLS asociado (existir sin MLS no cuenta,
+    ver `test_process_deal_event_found_without_mls_does_not_pin`).
+    Compartido entre `process_deal_event` (matrícula ya guardada en el deal)
+    y el chequeo en vivo del wizard del formulario
+    (`app/flows/registry_live_check.py`, matrícula recién tecleada por el
+    cliente).
+    """
+    if "-" in matricula:
+        area_code, _, tax_roll = matricula.partition("-")
+        result = xposure_client.search_property(tax_roll, tax_roll_area_code=area_code)
+    else:
+        result = xposure_client.search_property(matricula)
+
+    is_duplicate = result.exists and bool(result.mls)
+    if is_duplicate:
+        comment = f"Inmueble encontrado en Xposure. MLS: {result.mls}. Ver: {result.url}"
+    else:
+        comment = f"No se encontró el inmueble en Xposure para la matrícula {matricula}."
+    return is_duplicate, comment
+
+
 def process_deal_event(
     deal_id: str,
     crm_client: CrmClient,
@@ -52,21 +77,8 @@ def process_deal_event(
     logger.info("Deal %s matrícula: %s", deal_id, matricula)
 
     xposure_client = get_xposure_client()
-    if "-" in matricula:
-        area_code, _, tax_roll = matricula.partition("-")
-        resultado = xposure_client.search_property(tax_roll, tax_roll_area_code=area_code)
-    else:
-        resultado = xposure_client.search_property(matricula)
-    logger.info(
-        "Consulta Xposure para deal %s: exists=%s mls=%s url=%s",
-        deal_id, resultado.exists, resultado.mls, resultado.url,
-    )
-
-    es_duplicado = resultado.exists and bool(resultado.mls)
-    if es_duplicado:
-        comentario = f"Inmueble encontrado en Xposure. MLS: {resultado.mls}. Ver: {resultado.url}"
-    else:
-        comentario = f"No se encontró el inmueble en Xposure para la matrícula {matricula}."
+    es_duplicado, comentario = check_matricula_in_xposure(matricula, xposure_client)
+    logger.info("Consulta Xposure para deal %s: duplicado=%s", deal_id, es_duplicado)
 
     comment_id = crm_client.add_comment(deal_id, comentario)
     if es_duplicado and comment_id is not None:

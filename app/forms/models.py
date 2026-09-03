@@ -81,6 +81,18 @@ def _clean_and_check_id_number(value: str, *, field_label: str) -> str:
     return cleaned
 
 
+def validate_registration_number(value: str) -> str:
+    """Compartido entre `BrokerageAuthorizationPayload` y `VerifyRegistrationNumberPayload`
+    (chequeo en vivo del wizard, ver app/forms/router.py) — mismo formato en los dos casos."""
+    blank_checked = blank_to_none(value)
+    if blank_checked is None:
+        raise ValueError("Matrícula inmobiliaria inválida.")
+    cleaned = clean_uppercase_alnum(blank_checked)
+    if not _REGISTRATION_NUMBER_RE.match(cleaned):
+        raise ValueError("Matrícula inmobiliaria inválida.")
+    return cleaned
+
+
 def _clean_optional_amount(
     value: object, *, field_label: str, minimum: int, maximum: int | None = None
 ) -> int | None:
@@ -168,13 +180,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     @field_validator("registration_number", mode="before")
     @classmethod
     def _validate_registration_number(cls, value: str) -> str:
-        blank_checked = blank_to_none(value)
-        if blank_checked is None:
-            raise ValueError("Matrícula inmobiliaria inválida.")
-        cleaned = clean_uppercase_alnum(blank_checked)
-        if not _REGISTRATION_NUMBER_RE.match(cleaned):
-            raise ValueError("Matrícula inmobiliaria inválida.")
-        return cleaned
+        return validate_registration_number(value)
 
     @field_validator("sale_price", mode="before")
     @classmethod
@@ -199,3 +205,16 @@ class BrokerageAuthorizationPayload(BaseModel):
 
 class CleanSignaturePhotoPayload(BaseModel):
     image_png: str = Field(max_length=_MAX_IMAGE_DATA_URL_LENGTH)
+
+
+class VerifyRegistrationNumberPayload(BaseModel):
+    """Body del chequeo en vivo de matrícula (paso de excepción del wizard, ver app/forms/router.py)."""
+
+    registration_number: str
+    deal_id: str | None = None
+    token: str | None = None
+
+    @field_validator("registration_number", mode="before")
+    @classmethod
+    def _validate_registration_number(cls, value: str) -> str:
+        return validate_registration_number(value)
