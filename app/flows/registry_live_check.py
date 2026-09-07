@@ -31,7 +31,7 @@ def check_registration_number_live(
     aunque el deal todavía no tuviera la matrícula guardada.
     """
     xposure_client = get_xposure_client()
-    is_duplicate, comment = check_matricula_in_xposure(registration_number, xposure_client)
+    is_duplicate, comment, url = check_matricula_in_xposure(registration_number, xposure_client)
 
     if crm_client is not None and deal_id is not None:
         comment_id = crm_client.add_comment(deal_id, comment)
@@ -40,9 +40,10 @@ def check_registration_number_live(
         crm_client.set_duplicado_status(deal_id, is_duplicate)
 
     message = (
-        "Este inmueble ya está publicado en el MLS, así que no podemos continuar con la "
-        "Autorización de Corretaje para este registro."
+        "Este inmueble ya está publicado en Xposure MLS (la plataforma donde las inmobiliarias "
+        "comparten su inventario), así que no podemos continuar con la Autorización de "
+        "Corretaje para este registro."
         if is_duplicate
         else ""
     )
-    return {"duplicate": is_duplicate, "message": message}
+    return {"duplicate": is_duplicate, "message": message, "url": url}

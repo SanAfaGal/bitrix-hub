@@ -24,6 +24,7 @@ def test_check_registration_number_live_found_blocks_without_crm() -> None:
 
     assert result["duplicate"] is True
     assert result["message"] != ""
+    assert result["url"] == "https://example.com/999"
 
 
 def test_check_registration_number_live_not_found_does_not_block() -> None:
@@ -35,6 +36,7 @@ def test_check_registration_number_live_not_found_does_not_block() -> None:
 
     assert result["duplicate"] is False
     assert result["message"] == ""
+    assert result["url"] is None
 
 
 def test_check_registration_number_live_records_duplicate_on_deal_when_given() -> None:
