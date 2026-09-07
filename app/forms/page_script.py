@@ -66,16 +66,6 @@ import { env, AutoModel, AutoProcessor, RawImage } from 'https://cdn.jsdelivr.ne
     if (el) el.addEventListener('input', function () { transformPreservingCursor(el, onlyLettersUppercase); });
   });
 
-  // Solo dígitos en duración — mismo criterio que los montos, sin el formato
-  // de moneda.
-  function onlyDigits(value) {
-    return value.replace(/[^0-9]/g, '');
-  }
-  ['field-term_months'].forEach(function (id) {
-    var el = document.getElementById(id);
-    if (el) el.addEventListener('input', function () { transformPreservingCursor(el, onlyDigits); });
-  });
-
   // Documento de identidad: letras, números y guion (cédula, cédula de
   // extranjería o pasaporte) — el guion se deja tal cual, sin puntos ni
   // espacios (mismo criterio que app.forms.cleaning.clean_id_number).

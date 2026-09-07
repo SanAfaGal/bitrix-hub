@@ -115,13 +115,6 @@ _FIELDS = [
         "Puedes dejarlo en blanco si no conoces el monto exacto.",
         placeholder="Ej: $ 50.000.000", inputmode="numeric",
     ),
-    dict(
-        name="term_months", label="Duración del acuerdo (meses)", kind="text", input_type="text",
-        required=False, section="financial",
-        hint="Plazo en meses durante el cual Alberto Álvarez administrará el inmueble. "
-        "Puedes dejarlo en blanco si aún no lo has definido.",
-        placeholder="Ej: 12", inputmode="numeric",
-    ),
 ]
 
 # Ubicación: se pide en el paso de cobertura del wizard (antes del formulario
@@ -222,11 +215,6 @@ __FIELDS_HTML__
           </div>
         </div>
         <div class="submit-warning">
-          <svg class="submit-warning__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
           <span>Este enlace es de un solo uso: revisa bien tu información antes de enviar.</span>
         </div>
         <button type="submit" class="btn btn--primary" id="submit-button">Enviar autorización</button>

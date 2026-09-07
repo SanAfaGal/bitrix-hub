@@ -137,7 +137,8 @@ class BrokerageAuthorizationPayload(BaseModel):
     mortgage_loan: YesNo
     leasing: YesNo
     outstanding_debt: int = 0
-    term_months: int = 3
+    # Ya no se le pide al cliente en el formulario — queda fijo en 6 meses.
+    term_months: int = 6
     signer_id_number: str
     signature_png: str = Field(max_length=_MAX_IMAGE_DATA_URL_LENGTH)
     deal_id: str | None = None
@@ -193,14 +194,6 @@ class BrokerageAuthorizationPayload(BaseModel):
     @classmethod
     def _validate_outstanding_debt(cls, value: object) -> int:
         return _clean_optional_amount(value, field_label="Saldo actual de la deuda", minimum=0) or 0
-
-    @field_validator("term_months", mode="before")
-    @classmethod
-    def _validate_term_months(cls, value: object) -> int:
-        # Tope en 99 (no 120): el blanco "(__)" de la plantilla solo tiene
-        # espacio físico para 2 dígitos (ver app/forms/filler.py). Default 3
-        # meses si el cliente lo deja en blanco (provisional).
-        return _clean_optional_amount(value, field_label="Duración del acuerdo", minimum=1, maximum=99) or 3
 
 
 class CleanSignaturePhotoPayload(BaseModel):

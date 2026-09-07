@@ -145,7 +145,6 @@ def _valid_form_payload() -> dict:
         "sale_price": "500000000",
         "mortgage_loan": "no",
         "leasing": "no",
-        "term_months": "6",
         "signer_id_number": "1234567890",
         "signature_png": _signature_data_url(),
     }
@@ -359,9 +358,7 @@ def test_post_form_rejects_missing_required_field(field):
     assert response.status_code == 422
 
 
-@pytest.mark.parametrize(
-    "field,bad_value", [("sale_price", -5), ("outstanding_debt", -1), ("term_months", 0), ("term_months", 200)]
-)
+@pytest.mark.parametrize("field,bad_value", [("sale_price", -5), ("outstanding_debt", -1)])
 def test_post_form_rejects_out_of_range_amount_sent_as_raw_json_number(field, bad_value):
     payload = _valid_form_payload()
     payload[field] = bad_value
@@ -450,7 +447,6 @@ def test_post_form_accepts_blank_optional_fields():
     payload = _valid_form_payload()
     payload["sale_price"] = ""
     payload["outstanding_debt"] = ""
-    payload["term_months"] = ""
 
     response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
 
