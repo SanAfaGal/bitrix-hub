@@ -72,9 +72,8 @@ def _row_key(chat: dict[str, Any]) -> str | None:
 
 
 def _channel_badge(channel: str) -> str:
-    if channel == "email":
-        return '<span class="prospect-badge prospect-badge--channel">Correo</span>'
-    return ""
+    label = "Correo" if channel == "email" else "WhatsApp"
+    return f'<span class="prospect-badge prospect-badge--channel prospect-badge--channel-{channel}">{label}</span>'
 
 
 def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str:
@@ -98,11 +97,11 @@ def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str
             f'<div class="prospect-row__body">'
             f'<div class="prospect-row__top">'
             f"{name_html}"
-            f'{_channel_badge(chat.get("channel", "whatsapp"))}'
             f'<span class="prospect-row__time">{escape(_format_relative(chat.get("last_created_at")))}</span>'
             f"</div>"
             f'<div class="prospect-row__bottom">'
             f'<span class="prospect-row__preview">{escape(preview)}</span>'
+            f'{_channel_badge(chat.get("channel", "whatsapp"))}'
             f"{_deal_badge(chat.get('deal_id'))}"
             f"</div>"
             f'<span class="prospect-row__phone">{escape(phone)}</span>'
@@ -172,6 +171,7 @@ def _thread_pane(
           <h1 class="prospect-header__name">{header_name}</h1>
           <span class="prospect-header__phone">{header_phone}</span>
         </div>
+        {_channel_badge(channel)}
         {_deal_badge(deal_id)}
         {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
       </div>
