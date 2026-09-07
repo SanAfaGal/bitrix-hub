@@ -75,6 +75,15 @@ def test_sends_audio_and_ask_acceptance_when_person_accepts_the_explanation() ->
     assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"]]
     assert store.get_explanation_sent("573001112233@c.us") is True
 
+    # Este turno se resuelve sin pasar por el LLM, así que hay que registrar
+    # el mensaje de la persona y lo que le mandamos a mano — si no, la
+    # conversación tiene un hueco acá y el LLM "olvida" que esto pasó en
+    # cualquier turno futuro (bug real, visto en producción).
+    history = store.get_full_history("573001112233@c.us")
+    assert [h["role"] for h in history] == ["user", "assistant", "assistant"]
+    assert history[0]["content"] == "si"
+    assert history[-1]["content"] == templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"]
+
 
 def test_marks_declined_and_acks_when_person_declines_the_explanation() -> None:
     waha = FakeWahaClient()
@@ -87,6 +96,7 @@ def test_marks_declined_and_acks_when_person_declines_the_explanation() -> None:
     assert waha.voice_calls == []
     assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_explanation_declined_ack"]]
     assert store.get_explanation_sent("573001112233@c.us") is False
+    assert [h["role"] for h in store.get_full_history("573001112233@c.us")] == ["user", "assistant"]
 
 
 def test_does_not_handle_ambiguous_reply_to_explanation_offer() -> None:
@@ -205,6 +215,9 @@ def test_sends_authorization_link_when_person_confirms() -> None:
 
     assert handled is True
     assert crm.authorization_status_updates == [("6000", "pendiente_firma")]
+    history = store.get_full_history("573001112233@c.us")
+    assert [h["role"] for h in history] == ["user", "assistant"]
+    assert history[0]["content"] == "si"
 
 
 def test_does_not_handle_when_explanation_not_sent_yet() -> None:

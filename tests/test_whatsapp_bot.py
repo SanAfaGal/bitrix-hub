@@ -827,7 +827,15 @@ def test_affirmation_re_matches_natural_acceptance_phrases(text: str) -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["no sé", "usted es un tonto", "que quieres saber", "a ver", "no", "tal vez"],
+    [
+        "no sé", "usted es un tonto", "que quieres saber", "a ver", "no", "tal vez",
+        # Pedidos como "explícame" caen al LLM a propósito, no a este regex —
+        # el LLM ya recibe instrucciones explícitas de marcar
+        # "explanation_requested": true ante cualquier forma de pedir la
+        # explicación (ver _OUTPUT_FORMAT_INSTRUCTIONS), sin necesidad de
+        # mantener una lista de frases hardcodeadas acá.
+        "explícame", "cuéntame",
+    ],
 )
 def test_affirmation_re_does_not_match_ambiguous_or_negative_replies(text: str) -> None:
     from app.flows.whatsapp_bot_llm import AFFIRMATION_RE

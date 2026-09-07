@@ -47,8 +47,13 @@ def maybe_send_explanation(chat_id: str, session: str, waha_client: WahaClient, 
     if store.get_explanation_offered(chat_id):
         return False
 
-    waha_client.send_text(chat_id, templates_store.get_template("whatsapp_process_explanation"), session=session)
-    waha_client.send_text(chat_id, templates_store.get_template("whatsapp_offer_explanation"), session=session)
+    process_text = templates_store.get_template("whatsapp_process_explanation")
+    waha_client.send_text(chat_id, process_text, session=session)
+    store.add_turn(chat_id, "assistant", process_text)
+
+    offer_text = templates_store.get_template("whatsapp_offer_explanation")
+    waha_client.send_text(chat_id, offer_text, session=session)
+    store.add_turn(chat_id, "assistant", offer_text)
 
     store.set_explanation_offered(chat_id)
     return True
@@ -74,17 +79,30 @@ def maybe_handle_explanation_response(
     stripped = text.strip()
 
     if _AFFIRMATION_RE.match(stripped):
+        # Este turno se resuelve acá, sin pasar por el LLM (`process()`
+        # retorna antes de su `add_turn` normal) — hay que registrar el
+        # mensaje de la persona y todo lo que le mandamos, si no el
+        # historial que ve el LLM en turnos futuros queda con un hueco justo
+        # acá y la conversación deja de tener sentido para él.
+        store.add_turn(chat_id, "user", text)
+
         audio_base64 = process_explanation_voice_base64()
         if audio_base64 is not None:
             waha_client.send_voice(chat_id, audio_base64, session=session)
-        waha_client.send_text(chat_id, templates_store.get_template("whatsapp_ask_acceptance"), session=session)
+            store.add_turn(chat_id, "assistant", "[Nota de voz enviada: explicación del proceso de consignación]")
+
+        ask_text = templates_store.get_template("whatsapp_ask_acceptance")
+        waha_client.send_text(chat_id, ask_text, session=session)
+        store.add_turn(chat_id, "assistant", ask_text)
+
         store.set_explanation_sent(chat_id)
         return True
 
     if _NEGATION_RE.match(stripped):
-        waha_client.send_text(
-            chat_id, templates_store.get_template("whatsapp_explanation_declined_ack"), session=session
-        )
+        store.add_turn(chat_id, "user", text)
+        declined_text = templates_store.get_template("whatsapp_explanation_declined_ack")
+        waha_client.send_text(chat_id, declined_text, session=session)
+        store.add_turn(chat_id, "assistant", declined_text)
         return True
 
     return False
@@ -106,10 +124,18 @@ def maybe_handle_delayed_explanation_request(
     if not store.get_explanation_offered(chat_id) or store.get_explanation_sent(chat_id):
         return False
 
+    # El mensaje de la persona que pidió esto ya se registró en `process()`
+    # (este helper se llama después del turno normal del LLM) — acá solo
+    # falta registrar lo que el bot manda de más.
     audio_base64 = process_explanation_voice_base64()
     if audio_base64 is not None:
         waha_client.send_voice(chat_id, audio_base64, session=session)
-    waha_client.send_text(chat_id, templates_store.get_template("whatsapp_ask_acceptance"), session=session)
+        store.add_turn(chat_id, "assistant", "[Nota de voz enviada: explicación del proceso de consignación]")
+
+    ask_text = templates_store.get_template("whatsapp_ask_acceptance")
+    waha_client.send_text(chat_id, ask_text, session=session)
+    store.add_turn(chat_id, "assistant", ask_text)
+
     store.set_explanation_sent(chat_id)
     return True
 
@@ -155,9 +181,17 @@ def maybe_handle_acceptance(
     if not _AFFIRMATION_RE.match(text.strip()):
         return False
 
+    # Igual que en `maybe_handle_explanation_response`: este turno se
+    # resuelve acá sin pasar por el LLM, así que hay que registrar el
+    # mensaje de la persona a mano.
+    store.add_turn(chat_id, "user", text)
+
     result = process_welcome_and_authorization(
         deal_id, crm_client, waha_client, public_base_url, link_secret, session=session
     )
     if result.get("ok"):
         store.set_authorization_link_sent(chat_id)
+        store.add_turn(
+            chat_id, "assistant", "[Se envió el enlace de la Autorización de Corretaje para completar y firmar]"
+        )
     return bool(result.get("ok"))

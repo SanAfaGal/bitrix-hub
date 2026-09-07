@@ -84,6 +84,19 @@ def maybe_send_first_contact_welcome(
         logger.error("No se pudo enviar la bienvenida de primer contacto a %s", chat_id)
 
     if sent and name:
+        # Bitrix ya conocía este teléfono (por eso `name` no es None) — se
+        # guarda la identidad y se resuelve el deal ACÁ MISMO, en vez de
+        # esperar a que el LLM la vuelva a confirmar en un turno futuro.
+        # Sin esto, un cliente que ya tenía contacto/deal en Bitrix quedaba
+        # igual atrapado en el flujo de "¿cuál es tu nombre y teléfono?" —
+        # el bot literalmente acababa de saludarlo por su nombre y volvía a
+        # pedírselo dos turnos después (visto en producción).
+        if phone:
+            store.set_confirmed_identity(chat_id, name, phone)
+            from app.flows.whatsapp_bot import _create_deal_from_confirmed_identity  # noqa: PLC0415
+
+            _create_deal_from_confirmed_identity(chat_id, crm_client, store)
+
         offer_text = templates_store.get_template("whatsapp_offer_explanation")
         offer_sent = waha_client.send_text(chat_id, offer_text, session=session)
         if offer_sent:

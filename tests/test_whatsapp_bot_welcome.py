@@ -56,6 +56,14 @@ def test_sends_known_welcome_with_name_then_offers_explanation_when_bitrix_has_c
     assert waha.voice_calls == []  # el audio ya no se manda sin que la persona confirme
     assert store.get_explanation_offered("573001112233@c.us") is True
 
+    # Bitrix ya conocía este teléfono (por eso saludó con el nombre) — la
+    # identidad y el deal quedan resueltos en este mismo paso, sin esperar a
+    # que el LLM se lo vuelva a preguntar en un turno futuro (bug visto en
+    # producción: el bot saludaba por nombre y dos turnos después volvía a
+    # pedir nombre/teléfono, porque acá nunca se guardaban).
+    assert store.get_confirmed_identity("573001112233@c.us") == ("Juan Pérez", "573001112233")
+    assert store.get_deal_id("573001112233@c.us") is not None
+
 
 def test_does_not_offer_explanation_for_unknown_client() -> None:
     waha = FakeWahaClient()
