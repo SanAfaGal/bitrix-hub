@@ -79,6 +79,16 @@ _FIELDS = [
         section="property",
         hint="Categoría del inmueble que se va a autorizar.",
     ),
+    # Solo lectura y sin `name`: no vuelve a viajar en el submit (ya viaja el
+    # campo real "location", ver _LOCATION_FIELD más abajo) — es nada más
+    # para que el cliente vea confirmado acá lo que ya escribió en el wizard,
+    # en vez de que el dato "desaparezca" al ocultarse el paso de ubicación.
+    dict(
+        name="location_display", label="Ubicación", kind="text", input_type="text", required=False,
+        section="property", readonly=True, no_submit=True,
+        hint="Sector, ciudad y departamento donde está ubicado el inmueble.",
+        confirm_text="Tenemos cobertura en esta zona.",
+    ),
     dict(
         name="address", label="Dirección del inmueble", kind="text", input_type="text", required=True,
         section="property",
@@ -90,6 +100,7 @@ _FIELDS = [
         required=True, section="property",
         hint="Número de identificación del inmueble en el registro de instrumentos públicos.",
         placeholder="Ej: 050-123456",
+        confirm_text="Este inmueble no está publicado en Xposure MLS, puedes continuar.",
     ),
     dict(
         name="sale_price", label="Precio de venta (COP)", kind="text", input_type="text", required=False,
@@ -303,16 +314,25 @@ def _render_text_input(field: dict) -> str:
     placeholder = field.get("placeholder")
     suggest = field.get("suggest")
     input_html = (
-        '<input class="field__input" id="field-{name}" type="{input_type}" '
-        'name="{name}"{placeholder}{inputmode}{autocomplete}{required}{form}>'.format(
+        '<input class="field__input{correctable_class}" id="field-{name}" type="{input_type}" '
+        '{name_attr}{placeholder}{inputmode}{autocomplete}{required}{readonly}{form}>'.format(
+            # Dueño del espacio del lápiz superpuesto (ver el `.field__input-wrap`
+            # que arma _render_field para los campos con `confirm_text`).
+            correctable_class=" field__input--correctable" if field.get("confirm_text") else "",
             name=field["name"],
             input_type=field["input_type"],
+            # Sin `name` el input no viaja en el submit — lo usa el campo
+            # "location_display": es solo una copia de lectura de "location"
+            # (el real, que sí viaja) para que el cliente vea confirmado en el
+            # formulario final lo que ya escribió en el wizard.
+            name_attr="" if field.get("no_submit") else f'name="{field["name"]}" ',
             placeholder=f' placeholder="{escape(placeholder)}"' if placeholder else "",
             inputmode=f' inputmode="{field["inputmode"]}"' if field.get("inputmode") else "",
             # Sin esto el navegador compite con nuestro propio desplegable de
             # sugerencias (ver el bloque `suggest` debajo) con el suyo propio.
             autocomplete=' autocomplete="off"' if suggest else "",
             required=" required" if field["required"] else "",
+            readonly=" readonly" if field.get("readonly") else "",
             # `form`: asocia el input a un <form> del que no es descendiente en
             # el DOM (atributo HTML5) — lo usa el campo "location", que vive
             # visualmente en el paso de ubicación del wizard pero debe viajar
@@ -348,6 +368,44 @@ def _render_select(field: dict, options: list[tuple[str, str]]) -> str:
     )
 
 
+def _render_correct_button(name: str) -> str:
+    return (
+        f'<button type="button" class="field__correct-btn field__correct-btn--hidden" '
+        f'id="field-{name}-correct" aria-label="Corregir" title="Corregir">\n'
+        f'              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+        f'stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/>'
+        f'<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>\n'
+        f"            </button>"
+    )
+
+
+def _make_field_correctable(field: dict, body: str) -> tuple[str, str]:
+    """Envuelve el input con el lápiz "Corregir" y arma su ✓ de confirmación.
+
+    Para campos que el wizard ya validó en vivo antes de llegar al
+    formulario final (ubicación con cobertura, matrícula no duplicada en
+    Xposure) — ambos arrancan ocultos, `page_wizard_script.py` los muestra
+    al pasar ese paso (ver `confirmField()`/`bhRestoreWizard` ahí, para
+    reload). El lápiz va superpuesto dentro del propio campo (mismo patrón
+    `.field__input-wrap` que el desplegable de ubicación), no como texto
+    aparte, para que se lea como "este campo es editable ahí".
+    Devuelve `(body, confirm_html)` — ambos van en distinta posición dentro
+    de `_render_field`.
+    """
+    name = field["name"]
+    body = (
+        f'          <div class="field__input-wrap">\n'
+        f"{body}\n"
+        f"            {_render_correct_button(name)}\n"
+        f"          </div>"
+    )
+    confirm_html = (
+        f'\n          <span class="field__confirm field__confirm--hidden" '
+        f'id="field-{name}-confirm">✓ {escape(field["confirm_text"])}</span>'
+    )
+    return body, confirm_html
+
+
 def _render_field(field: dict) -> str:
     if field["kind"] == "select":
         body = _render_select(field, [(name, name) for name in PROPERTY_TYPES])
@@ -357,13 +415,17 @@ def _render_field(field: dict) -> str:
         body = _render_text_input(field)
     required_mark = ' <span class="field__required">*</span>' if field["required"] else ""
     wrapper_class = "field field--hidden" if field.get("hidden") else "field"
+    confirm_html = ""
+    if field.get("confirm_text"):
+        body, confirm_html = _make_field_correctable(field, body)
     return (
         f'        <div class="{wrapper_class}" id="field-wrap-{field["name"]}">\n'
         f'          <label class="field__label" for="field-{field["name"]}">'
         f"{escape(field['label'])}{required_mark}</label>\n"
         f'          <span class="field__hint">{escape(field["hint"])}</span>\n'
         f"{body}\n"
-        f'          <span class="field__error" id="error-{field["name"]}"></span>\n'
+        f'          <span class="field__error" id="error-{field["name"]}"></span>'
+        f"{confirm_html}\n"
         "        </div>"
     )
 

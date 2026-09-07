@@ -1,8 +1,17 @@
-"""CSS del formulario de Autorización de Corretaje — separado de page.py por tamaño."""
+"""CSS del formulario de Autorización de Corretaje — separado de page.py por tamaño.
+
+`FORM_STYLE` se arma concatenando este CSS base (tokens, layout, tarjetas,
+botones) con los fragmentos de `page_styles_fields.py` (secciones/campos) y
+`page_styles_signature.py` (recuadro de firma) — mismo patrón que
+`page_script.py` con los fragmentos de JS: un único `<style>` en el HTML
+final, la separación es solo de archivos fuente por el límite de 500 líneas.
+"""
 from __future__ import annotations
 
-FORM_STYLE = """<style>
-  :root {
+from app.forms.page_styles_fields import FIELD_STYLE
+from app.forms.page_styles_signature import SIGNATURE_STYLE
+
+_CORE_STYLE = """  :root {
     color-scheme: light;
 
     --color-navy: #044c7c;
@@ -186,279 +195,9 @@ FORM_STYLE = """<style>
 
   form { display: flex; flex-direction: column; gap: var(--space-4); }
 
-  .form-section__title {
-    display: inline-flex;
-    align-self: flex-start;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--color-on-accent);
-    background: var(--color-teal);
-    border-radius: var(--radius-pill);
-    padding: 7px 16px;
-    margin-top: var(--space-5);
-    box-shadow: 0 6px 14px rgba(4, 76, 124, 0.28);
-  }
-  .form-section__title:first-of-type {
-    margin-top: 0;
-  }
-  .form-section__title-icon {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-  }
+"""
 
-  .field { display: flex; flex-direction: column; gap: var(--space-1); }
-  .field--hidden { display: none; }
-  .field__label {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--color-navy);
-  }
-  .field__required {
-    color: var(--color-error);
-  }
-  .field__hint {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-muted);
-    margin-top: -2px;
-  }
-
-  .submit-warning {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    background: var(--color-warning-bg);
-    border: 1.5px solid var(--color-warning-border);
-    border-radius: var(--radius-md);
-    padding: var(--space-3) var(--space-4);
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--color-warning);
-  }
-  .submit-warning__icon {
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
-  }
-
-  .field__input {
-    font-family: var(--font-family);
-    font-size: 16px;
-    font-weight: 500;
-    padding: 10px 12px;
-    border: 1.5px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-card);
-    color: var(--color-navy);
-    width: 100%;
-    transition: border-color 0.15s var(--ease-standard);
-  }
-  .field__input:focus {
-    outline: none;
-    border-color: var(--color-teal);
-  }
-  .field__input--invalid {
-    border-color: var(--color-error);
-  }
-  .field__error {
-    display: none;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-error);
-  }
-  .field__error--visible {
-    display: block;
-  }
-
-  /* Desplegable de sugerencias de ubicación — propio en vez de <datalist>
-     nativo, para poder fijar la tipografía de marca y limitar cuántas filas
-     se ven sin scroll (máx. 5, altura fija por fila). */
-  .field__input-wrap { position: relative; }
-  .location-suggest {
-    position: absolute;
-    top: calc(100% + var(--space-1));
-    left: 0;
-    right: 0;
-    z-index: 10;
-    margin: 0;
-    padding: var(--space-1) 0;
-    list-style: none;
-    background: var(--color-card);
-    border: 1.5px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-card);
-    max-height: calc(5 * 38px);
-    overflow-y: auto;
-  }
-  .location-suggest[hidden] { display: none; }
-  .location-suggest__item {
-    font-family: var(--font-family);
-    font-size: 15px;
-    font-weight: 500;
-    padding: 9px 12px;
-    color: var(--color-navy);
-    cursor: pointer;
-  }
-  .location-suggest__item:hover,
-  .location-suggest__item--active {
-    background: var(--color-info-bg);
-  }
-
-  .field-group {
-    background: var(--color-bg);
-    border-radius: var(--radius-md);
-    padding: var(--space-4);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-  .field-group__legend {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--color-label);
-  }
-
-  .signature-group__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-  }
-  .signature-tabs {
-    display: flex;
-    gap: 2px;
-    background: var(--color-card);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-pill);
-    padding: 2px;
-  }
-  .signature-tab {
-    font-family: var(--font-family);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border: none;
-    border-radius: var(--radius-pill);
-    background: none;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: background-color 0.15s var(--ease-standard), color 0.15s var(--ease-standard);
-  }
-  .signature-tab--active { background: var(--color-teal); color: var(--color-on-accent); }
-
-  .signature-canvas-wrap { position: relative; }
-  .signature-box {
-    border: 1.5px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-card);
-    touch-action: none;
-    width: 100%;
-    height: 160px;
-    display: block;
-    transition: border-color 0.15s var(--ease-standard), background-color 0.15s var(--ease-standard);
-  }
-  .signature-box--ready { border-color: var(--color-teal); background: var(--color-info-bg); }
-  .signature-placeholder {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 0 var(--space-5);
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--color-text-muted);
-    pointer-events: none;
-  }
-  .signature-placeholder--hidden { display: none; }
-  .signature-file-input { display: none; }
-
-  /* Barra flotante en la esquina del recuadro de firma — así Deshacer/Borrar
-     quedan junto al trazo que afectan, en vez de perdidos como texto plano
-     debajo del canvas donde no queda claro a qué aplican. */
-  .signature-toolbar {
-    position: absolute;
-    top: var(--space-2);
-    right: var(--space-2);
-    z-index: 2;
-    display: flex;
-    gap: var(--space-1);
-  }
-  .signature-icon-btn {
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border-radius: 50%;
-    border: 1.5px solid var(--color-border);
-    background: rgba(255, 255, 255, 0.92);
-    color: var(--color-teal);
-    cursor: pointer;
-    transition: background-color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard),
-      opacity 0.15s var(--ease-standard);
-  }
-  .signature-icon-btn svg { width: 15px; height: 15px; }
-  .signature-icon-btn:hover:not(:disabled) { background: var(--color-info-bg); border-color: var(--color-teal); }
-  .signature-icon-btn:disabled { opacity: 0.4; cursor: default; }
-
-  .signature-processing-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 3;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    text-align: center;
-    padding: 0 var(--space-5);
-    border-radius: var(--radius-md);
-    background: rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(1px);
-  }
-  .signature-processing-overlay--hidden { display: none; }
-  .signature-processing-overlay__text {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-teal);
-  }
-  .signature-box--processing { pointer-events: none; }
-  .signature-tab:disabled { opacity: 0.5; cursor: default; }
-
-  .signature-actions {
-    display: flex;
-    justify-content: center;
-    margin-top: var(--space-2);
-  }
-  .signature-status-text {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-muted);
-    transition: color 0.15s var(--ease-standard);
-  }
-  .signature-status-text--ready { color: var(--color-teal); font-weight: 700; }
-  .signature-status-text--error { color: var(--color-error); font-weight: 700; }
-  .signature-note {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--color-text-faint);
-    margin: var(--space-2) 0 0;
-  }
-
-  .btn {
+_BUTTON_STYLE = """  .btn {
     font-family: var(--font-family);
     font-size: 14px;
     font-weight: 600;
@@ -528,4 +267,6 @@ FORM_STYLE = """<style>
   @keyframes spin {
     to { transform: rotate(360deg); }
   }
-</style>"""
+"""
+
+FORM_STYLE = "<style>\n" + _CORE_STYLE + FIELD_STYLE + SIGNATURE_STYLE + _BUTTON_STYLE + "</style>"
