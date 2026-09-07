@@ -164,10 +164,11 @@ def post_clean_signature_photo(
 def post_verify_registration_number(
     payload: VerifyRegistrationNumberPayload, _: None = Depends(_limit_verify_matricula)
 ) -> dict[str, Any]:
-    """Paso de excepción del wizard (ver app/forms/coverage.py): si la ubicación no tiene
-    cobertura, el cliente teclea la matrícula/ID y esto la consulta en Xposure en vivo, antes
-    de mostrarle el resto del formulario. Si hay `deal_id`, deja constancia en Bitrix
-    (`check_registration_number_live`) aunque el cliente quede bloqueado acá."""
+    """Paso del wizard después de la ubicación: el cliente teclea la matrícula/ID y esto la
+    consulta en Xposure en vivo, antes de mostrarle el resto del formulario. Independiente de
+    la cobertura por zona (app/forms/coverage.py, sin usar en este flujo). Si hay `deal_id`,
+    deja constancia en Bitrix (`check_registration_number_live`) aunque el cliente quede
+    bloqueado acá."""
     crm_client = None
     if payload.deal_id:
         if not _is_valid_link(payload.deal_id, payload.token):

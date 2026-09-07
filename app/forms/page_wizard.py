@@ -3,18 +3,17 @@
 Separado de `page.py` por tamaño (límite de 500 líneas del repo). Tres pasos
 antes de mostrar "Completa la información":
 
-1. Autorización (sí/no) — el texto de corretaje + tratamiento de datos
-   personales (Ley 1581 de 2012) va en un textarea de solo lectura con
-   scroll, más un checkbox de "he leído y autorizo" — texto genérico
-   pendiente de revisión por el equipo legal, no hay política/PDF real
-   todavía para linkear. Si dice que no, el wizard se detiene ahí.
-2. Ubicación del inmueble — hoy la cobertura siempre "pasa"
-   (`app/forms/coverage.py`, WIP), así que en la práctica este paso lleva
-   directo al formulario completo.
-3. Matrícula/ID (solo si el paso 2 no tuviera cobertura): consulta Xposure en
-   vivo (`/formularios/autorizacion-de-corretaje/verify-matricula`) — si
-   el inmueble ya está publicado, el wizard se detiene con un mensaje de
-   bloqueo en vez de mostrar el resto del formulario.
+1. Autorización (sí/no) — enlace a la Ley 1581 de 2012 en el portal oficial
+   de Función Pública, más un checkbox de "he leído y autorizo". Si dice que
+   no, el wizard se detiene ahí.
+2. Ubicación del inmueble — solo se pide el dato; la cobertura por zona
+   (`app/forms/coverage.py`) es un chequeo aparte, todavía WIP y sin usar en
+   este flujo.
+3. Matrícula/ID — siempre, después de la ubicación (es una validación
+   distinta: si el inmueble ya está publicado, no si hay cobertura de zona).
+   Consulta Xposure en vivo (`/formularios/autorizacion-de-corretaje/verify-matricula`)
+   — si ya está publicado, el wizard se detiene con un mensaje de bloqueo en
+   vez de mostrar el resto del formulario.
 
 Cada paso es una `<div class="card">` que `page_wizard_script.py` muestra u
 oculta con la clase `card--hidden` (mismo patrón que `success-view--hidden`
@@ -27,19 +26,17 @@ _WIZARD_HTML = """<div class="card" id="wizard-step-authorization">
         <h2 class="card__title">Antes de empezar</h2>
         <p class="card__subtitle">Confírmanos esto para continuar.</p>
       </div>
-      <textarea class="wizard-law-textarea" id="wizard-law-textarea" readonly>LEY 1581 DE 2012 — Régimen General de Protección de Datos Personales (resumen)
-
-Objeto: regular el derecho fundamental de hábeas data, es decir, el derecho que tiene toda persona a conocer, actualizar y rectificar la información que se haya recolectado sobre ella en bases de datos.
-
-Principios (Artículo 4): legalidad, finalidad, libertad, veracidad o calidad, transparencia, acceso y circulación restringida, seguridad y confidencialidad en el tratamiento de los datos personales.
-
-Derechos del titular de los datos (Artículo 8):
-— Conocer, actualizar y rectificar sus datos personales.
-— Solicitar prueba de la autorización otorgada.
-— Ser informado sobre el uso que se le ha dado a sus datos.
-— Presentar quejas ante la Superintendencia de Industria y Comercio por infracciones a esta ley.
-— Revocar la autorización y/o solicitar la supresión del dato, cuando no se respeten los principios, derechos y garantías constitucionales y legales.
-— Acceder en forma gratuita a sus datos personales que hayan sido objeto de tratamiento.</textarea>
+      <a class="wizard-law-link" href="https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=49981"
+         target="_blank" rel="noopener noreferrer">
+        Leer la Ley 1581 de 2012 en el portal oficial de Función Pública
+        <svg class="wizard-law-link__icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <line x1="10" y1="14" x2="21" y2="3"></line>
+        </svg>
+      </a>
       <label class="wizard-checkbox" for="wizard-data-consent">
         <input type="checkbox" id="wizard-data-consent" required>
         <span class="wizard-checkbox__text">
@@ -65,7 +62,10 @@ Derechos del titular de los datos (Artículo 8):
     <div class="card card--hidden" id="wizard-step-location">
       <div class="card__header">
         <h2 class="card__title">Ubicación del inmueble</h2>
-        <p class="card__subtitle">Antes de tus datos, cuéntanos dónde está.</p>
+        <p class="card__subtitle">
+          Cuéntanos dónde está el inmueble: es necesario validar si tenemos cobertura en esa
+          ubicación.
+        </p>
       </div>
 __LOCATION_FIELD_HTML__
       <div class="wizard-actions">
@@ -76,9 +76,12 @@ __LOCATION_FIELD_HTML__
       <div class="card__header">
         <h2 class="card__title">Matrícula del inmueble</h2>
         <p class="card__subtitle">
-          Todavía no tenemos cobertura confirmada en esa zona: valida el registro del inmueble
-          para poder continuar.
+          Antes de continuar, verificamos que este inmueble no esté ya publicado en Xposure MLS.
         </p>
+        <span class="field__hint field__hint--regular">
+          Xposure MLS es la plataforma donde las inmobiliarias comparten su inventario de
+          propiedades entre sí — así evitamos publicar dos veces el mismo inmueble.
+        </span>
       </div>
       <div class="field" id="field-wrap-wizard-registration-number">
         <label class="field__label" for="wizard-registration-number">
@@ -99,6 +102,8 @@ __LOCATION_FIELD_HTML__
       <span class="success-view__icon success-view__icon--error">⚠</span>
       <h2 class="success-view__title">No podemos continuar</h2>
       <p class="success-view__text" id="wizard-blocked-message"></p>
+      <a class="btn btn--outline wizard-blocked-link wizard-blocked-link--hidden" id="wizard-blocked-link"
+         href="#" target="_blank" rel="noopener noreferrer">Ver el inmueble publicado</a>
     </div>"""
 
 
@@ -109,6 +114,8 @@ WIZARD_STYLE = """<style>
 .card--hidden { display: none; }
 .success-view__icon--error { background: var(--color-error-bg); color: var(--color-error); }
 .success-view__icon--info { background: var(--color-info-bg); color: var(--color-teal); }
+.wizard-blocked-link { display: inline-block; margin-top: var(--space-3); text-decoration: none; }
+.wizard-blocked-link--hidden { display: none; }
 .wizard-checkbox {
   display: flex;
   align-items: flex-start;
@@ -133,21 +140,18 @@ WIZARD_STYLE = """<style>
   outline: 1.5px solid var(--color-error);
   outline-offset: 2px;
 }
-.wizard-law-textarea {
-  width: 100%;
-  height: 140px;
-  resize: none;
-  overflow-y: auto;
-  font-family: var(--font-family);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.5;
-  color: var(--color-text-muted);
-  background: var(--color-bg);
-  border: 1.5px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
+.wizard-law-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-teal);
+  text-decoration: underline;
   margin-bottom: var(--space-3);
+}
+.wizard-law-link__icon {
+  flex-shrink: 0;
 }
 </style>"""
 

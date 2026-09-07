@@ -194,17 +194,16 @@ def test_get_form_requires_data_treatment_consent_checkbox():
 
     assert response.status_code == 200
     assert 'id="wizard-data-consent"' in response.text
-    assert "LEY 1581 DE 2012" in response.text
+    assert "Ley 1581 de 2012" in response.text
 
 
-def test_get_form_shows_law_text_in_scrollable_readonly_textarea():
+def test_get_form_links_to_official_law_text():
     response = client.get("/formularios/autorizacion-de-corretaje")
 
     assert response.status_code == 200
-    assert 'id="wizard-law-textarea" readonly' in response.text
-    assert "LEY 1581 DE 2012" in response.text
-    assert "Superintendencia de Industria y Comercio" in response.text
-    # La pregunta vieja ya no está: el texto de la ley reemplaza la pregunta.
+    assert 'href="https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=49981"' in response.text
+    assert 'target="_blank"' in response.text
+    # La pregunta vieja ya no está: el enlace a la ley reemplaza la pregunta.
     assert "¿Autorizas a Alberto Álvarez a representarte" not in response.text
 
 
@@ -214,16 +213,6 @@ def test_get_form_declined_step_uses_centered_success_view_style():
     assert response.status_code == 200
     assert 'class="card success-view card--hidden" id="wizard-step-declined"' in response.text
     assert "success-view__icon--info" in response.text
-
-
-def test_get_form_law_textarea_has_no_company_mentions():
-    response = client.get("/formularios/autorizacion-de-corretaje")
-
-    start = response.text.index('id="wizard-law-textarea"')
-    end = response.text.index("</textarea>", start)
-    textarea_content = response.text[start:end]
-
-    assert "Alberto Álvarez" not in textarea_content
 
 
 def test_get_form_location_field_lives_only_in_the_wizard_step():
