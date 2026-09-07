@@ -33,8 +33,11 @@ class FakeCrmClient:
         self.property_listing_updates: list[tuple[str, PropertyListing]] = []
         self.contact_by_phone: dict[str, str] = {}
         self.contact_by_username: dict[str, str] = {}
-        self.find_or_create_property_seller_contact_calls: list[tuple[str | None, str | None, str | None]] = []
+        self.find_or_create_property_seller_contact_calls: list[
+            tuple[str | None, str | None, str | None, str | None]
+        ] = []
         self.deal_by_contact: dict[str, str] = {}
+        self.find_or_create_property_seller_deal_calls: list[tuple[str, str | None]] = []
         self._next_contact_id = 5000
         self._next_deal_id = 6000
         self.contact_identity_updates: list[tuple[str, str | None, str | None]] = []
@@ -103,9 +106,13 @@ class FakeCrmClient:
         return self.upload_file_result
 
     def find_or_create_property_seller_contact(
-        self, phone: str | None, username: str | None = None, display_name: str | None = None
+        self,
+        phone: str | None,
+        username: str | None = None,
+        display_name: str | None = None,
+        email: str | None = None,
     ) -> str | None:
-        self.find_or_create_property_seller_contact_calls.append((phone, username, display_name))
+        self.find_or_create_property_seller_contact_calls.append((phone, username, display_name, email))
         if phone and phone in self.contact_by_phone:
             return self.contact_by_phone[phone]
         if username and username in self.contact_by_username:
@@ -129,7 +136,8 @@ class FakeCrmClient:
         if full_name:
             contact["NAME"] = full_name
 
-    def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
+    def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None) -> str | None:
+        self.find_or_create_property_seller_deal_calls.append((contact_id, title))
         if contact_id in self.deal_by_contact:
             return self.deal_by_contact[contact_id]
         deal_id = str(self._next_deal_id)

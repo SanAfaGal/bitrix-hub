@@ -137,6 +137,14 @@ app/
     models.py           # PropertySearchResult, BulkRequest (Pydantic, con description/examples para /docs)
     deps.py              # get_xposure_client() — atrapa errores de login y los traduce a HTTPException(502)
     router.py             # GET /properties/{tax_roll}, POST /properties/bulk (tag "Xposure")
+  graph/
+    client.py         # GraphClient — auth client credentials + list_messages(sender=None, top=25) contra el Inbox de GRAPH_MAILBOX (incluye body en texto plano)
+    settings.py        # GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_MAILBOX
+    lead_email_parser.py # parse_lead_email() — extrae y sanitiza los campos del correo de formulario web
+    models.py, db.py     # ProcessedGraphMessage (SQLAlchemy) — dedup, reusa el pool MySQL de app.message_templates.db
+    store.py               # is_processed()/mark_processed() — sin fallback silencioso ante error de MySQL
+    deps.py                  # get_graph_client()
+    router.py                  # GET /graph/inbox, POST /graph/process-leads (tag "Microsoft Graph")
   waha/
     client.py         # WahaClient — send_text(chat_id, text, session=None), resolve_lid_to_phone(lid, session=None)
     settings.py        # WAHA_BASE_URL, WAHA_API_KEY, WAHA_SESSION
@@ -155,6 +163,7 @@ app/
     deps.py              # get_llm_client()
   flows/
     registry_duplicate_check.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
+    graph_lead_intake.py             # Graph + CRM: correo de formulario web (Quiero Vender) -> contacto + negociación
     whatsapp_bot.py                  # Waha + LLM + CRM: bot conversacional (experimental) — ver sección Endpoints
     whatsapp_bot_welcome.py            # Bienvenida de primer contacto (texto fijo, sin LLM)
     router.py              # POST /webhook/deal-event (tag "Bitrix Webhooks")
@@ -246,6 +255,62 @@ curl "http://127.0.0.1:8000/properties/5322493?tax_roll_area_code=001N"
 curl -X POST "http://127.0.0.1:8000/properties/bulk" \
   -H "Content-Type: application/json" \
   -d '{"tax_rolls": ["5322493", "5322494"]}'
+```
+
+### Consultar inbox filtrado por remitente (Microsoft Graph)
+
+Endpoint de prueba (`app/graph/`) para confirmar acceso al inbox de la
+bandeja compartida configurada en `GRAPH_MAILBOX`, antes de construir el
+flujo que cree contacto/negociación en Bitrix a partir de un correo entrante.
+Requiere permiso Application `Mail.Read` (o `Mail.ReadWrite`) con
+consentimiento admin en Azure AD sobre la app registrada.
+
+```bash
+curl "http://127.0.0.1:8000/graph/inbox"
+curl "http://127.0.0.1:8000/graph/inbox?sender=cliente@dominio.com&top=10"
+```
+
+### Procesar leads de formulario web -> contacto + negociación (Microsoft Graph + Bitrix)
+
+Revisa el inbox filtrado por el remitente fijo `comunicados@albertoalvarez.com`
+(`app/flows/graph_lead_intake.py::LEAD_SENDER`), salta los correos ya
+procesados (tabla `graph_processed_messages`) y, para los correos "Quiero
+Vender" restantes, parsea el cuerpo (`app/graph/lead_email_parser.py`) y
+crea/encuentra el contacto y la negociación en el pipeline Consignación.
+Disparador manual/cron por ahora, no hay suscripción push de Graph.
+
+La respuesta separa cada correo revisado en una de cuatro listas —
+`total` siempre es la suma de las cuatro:
+
+- **`created`**: procesado en esta corrida, era "Quiero Vender", se creó
+  (o ya existía) el contacto/negociación en Bitrix. Trae `deal_id`.
+- **`skipped`**: procesado en esta corrida, pero el asunto no es "Quiero
+  Vender" (ej. "Quiero Comprar"/"Quiero Arrendar") — no toca Bitrix.
+- **`errors`**: procesado en esta corrida, era "Quiero Vender", pero algo
+  falló (sin teléfono válido, Bitrix no devolvió contacto/deal, o no se
+  pudo confirmar el estado de dedup — este último caso no se marca como
+  procesado, se reintenta en la siguiente corrida).
+- **`already_processed`**: no se tocó en esta corrida — ya tenía una fila
+  en `graph_processed_messages` de una corrida anterior (con cualquiera de
+  los tres resultados de arriba). Trae el `status`/`deal_id`/`detail`
+  guardado entonces, para saber qué pasó sin reprocesarlo.
+
+Ejemplo de respuesta:
+
+```json
+{
+  "total": 2,
+  "created": [{"message_id": "AAMk...", "subject": "...Quiero Vender", "reason": null, "deal_id": "789"}],
+  "skipped": [],
+  "errors": [],
+  "already_processed": [
+    {"message_id": "AAMk...", "subject": "...Quiero Vender", "status": "created", "deal_id": "456", "detail": null, "processed_at": "2026-09-07T16:45:11+00:00"}
+  ]
+}
+```
+
+```bash
+curl -X POST "http://127.0.0.1:8000/graph/process-leads?top=10"
 ```
 
 ### Evento de deal (Bitrix webhook) — flujo matrícula/duplicado

@@ -90,7 +90,11 @@ class CrmClient(Protocol):
         ...
 
     def find_or_create_property_seller_contact(
-        self, phone: str | None, username: str | None = None, display_name: str | None = None
+        self,
+        phone: str | None,
+        username: str | None = None,
+        display_name: str | None = None,
+        email: str | None = None,
     ) -> str | None:
         """Busca un contacto por teléfono (o por `username` si no hay teléfono); si no existe, lo crea.
 
@@ -99,7 +103,9 @@ class CrmClient(Protocol):
         guarda en un campo aparte, no reemplaza al teléfono. Al menos uno de
         `phone`/`username` debe venir con valor. `display_name`, si se
         conoce, se usa como nombre del contacto nuevo en vez de un
-        placeholder genérico.
+        placeholder genérico. `email`, si se conoce (ej. lead de formulario
+        web), se guarda en el contacto nuevo — no afecta la búsqueda de
+        duplicados, que sigue siendo solo por teléfono/username.
 
         Un contacto **solo se crea si hay `phone`** — el CRM puede tener el
         teléfono como campo obligatorio del contacto; sin `phone`, si
@@ -116,8 +122,13 @@ class CrmClient(Protocol):
         """
         ...
 
-    def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
-        """Busca un deal de consignación abierto para el contacto; si no existe, lo crea. Retorna el deal_id, o None si falla."""
+    def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None) -> str | None:
+        """Busca un deal de consignación abierto para el contacto; si no existe, lo crea. Retorna el deal_id, o None si falla.
+
+        `title`, si se pasa, se usa como título del deal nuevo en vez del
+        default (pensado para orígenes distintos a WhatsApp, ej. leads de
+        formulario web) — no tiene efecto si el deal ya existía.
+        """
         ...
 
     def get_property_listing(self, deal_id: str) -> PropertyListing:

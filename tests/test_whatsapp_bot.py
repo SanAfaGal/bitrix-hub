@@ -362,7 +362,7 @@ def test_process_creates_contact_and_deal_once_name_and_phone_confirmed_same_tur
     assert crm.contact_by_phone == {"573001112233": "5000"}
     assert crm.deal_by_contact == {"5000": "6000"}
     assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert crm.find_or_create_property_seller_contact_calls[-1] == ("573001112233", None, "Juan Pérez")
+    assert crm.find_or_create_property_seller_contact_calls[-1] == ("573001112233", None, "Juan Pérez", None)
 
 
 def test_process_waits_for_both_name_and_phone_together_in_the_same_turn() -> None:
@@ -428,7 +428,12 @@ def test_process_reuses_contact_already_linked_to_lid_username_when_identity_con
     process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert store.get_deal_id("123456789012345@lid") == "6000"
-    assert crm.find_or_create_property_seller_contact_calls[-1] == ("573001112233", "123456789012345", "Juan Pérez")
+    assert crm.find_or_create_property_seller_contact_calls[-1] == (
+        "573001112233",
+        "123456789012345",
+        "Juan Pérez",
+        None,
+    )
 
 
 def test_process_reuses_cached_deal_id_without_hitting_crm_lookup_twice() -> None:

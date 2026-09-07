@@ -34,6 +34,19 @@ class _BitrixLookupError(Exception):
     """Interna: una búsqueda (no una creación) falló por red/HTTP. Nunca sale de este módulo."""
 
 
+def _normalize_person_name(name: str | None) -> str | None:
+    """Normaliza un nombre de persona a "Cada Palabra Así" antes de guardarlo en Bitrix.
+
+    Independiente de dónde venga el nombre (WhatsApp, formulario web, lo
+    que sea) — Bitrix no debe terminar con "DIANA HERRERA" ni "diana
+    herrera", siempre con la primera letra de cada palabra en mayúscula y
+    el resto en minúscula.
+    """
+    if not name or not name.strip():
+        return name
+    return " ".join(word.capitalize() for word in name.split())
+
+
 def _error_detail(exc: Exception) -> str:
     """Extrae el cuerpo de la respuesta de un HTTPError, si lo hay — Bitrix manda el motivo real ahí.
 
@@ -299,7 +312,11 @@ class BitrixClient:
             return None
 
     def find_or_create_property_seller_contact(
-        self, phone: str | None, username: str | None = None, display_name: str | None = None
+        self,
+        phone: str | None,
+        username: str | None = None,
+        display_name: str | None = None,
+        email: str | None = None,
     ) -> str | None:
         """Busca un contacto por teléfono (o por `username` si no hay teléfono); si no existe, lo crea.
 
@@ -356,7 +373,7 @@ class BitrixClient:
             )
             return None
 
-        return self._create_contact(phone, username, display_name)
+        return self._create_contact(phone, username, display_name, email)
 
     def _find_duplicates_by_phone(self, phone: str) -> tuple[str | None, str | None]:
         """Busca contacto y lead existentes para `phone` en una sola llamada a Bitrix.
@@ -429,13 +446,17 @@ class BitrixClient:
             )
             raise _BitrixLookupError from exc
 
-    def _create_contact(self, phone: str | None, username: str | None, display_name: str | None) -> str | None:
-        contact_fields: dict[str, Any] = {"NAME": display_name or "Contacto WhatsApp"}
+    def _create_contact(
+        self, phone: str | None, username: str | None, display_name: str | None, email: str | None = None
+    ) -> str | None:
+        contact_fields: dict[str, Any] = {"NAME": _normalize_person_name(display_name) or "Contacto WhatsApp"}
         if phone:
             phone_value = phone if phone.startswith("+") else f"+{phone}"
             contact_fields["PHONE"] = [{"VALUE": phone_value, "VALUE_TYPE": "MOBILE"}]
         if username:
             contact_fields[fields.FIELD_USERNAME] = username
+        if email:
+            contact_fields["EMAIL"] = [{"VALUE": email, "VALUE_TYPE": "WORK"}]
 
         try:
             response = requests.post(
@@ -469,7 +490,7 @@ class BitrixClient:
             )
             return None
 
-    def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
+    def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None) -> str | None:
         """Busca un deal de consignación abierto para el contacto; si no existe, lo crea."""
         try:
             response = requests.post(
@@ -507,7 +528,7 @@ class BitrixClient:
                     "fields": {
                         "CONTACT_ID": contact_id,
                         "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
-                        "TITLE": f"Consignación WhatsApp - contacto {contact_id}",
+                        "TITLE": title or f"Consignación WhatsApp - contacto {contact_id}",
                         fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
                         fields.FIELD_BOT_ACTIVE: 1,
                     }
@@ -637,7 +658,8 @@ class BitrixClient:
         updates: dict[str, Any] = {}
 
         if full_name:
-            first, _, rest = full_name.partition(" ")
+            normalized = _normalize_person_name(full_name)
+            first, _, rest = normalized.partition(" ")
             updates["NAME"] = first
             if rest.strip():
                 updates["LAST_NAME"] = rest.strip()

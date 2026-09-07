@@ -17,6 +17,7 @@ mimetypes.add_type("image/webp", ".webp")
 from app.admin.router import router as admin_router
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
+from app.graph.router import router as graph_router
 from app.location_catalog.router import router as location_catalog_router
 from app.message_templates import store as templates_store
 from app.waha.router import router as waha_router
@@ -46,6 +47,15 @@ tags_metadata = [
             "Envío y recepción de WhatsApp vía Waha, incluye el bot "
             "conversacional experimental (apagado por defecto). Flujos de "
             "negocio en app/flows/ — ver app/flows/README.md."
+        ),
+    },
+    {
+        "name": "Microsoft Graph",
+        "description": (
+            "Lectura del inbox de la bandeja compartida (GRAPH_MAILBOX) vía "
+            "Microsoft Graph, con filtro por remitente — paso previo para el "
+            "futuro flujo de creación de contacto/negociación en Bitrix a "
+            "partir de correos entrantes."
         ),
     },
     {
@@ -106,6 +116,7 @@ app.include_router(xposure_router)
 app.include_router(flows_router)
 app.include_router(waha_router)
 app.include_router(forms_router)
+app.include_router(graph_router)
 app.include_router(location_catalog_router)
 app.include_router(admin_router)
 

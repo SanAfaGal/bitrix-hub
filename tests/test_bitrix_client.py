@@ -223,6 +223,26 @@ def test_find_or_create_property_seller_contact_returns_existing_match(monkeypat
     assert any("encontrado" in record.message and "id=7" in record.message for record in caplog.records)
 
 
+def test_create_contact_normalizes_display_name_casing(monkeypatch) -> None:
+    calls = []
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        calls.append((url, json))
+        if url.endswith("crm.duplicate.findbycomm.json"):
+            return FakeResponse({"result": {"CONTACT": []}})
+        assert url.endswith("crm.contact.add.json")
+        assert json["fields"]["NAME"] == "Diana Herrera Gómez"
+        return FakeResponse({"result": 55})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+    monkeypatch.setattr("app.bitrix.client.BitrixClient.get_contact", lambda self, cid: {"ID": cid})
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.find_or_create_property_seller_contact(
+        "573001112233", display_name="DIANA herrera GÓMEZ"
+    )
+
+
 def test_find_or_create_property_seller_contact_creates_when_no_match(monkeypatch) -> None:
     calls = []
 
@@ -578,6 +598,21 @@ def test_update_contact_identity_splits_full_name_into_name_and_last_name(monkey
 
     assert captured["url"] == "https://example.bitrix24.com/rest/1/token/crm.contact.update.json"
     assert captured["json"] == {"id": "42", "fields": {"NAME": "Juan", "LAST_NAME": "Pérez Gómez"}}
+
+
+def test_update_contact_identity_normalizes_full_name_casing(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("app.bitrix.client.requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.update_contact_identity("42", full_name="JUAN pérez GÓMEZ")
+
+    assert captured["json"]["fields"] == {"NAME": "Juan", "LAST_NAME": "Pérez Gómez"}
 
 
 def test_update_contact_identity_sets_phone_field(monkeypatch) -> None:
