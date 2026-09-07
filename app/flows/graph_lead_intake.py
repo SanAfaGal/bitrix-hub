@@ -74,7 +74,7 @@ def create_lead(lead: ParsedLead, crm_client: CrmClient) -> LeadIntakeResult:
     """Crea contacto + negociación en Bitrix a partir de un `ParsedLead` ya parseado.
 
     Separado de `process()` para que el caller (`app/graph/router.py`) pueda
-    parsear una sola vez, calcular la clave de dedup (`email_tracking_id`)
+    parsear una sola vez, calcular la clave de dedup (`tracking_id`)
     ANTES de decidir si crea algo, y reusar el mismo `lead` acá — sin
     parsear el cuerpo del correo dos veces.
     """
@@ -86,7 +86,7 @@ def create_lead(lead: ParsedLead, crm_client: CrmClient) -> LeadIntakeResult:
 
     if lead.telefono is None:
         logger.warning(
-            "Lead de formulario web sin teléfono válido (email_tracking_id=%s), no se puede crear", lead.email_tracking_id
+            "Lead de formulario web sin teléfono válido (tracking_id=%s), no se puede crear", lead.tracking_id
         )
         return LeadIntakeResult(status="error", deal_id=None, reason="sin_telefono", nombre=lead.nombre, telefono=None)
 
@@ -95,7 +95,7 @@ def create_lead(lead: ParsedLead, crm_client: CrmClient) -> LeadIntakeResult:
     )
     if contact_id is None:
         logger.error(
-            "No se pudo crear/encontrar el contacto en Bitrix para el lead email_tracking_id=%s", lead.email_tracking_id
+            "No se pudo crear/encontrar el contacto en Bitrix para el lead tracking_id=%s", lead.tracking_id
         )
         return LeadIntakeResult(
             status="error", deal_id=None, reason="contacto_no_creado", nombre=lead.nombre, telefono=lead.telefono
@@ -129,6 +129,6 @@ def _build_comment(lead) -> str | None:
     lines = ["Lead recibido por formulario web (Quiero Vender)."]
     if lead.mensaje:
         lines.append(f"Mensaje: {lead.mensaje}")
-    if lead.email_tracking_id:
-        lines.append(f"ID de Seguimiento: {lead.email_tracking_id}")
+    if lead.tracking_id:
+        lines.append(f"ID de Seguimiento: {lead.tracking_id}")
     return "\n".join(lines)

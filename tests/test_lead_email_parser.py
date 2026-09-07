@@ -39,7 +39,7 @@ def test_parses_full_vender_email() -> None:
     assert lead.tipo_inmueble == "Apartamento"
     assert lead.valor_estimado == 6500000
     assert lead.mensaje.startswith("Hola Busco asesoría")
-    assert lead.email_tracking_id == "8974dd3b-d4e8-4e5f-8e29-420b8d26665c"
+    assert lead.tracking_id == "8974dd3b-d4e8-4e5f-8e29-420b8d26665c"
 
 
 def test_detects_comprar_service_type() -> None:

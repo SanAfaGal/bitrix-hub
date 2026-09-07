@@ -1,4 +1,4 @@
-"""Modelo SQLAlchemy de la tabla `message_templates`."""
+"""Modelo SQLAlchemy de la tabla `templates`."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,7 +16,7 @@ class MessageTemplate(Base):
     — no hay una tabla aparte para eso.
     """
 
-    __tablename__ = "message_templates"
+    __tablename__ = "templates"
 
     key: str = Column(String(64), primary_key=True)
     content: str = Column(Text, nullable=False)

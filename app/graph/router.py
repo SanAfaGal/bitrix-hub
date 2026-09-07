@@ -96,7 +96,7 @@ def post_process_leads(
         # Sin ID de Seguimiento parseable (correo malformado) no hay clave de
         # negocio para dedup — se usa el id de Graph como respaldo, así el
         # correo igual queda cubierto en una corrida futura.
-        dedup_key = lead.email_tracking_id or message_id
+        dedup_key = lead.tracking_id or message_id
 
         try:
             previous = processed_store.get_processed(dedup_key)

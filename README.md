@@ -162,7 +162,7 @@ app/
   flows/
     registry_duplicate_check.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
     graph_lead_intake.py             # Graph + CRM: correo de formulario web (Quiero Vender) -> contacto + negociación
-    graph_lead_store.py                # Dedup de correos por email_tracking_id contra la tabla leads (comparte MySQL con el bot)
+    graph_lead_store.py                # Dedup de correos por tracking_id contra la tabla leads (comparte MySQL con el bot)
     whatsapp_bot.py                  # Waha + LLM + CRM: bot conversacional (experimental) — ver sección Endpoints
     whatsapp_bot_welcome.py            # Bienvenida de primer contacto (texto fijo, sin LLM)
     router.py              # POST /webhook/deal-event (tag "Bitrix Webhooks")
@@ -273,7 +273,7 @@ curl "http://127.0.0.1:8000/graph/inbox?sender=cliente@dominio.com&top=10"
 
 Revisa el inbox filtrado por el remitente fijo `comunicados@albertoalvarez.com`
 (`app/flows/graph_lead_intake.py::LEAD_SENDER`), salta los correos ya
-procesados (dedup por `email_tracking_id` contra la tabla `leads`,
+procesados (dedup por `tracking_id` contra la tabla `leads`,
 compartida con el bot de WhatsApp — ver `app/flows/graph_lead_store.py`) y,
 para los correos "Quiero Vender" restantes, parsea el cuerpo
 (`app/graph/lead_email_parser.py`) y crea/encuentra el contacto y la

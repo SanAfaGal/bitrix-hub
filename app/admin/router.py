@@ -179,11 +179,11 @@ def post_delete_prospect(chat_id: str, username: str = Depends(require_login)) -
     summary="Muestra el hilo de un prospecto junto con la lista completa",
 )
 def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTMLResponse:
-    """`key` es el `chat_id` (WhatsApp) o el `email_tracking_id` (lead de correo) — se resuelve buscando
+    """`key` es el `chat_id` (WhatsApp) o el `tracking_id` (lead de correo) — se resuelve buscando
     en `list_chats()`, que ya trae ambos canales mezclados (ver `app.flows.whatsapp_bot_store.list_chats`).
     """
     chats = conversation_store.list_chats()
-    selected = next((c for c in chats if c["chat_id"] == key or c["email_tracking_id"] == key), None)
+    selected = next((c for c in chats if c["chat_id"] == key or c["tracking_id"] == key), None)
 
     if selected is None or selected["channel"] == "email":
         selected_meta = {

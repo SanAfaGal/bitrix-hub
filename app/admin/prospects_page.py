@@ -67,8 +67,8 @@ def _avatar_html(name: str | None, *, block: str) -> str:
 
 
 def _row_key(chat: dict[str, Any]) -> str | None:
-    """Clave usada en la URL de la fila — `chat_id` (WhatsApp) o `email_tracking_id` (correo)."""
-    return chat.get("chat_id") or chat.get("email_tracking_id")
+    """Clave usada en la URL de la fila — `chat_id` (WhatsApp) o `tracking_id` (correo)."""
+    return chat.get("chat_id") or chat.get("tracking_id")
 
 
 def _channel_badge(channel: str) -> str:

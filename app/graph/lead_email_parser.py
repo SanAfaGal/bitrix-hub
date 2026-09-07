@@ -58,14 +58,14 @@ class ParsedLead:
     tipo_inmueble: str | None
     valor_estimado: int | None
     mensaje: str | None
-    email_tracking_id: str | None
+    tracking_id: str | None
 
 
 def parse_lead_email(subject: str, body_text: str) -> ParsedLead:
     """Extrae y sanitiza los campos del correo. No filtra por tipo de servicio."""
     return ParsedLead(
         service_type=_detect_service_type(subject),
-        email_tracking_id=_extract_tracking_id(body_text),
+        tracking_id=_extract_tracking_id(body_text),
         **_extract_fields(body_text),
     )
 

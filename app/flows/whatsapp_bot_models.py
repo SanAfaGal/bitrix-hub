@@ -3,11 +3,11 @@
 Una sola tabla `leads` para todo lo que es 1:1 por prospecto (deal
 vinculado, identidad, estado de la explicación del bot, dedup de correos
 del formulario web) — un prospecto llega por `chat_id` (WhatsApp,
-`channel="whatsapp"`) o por `email_tracking_id` (formulario web,
+`channel="whatsapp"`) o por `tracking_id` (formulario web,
 `channel="email"`, ver `app.flows.graph_lead_store`); nunca por los dos.
-`chat_id`/`email_tracking_id` son nullable porque ninguno aplica a todas
-las filas — la PK es el `id` sintético. `conversation_messages` sí es 1:N
-(solo aplica a leads de WhatsApp) y se queda aparte. El esquema lo posee
+`chat_id`/`tracking_id` son nullable porque ninguno aplica a todas
+las filas — la PK es el `id` sintético. `messages` sí es 1:N (solo aplica a
+leads de WhatsApp, vía `lead_id` -> `leads.id`) y se queda aparte. El esquema lo posee
 Alembic (ver `migrations/`) — `create_all` solo se usa contra el SQLite en
 memoria de los tests (`build_sqlite_engine`).
 """
@@ -20,7 +20,7 @@ Base = declarative_base()
 
 
 class Conversation(Base):
-    """Un prospecto — por `chat_id` (WhatsApp) o `email_tracking_id` (formulario web).
+    """Un prospecto — por `chat_id` (WhatsApp) o `tracking_id` (formulario web).
 
     `name`/`phone` en un lead de WhatsApp solo se escriben juntos,
     atómicamente, una vez el LLM ya tiene ambos confirmados (ver
@@ -42,7 +42,7 @@ class Conversation(Base):
 
     id: int = Column(Integer, primary_key=True, autoincrement=True)
     chat_id: str | None = Column(String(64), nullable=True, unique=True)
-    email_tracking_id: str | None = Column(String(64), nullable=True, unique=True)
+    tracking_id: str | None = Column(String(64), nullable=True, unique=True)
     channel: str = Column(String(16), nullable=False)
 
     deal_id: str | None = Column(String(32), nullable=True, unique=True)
@@ -71,13 +71,13 @@ class Conversation(Base):
 
 
 class ConversationMessage(Base):
-    __tablename__ = "conversation_messages"
-    __table_args__ = (Index("idx_conversation_messages_chat_id", "chat_id", "id"),)
+    """Un turno del historial de chat de un lead de WhatsApp — 1:N contra `leads` por `lead_id`."""
+
+    __tablename__ = "messages"
+    __table_args__ = (Index("idx_messages_lead_id", "lead_id", "id"),)
 
     id: int = Column(Integer, primary_key=True, autoincrement=True)
-    chat_id: str = Column(
-        String(64), ForeignKey("leads.chat_id", ondelete="CASCADE"), nullable=False
-    )
+    lead_id: int = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
     role: str = Column(String(16), nullable=False)
     content: str = Column(Text, nullable=False)
     created_at: float = Column(Float, nullable=False)

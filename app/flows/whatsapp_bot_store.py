@@ -1,7 +1,8 @@
 """Persistencia en MySQL (SQLAlchemy) del historial y estado de conversación del bot de WhatsApp.
 
 Todo lo 1:1 por chat (identidad, deal_id, estado de la explicación) vive en
-`Conversation`; el historial de turnos vive en `ConversationMessage` (1:N).
+`Conversation` (tabla `leads`); el historial de turnos vive en
+`ConversationMessage` (tabla `messages`, 1:N vía `lead_id` -> `leads.id`).
 Distinto del dedup de mensajes (`ConversationStore._seen_message_ids` en
 `whatsapp_bot.py`), que sigue en memoria porque es solo un TTL corto de
 reintentos de Waha y no importa perderlo.
@@ -38,9 +39,12 @@ def _get_or_create(session: Session, chat_id: str) -> Conversation:
 
 def get_history(session: Session, chat_id: str, limit: int) -> list[dict[str, str]]:
     """Últimos `limit` turnos del chat, en orden cronológico."""
+    lead = _get_by_chat_id(session, chat_id)
+    if lead is None:
+        return []
     rows = session.execute(
         select(ConversationMessage.role, ConversationMessage.content)
-        .where(ConversationMessage.chat_id == chat_id)
+        .where(ConversationMessage.lead_id == lead.id)
         .order_by(ConversationMessage.id.desc())
         .limit(limit)
     ).all()
@@ -49,9 +53,12 @@ def get_history(session: Session, chat_id: str, limit: int) -> list[dict[str, st
 
 def get_full_history(session: Session, chat_id: str) -> list[dict[str, str]]:
     """Todo el historial del chat (sin recorte), en orden cronológico — para la vista de detalle del panel admin."""
+    lead = _get_by_chat_id(session, chat_id)
+    if lead is None:
+        return []
     rows = session.execute(
         select(ConversationMessage.role, ConversationMessage.content, ConversationMessage.created_at)
-        .where(ConversationMessage.chat_id == chat_id)
+        .where(ConversationMessage.lead_id == lead.id)
         .order_by(ConversationMessage.id.asc())
     ).all()
     return [{"role": role, "content": content, "created_at": created_at} for role, content, created_at in rows]
@@ -74,17 +81,16 @@ def list_chats(session: Session) -> list[dict[str, Any]]:
 def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
     """Un resumen por chat (último mensaje, deal_id, identidad confirmada).
 
-    Ordenado por último mensaje descendente — los chats sin ningún mensaje
-    en `conversation_messages` no aparecen (no hay nada que mostrar de
-    ellos).
+    Ordenado por último mensaje descendente — los leads sin ningún mensaje
+    en `messages` no aparecen (no hay nada que mostrar de ellos).
     """
     msg = ConversationMessage
-    last_id_subq = select(msg.chat_id, func.max(msg.id).label("last_id")).group_by(msg.chat_id).subquery()
-    count_subq = select(msg.chat_id, func.count(msg.id).label("message_count")).group_by(msg.chat_id).subquery()
+    last_id_subq = select(msg.lead_id, func.max(msg.id).label("last_id")).group_by(msg.lead_id).subquery()
+    count_subq = select(msg.lead_id, func.count(msg.id).label("message_count")).group_by(msg.lead_id).subquery()
 
     stmt = (
         select(
-            msg.chat_id,
+            Conversation.chat_id,
             msg.content,
             msg.created_at,
             count_subq.c.message_count,
@@ -92,16 +98,19 @@ def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
             Conversation.name,
             Conversation.phone,
         )
-        .join(last_id_subq, (msg.chat_id == last_id_subq.c.chat_id) & (msg.id == last_id_subq.c.last_id))
-        .join(count_subq, count_subq.c.chat_id == msg.chat_id)
-        .outerjoin(Conversation, Conversation.chat_id == msg.chat_id)
+        .select_from(msg)
+        .join(last_id_subq, (msg.lead_id == last_id_subq.c.lead_id) & (msg.id == last_id_subq.c.last_id))
+        .join(count_subq, count_subq.c.lead_id == msg.lead_id)
+        # INNER JOIN a propósito: la FK `messages.lead_id -> leads.id` (ON
+        # DELETE CASCADE) garantiza que un mensaje nunca queda huérfano.
+        .join(Conversation, Conversation.id == msg.lead_id)
         .order_by(msg.id.desc())
     )
     rows = session.execute(stmt).all()
     return [
         {
             "chat_id": chat_id,
-            "email_tracking_id": None,
+            "tracking_id": None,
             "channel": "whatsapp",
             "last_content": last_content,
             "last_created_at": last_created_at,
@@ -115,14 +124,14 @@ def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
 
 
 def _list_email_leads(session: Session) -> list[dict[str, Any]]:
-    """Un resumen por lead de correo (formulario web) — nunca tienen `conversation_messages`."""
+    """Un resumen por lead de correo (formulario web) — nunca tienen filas en `messages`."""
     rows = session.execute(
         select(Conversation).where(Conversation.channel == "email").order_by(Conversation.created_at.desc())
     ).scalars().all()
     return [
         {
             "chat_id": None,
-            "email_tracking_id": row.email_tracking_id,
+            "tracking_id": row.tracking_id,
             "channel": "email",
             "last_content": _email_lead_preview(row),
             "last_created_at": row.created_at.timestamp() if row.created_at else None,
@@ -144,19 +153,21 @@ def _email_lead_preview(row: Conversation) -> str:
 
 
 def add_turn(session: Session, chat_id: str, role: str, content: str) -> None:
-    """Guarda un turno. No recorta nada — `conversation_messages` guarda la conversación
-    completa para siempre (auditoría, panel admin); el recorte a cuántos turnos recientes
-    se le mandan al LLM como contexto vive en la lectura (`get_history(limit)`), no acá."""
-    _get_or_create(session, chat_id)
-    session.add(ConversationMessage(chat_id=chat_id, role=role, content=content, created_at=time.time()))
+    """Guarda un turno. No recorta nada — `messages` guarda la conversación completa
+    para siempre (auditoría, panel admin); el recorte a cuántos turnos recientes se le
+    mandan al LLM como contexto vive en la lectura (`get_history(limit)`), no acá."""
+    lead = _get_or_create(session, chat_id)
+    session.add(ConversationMessage(lead_id=lead.id, role=role, content=content, created_at=time.time()))
     session.commit()
 
 
 def delete_chat(session: Session, chat_id: str) -> None:
-    """Borra toda la data del chat (mensajes + fila de conversación) — usado por el panel admin."""
-    session.execute(delete(ConversationMessage).where(ConversationMessage.chat_id == chat_id))
-    session.execute(delete(Conversation).where(Conversation.chat_id == chat_id))
-    session.commit()
+    """Borra toda la data del chat (mensajes + fila de lead) — usado por el panel admin."""
+    lead = _get_by_chat_id(session, chat_id)
+    if lead is not None:
+        session.execute(delete(ConversationMessage).where(ConversationMessage.lead_id == lead.id))
+        session.execute(delete(Conversation).where(Conversation.id == lead.id))
+        session.commit()
 
 
 def get_deal_id(session: Session, chat_id: str) -> str | None:

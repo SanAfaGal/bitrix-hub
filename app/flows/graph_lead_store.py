@@ -2,7 +2,7 @@
 
 Comparte la tabla `leads` (`app.flows.whatsapp_bot_models.Conversation`) con
 el bot de WhatsApp — un lead de correo es una fila más, con
-`channel="email"` y `email_tracking_id` en vez de `chat_id`. Reusa el mismo
+`channel="email"` y `tracking_id` en vez de `chat_id`. Reusa el mismo
 pool MySQL que el bot (`whatsapp_bot_db.SessionLocal`), sin abrir uno nuevo.
 
 A diferencia de `app.message_templates.store`, acá un fallo de MySQL NO cae
@@ -27,17 +27,17 @@ from app.flows.whatsapp_bot_models import Conversation
 logger = logging.getLogger(__name__)
 
 
-def is_processed(email_tracking_id: str, *, session: Session | None = None) -> bool:
-    """Indica si `email_tracking_id` ya tiene una fila en `leads`.
+def is_processed(tracking_id: str, *, session: Session | None = None) -> bool:
+    """Indica si `tracking_id` ya tiene una fila en `leads`.
 
     Lanza la excepción original si la consulta a MySQL falla — ver
     docstring del módulo.
     """
-    return get_processed(email_tracking_id, session=session) is not None
+    return get_processed(tracking_id, session=session) is not None
 
 
-def get_processed(email_tracking_id: str, *, session: Session | None = None) -> dict[str, Any] | None:
-    """Trae la fila guardada para `email_tracking_id` (status/deal_id/detail/created_at), o None si no existe.
+def get_processed(tracking_id: str, *, session: Session | None = None) -> dict[str, Any] | None:
+    """Trae la fila guardada para `tracking_id` (status/deal_id/detail/created_at), o None si no existe.
 
     Usado por `app/graph/router.py` para que la respuesta de
     `POST /graph/process-leads` diga qué resultado quedó guardado de una
@@ -48,7 +48,7 @@ def get_processed(email_tracking_id: str, *, session: Session | None = None) -> 
     session = session or SessionLocal()
     try:
         row = session.execute(
-            select(Conversation).where(Conversation.email_tracking_id == email_tracking_id)
+            select(Conversation).where(Conversation.tracking_id == tracking_id)
         ).scalar_one_or_none()
         if row is None:
             return None
@@ -64,7 +64,7 @@ def get_processed(email_tracking_id: str, *, session: Session | None = None) -> 
 
 
 def mark_processed(
-    email_tracking_id: str,
+    tracking_id: str,
     *,
     status: str,
     deal_id: str | None = None,
@@ -73,15 +73,15 @@ def mark_processed(
     phone: str | None = None,
     session: Session | None = None,
 ) -> None:
-    """Registra `email_tracking_id` como procesado (crea o actualiza la fila)."""
+    """Registra `tracking_id` como procesado (crea o actualiza la fila)."""
     own_session = session is None
     session = session or SessionLocal()
     try:
         row = session.execute(
-            select(Conversation).where(Conversation.email_tracking_id == email_tracking_id)
+            select(Conversation).where(Conversation.tracking_id == tracking_id)
         ).scalar_one_or_none()
         if row is None:
-            row = Conversation(email_tracking_id=email_tracking_id, channel="email")
+            row = Conversation(tracking_id=tracking_id, channel="email")
             session.add(row)
 
         row.status = status
