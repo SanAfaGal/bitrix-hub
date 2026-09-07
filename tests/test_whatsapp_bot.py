@@ -998,7 +998,7 @@ _LINK_SECRET = "test-secret"
 _PUBLIC_BASE_URL = "https://hub.example.com"
 
 
-def test_process_offers_explanation_right_after_creating_deal_from_confirmed_identity() -> None:
+def test_process_sends_full_explanation_right_after_creating_deal_from_confirmed_identity() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps(
@@ -1012,10 +1012,9 @@ def test_process_offers_explanation_right_after_creating_deal_from_confirmed_ide
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
     assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert store.get_explanation_offered("573001112233@c.us") is True
-    assert store.get_explanation_sent("573001112233@c.us") is False
-    assert waha.voice_calls == []  # el audio no se manda sin que la persona confirme primero
-    # El "gracias!" del LLM se manda primero, la explicación (texto+pregunta) después.
+    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert len(waha.voice_calls) == 1  # ya no se pregunta antes: texto + audio + aceptación de una vez
+    # El "gracias!" del LLM se manda primero, la explicación (texto+audio+pregunta) después.
     assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
     assert len(waha.calls) == 3
 
@@ -1034,7 +1033,6 @@ def test_process_reasks_acceptance_when_deal_created_after_explanation_already_s
     )
     crm = FakeCrmClient()
     store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
     store.set_explanation_sent("573001112233@c.us")
 
     result = process(
@@ -1182,68 +1180,16 @@ def test_process_does_not_resend_explanation_or_reask_once_link_already_sent() -
     assert len(llm.calls) == 1
 
 
-# ── Oferta de explicación (pregunta antes del audio) ────────────────────
+# ── Pedido explícito de explicación antes de que se mande por el camino normal ──
 
 
-def test_process_sends_audio_and_ask_acceptance_when_person_accepts_explanation_offer() -> None:
-    waha = FakeWahaClient()
-    llm = FakeLlmClient()
-    crm = FakeCrmClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-
-    result = process(_inbound(text="si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
-
-    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "explanation_response_handled"}
-    assert len(waha.voice_calls) == 1
-    assert store.get_explanation_sent("573001112233@c.us") is True
-    assert llm.calls == []
-
-
-def test_process_marks_declined_when_person_declines_explanation_offer() -> None:
-    waha = FakeWahaClient()
-    llm = FakeLlmClient()
-    crm = FakeCrmClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-
-    result = process(_inbound(text="no gracias"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
-
-    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "explanation_response_handled"}
-    assert store.get_explanation_sent("573001112233@c.us") is False
-    assert llm.calls == []
-
-
-def test_process_falls_back_to_llm_without_forcing_a_note_when_offer_reply_is_ambiguous() -> None:
-    """Ya no hay una nota especial forzando un sí/no (ver el docstring del gate de
-    `maybe_handle_explanation_response` en `_process`) — una respuesta ambigua a la oferta cae
-    al turno normal del LLM, que igual ve la oferta en el historial reciente."""
-    waha = FakeWahaClient()
-    llm = FakeLlmClient(reply_text=_plain_reply("no tiene costo, ¿quieres que te explique?"))
-    crm = FakeCrmClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-
-    result = process(
-        _inbound(text="eso tiene costo?"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
-    )
-
-    assert result == {
-        "ok": True,
-        "chat_id": "573001112233@c.us",
-        "reply": "no tiene costo, ¿quieres que te explique?",
-    }
-    assert len(llm.calls) == 1
-
-
-def test_process_sends_audio_when_person_asks_for_it_after_having_declined() -> None:
+def test_process_sends_audio_when_person_asks_for_it_before_it_was_sent() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps({"reply": "claro, ahora te la mando", "fields": {}, "explanation_requested": True})
     )
     crm = FakeCrmClient()
     store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
 
     result = process(
         _inbound(text="bueno, mándame el audio"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
@@ -1255,17 +1201,17 @@ def test_process_sends_audio_when_person_asks_for_it_after_having_declined() -> 
     assert store.get_explanation_sent("573001112233@c.us") is True
 
 
-def test_process_does_not_reoffer_explanation_once_already_sent() -> None:
+def test_process_does_not_resend_explanation_once_already_sent() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("todo bien"))
     crm = FakeCrmClient()
     store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
     store.set_explanation_sent("573001112233@c.us")
 
     process(_inbound(text="si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert len(llm.calls) == 1  # ya se mandó el audio antes, este turno sigue el flujo normal
+    assert waha.voice_calls == []
 
 
 # ── Reclamo de firma sin haber firmado en Bitrix ────────────────────────
@@ -1457,31 +1403,3 @@ def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(
     second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_explanation_sent("573001112233@c.us") is True
-
-
-# ── Oferta de explicación (pregunta antes de mandar el audio) ───────────
-
-
-def test_conversation_store_explanation_offered_defaults_to_false() -> None:
-    store = ConversationStore()
-
-    assert store.get_explanation_offered("573001112233@c.us") is False
-
-
-def test_conversation_store_set_explanation_offered() -> None:
-    store = ConversationStore()
-
-    store.set_explanation_offered("573001112233@c.us")
-
-    assert store.get_explanation_offered("573001112233@c.us") is True
-
-
-def test_conversation_store_explanation_offered_survives_new_instance_same_db_file(tmp_path) -> None:
-    db_path = str(tmp_path / "whatsapp_bot.db")
-
-    first = ConversationStore(engine=_sqlite_file_engine(db_path))
-    first.set_explanation_offered("573001112233@c.us")
-
-    second = ConversationStore(engine=_sqlite_file_engine(db_path))
-
-    assert second.get_explanation_offered("573001112233@c.us") is True

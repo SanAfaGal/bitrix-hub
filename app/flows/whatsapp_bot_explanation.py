@@ -1,26 +1,29 @@
 """Explicación fija del proceso + pregunta de aceptación, entre la creación del deal y el link.
 
 Separado de `whatsapp_bot.py` por el mismo motivo que `whatsapp_bot_welcome.py`
-(límite de 500 líneas). Se ejecuta en tres puntos de `process()`:
+(límite de 500 líneas). Se ejecuta en dos puntos de `process()`:
 
 1. `maybe_send_explanation`: apenas se crea el deal en este mismo turno
-   (nombre y teléfono ya confirmados), en vez de seguir con el LLM
-   preguntando datos del inmueble, se manda texto + pregunta de si quiere
-   la explicación (audio), sin pasar por el LLM ni mandar el audio todavía
-   — el mismo gate lo usa `whatsapp_bot_welcome.py` para el cliente ya
-   conocido en Bitrix.
-2. `maybe_handle_explanation_response`: en el siguiente turno, si la
-   persona confirma con una afirmación clara, recién ahí se manda la nota
-   de voz (mismo archivo que
-   `whatsapp_bot_welcome.process_explanation_voice_base64`) + la pregunta
-   de aceptación. Si declina claramente, se marca y el bot no vuelve a
-   ofrecerla ni avanza por su cuenta — ver `maybe_handle_acceptance`.
-3. `maybe_handle_acceptance`: una vez mandada la explicación, si la persona
+   (nombre y teléfono ya confirmados) — o apenas se saluda a un cliente ya
+   conocido en Bitrix (`whatsapp_bot_welcome.py`) — se manda el texto de
+   explicación, la nota de voz y la pregunta de aceptación de una sola vez,
+   sin preguntar antes si la quiere: se asume que sí. Antes existía un paso
+   intermedio ("¿Te gustaría que te explique?") que la persona tenía que
+   confirmar; se sacó porque agregaba fricción y un estado
+   (`explanation_offered`) que se prestaba a confusión si la respuesta no
+   caía limpio en el regex de afirmación/negación.
+2. `maybe_handle_acceptance`: una vez mandada la explicación, si la persona
    confirma con una afirmación clara, se reusa
    `process_welcome_and_authorization` para mandarle el link de la
    Autorización de Corretaje. Si no confirma claramente, el caller
    (`process()`) le pasa el turno al LLM para que responda la duda y
    vuelva a preguntar.
+
+`maybe_handle_delayed_explanation_request` cubre el caso borde de que la
+persona pida la explicación explícitamente (`LlmTurn.explanation_requested`)
+antes de que se le haya podido mandar por el camino normal (ej. todavía no
+se confirma su identidad) — mismo contenido que `maybe_send_explanation`,
+sin el texto introductorio.
 """
 from __future__ import annotations
 
@@ -28,9 +31,8 @@ from typing import TYPE_CHECKING, Any
 
 from app.crm.protocol import CrmClient
 from app.flows.welcome_authorization import process_welcome_and_authorization
+from app.flows.whatsapp_bot_assets import process_explanation_voice_base64
 from app.flows.whatsapp_bot_llm import AFFIRMATION_RE as _AFFIRMATION_RE
-from app.flows.whatsapp_bot_llm import NEGATION_RE as _NEGATION_RE
-from app.flows.whatsapp_bot_welcome import process_explanation_voice_base64
 from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 
@@ -38,95 +40,7 @@ if TYPE_CHECKING:
     from app.flows.whatsapp_bot import ConversationStore
 
 
-def maybe_send_explanation(chat_id: str, session: str, waha_client: WahaClient, store: "ConversationStore") -> bool:
-    """Manda el texto de explicación + la pregunta de si quiere el audio, una sola vez por chat.
-
-    Retorna `True` cuando este turno ya quedó resuelto acá (el caller no debe
-    invocar al LLM), `False` cuando ya se había ofrecido antes.
-    """
-    if store.get_explanation_offered(chat_id):
-        return False
-
-    process_text = templates_store.get_template("whatsapp_process_explanation")
-    waha_client.send_text(chat_id, process_text, session=session)
-    store.add_turn(chat_id, "assistant", process_text)
-
-    offer_text = templates_store.get_template("whatsapp_offer_explanation")
-    waha_client.send_text(chat_id, offer_text, session=session)
-    store.add_turn(chat_id, "assistant", offer_text)
-
-    store.set_explanation_offered(chat_id)
-    return True
-
-
-def maybe_handle_explanation_response(
-    chat_id: str, text: str, waha_client: WahaClient, session: str, store: "ConversationStore"
-) -> bool:
-    """Si ya se ofreció el audio explicativo, maneja la respuesta de la persona a esa pregunta.
-
-    Afirmación clara -> manda el audio + la pregunta de aceptación, marca
-    `explanation_sent`. Negación clara -> responde con un mensaje breve, sin
-    marcar nada ni avanzar por su cuenta al siguiente paso (si la persona lo
-    pide más adelante, `maybe_handle_delayed_explanation_request` lo cubre).
-    Cualquier otra cosa -> retorna `False`, el caller le pasa el turno al
-    LLM (con la nota de "awaiting explicación") para que repita la pregunta.
-    """
-    if not store.get_explanation_offered(chat_id):
-        return False
-    if store.get_explanation_sent(chat_id):
-        return False
-
-    stripped = text.strip()
-
-    if _AFFIRMATION_RE.match(stripped):
-        # Este turno se resuelve acá, sin pasar por el LLM (`process()`
-        # retorna antes de su `add_turn` normal) — hay que registrar el
-        # mensaje de la persona y todo lo que le mandamos, si no el
-        # historial que ve el LLM en turnos futuros queda con un hueco justo
-        # acá y la conversación deja de tener sentido para él.
-        store.add_turn(chat_id, "user", text)
-
-        audio_base64 = process_explanation_voice_base64()
-        if audio_base64 is not None:
-            waha_client.send_voice(chat_id, audio_base64, session=session)
-            store.add_turn(chat_id, "assistant", "[Nota de voz enviada: explicación del proceso de consignación]")
-
-        ask_text = templates_store.get_template("whatsapp_ask_acceptance")
-        waha_client.send_text(chat_id, ask_text, session=session)
-        store.add_turn(chat_id, "assistant", ask_text)
-
-        store.set_explanation_sent(chat_id)
-        return True
-
-    if _NEGATION_RE.match(stripped):
-        store.add_turn(chat_id, "user", text)
-        declined_text = templates_store.get_template("whatsapp_explanation_declined_ack")
-        waha_client.send_text(chat_id, declined_text, session=session)
-        store.add_turn(chat_id, "assistant", declined_text)
-        return True
-
-    return False
-
-
-def maybe_handle_delayed_explanation_request(
-    chat_id: str, requested: bool, waha_client: WahaClient, session: str, store: "ConversationStore"
-) -> bool:
-    """Si la persona pide el audio explícitamente en cualquier turno posterior a que se le
-    ofreciera (haya respondido que no, o simplemente no haya respondido la oferta), se lo manda.
-
-    Distinto de `maybe_handle_explanation_response`: ese resuelve la respuesta inmediata a la
-    pregunta de oferta (sí/no); esto cubre que la persona lo pida más adelante, en cualquier
-    turno posterior — por eso `requested` viene de la IA (`LlmTurn.explanation_requested`), no
-    de un regex, ya que puede pedirse con cualquier redacción y en medio de otro tema.
-    """
-    if not requested:
-        return False
-    if not store.get_explanation_offered(chat_id) or store.get_explanation_sent(chat_id):
-        return False
-
-    # El mensaje de la persona que pidió esto ya se registró en `process()`
-    # (este helper se llama después del turno normal del LLM) — acá solo
-    # falta registrar lo que el bot manda de más.
+def _send_voice_and_ask_acceptance(chat_id: str, session: str, waha_client: WahaClient, store: "ConversationStore") -> None:
     audio_base64 = process_explanation_voice_base64()
     if audio_base64 is not None:
         waha_client.send_voice(chat_id, audio_base64, session=session)
@@ -135,6 +49,44 @@ def maybe_handle_delayed_explanation_request(
     ask_text = templates_store.get_template("whatsapp_ask_acceptance")
     waha_client.send_text(chat_id, ask_text, session=session)
     store.add_turn(chat_id, "assistant", ask_text)
+
+
+def maybe_send_explanation(chat_id: str, session: str, waha_client: WahaClient, store: "ConversationStore") -> bool:
+    """Manda texto + audio + pregunta de aceptación de una sola vez, sin preguntar antes.
+
+    Retorna `True` cuando este turno ya quedó resuelto acá (el caller no debe
+    invocar al LLM), `False` cuando la explicación ya se había mandado antes.
+    """
+    if store.get_explanation_sent(chat_id):
+        return False
+
+    process_text = templates_store.get_template("whatsapp_process_explanation")
+    waha_client.send_text(chat_id, process_text, session=session)
+    store.add_turn(chat_id, "assistant", process_text)
+
+    _send_voice_and_ask_acceptance(chat_id, session, waha_client, store)
+
+    store.set_explanation_sent(chat_id)
+    return True
+
+
+def maybe_handle_delayed_explanation_request(
+    chat_id: str, requested: bool, waha_client: WahaClient, session: str, store: "ConversationStore"
+) -> bool:
+    """Si la persona pide la explicación explícitamente antes de que se le haya podido mandar
+    por el camino normal (`maybe_send_explanation`), se la manda acá — mismo contenido, sin el
+    texto introductorio. `requested` viene de la IA (`LlmTurn.explanation_requested`), no de un
+    regex, ya que puede pedirse con cualquier redacción y en medio de otro tema.
+    """
+    if not requested:
+        return False
+    if store.get_explanation_sent(chat_id):
+        return False
+
+    # El mensaje de la persona que pidió esto ya se registró en `process()`
+    # (este helper se llama después del turno normal del LLM) — acá solo
+    # falta registrar lo que el bot manda de más.
+    _send_voice_and_ask_acceptance(chat_id, session, waha_client, store)
 
     store.set_explanation_sent(chat_id)
     return True
@@ -181,9 +133,8 @@ def maybe_handle_acceptance(
     if not _AFFIRMATION_RE.match(text.strip()):
         return False
 
-    # Igual que en `maybe_handle_explanation_response`: este turno se
-    # resuelve acá sin pasar por el LLM, así que hay que registrar el
-    # mensaje de la persona a mano.
+    # Este turno se resuelve acá sin pasar por el LLM, así que hay que
+    # registrar el mensaje de la persona a mano.
     store.add_turn(chat_id, "user", text)
 
     result = process_welcome_and_authorization(

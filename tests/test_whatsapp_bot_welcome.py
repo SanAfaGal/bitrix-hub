@@ -40,7 +40,7 @@ def test_sends_unknown_welcome_when_bitrix_has_no_contact_for_phone() -> None:
     assert store.get_history("573001112233@c.us") == [{"role": "assistant", "content": text}]
 
 
-def test_sends_known_welcome_with_name_then_offers_explanation_when_bitrix_has_contact_for_phone() -> None:
+def test_sends_known_welcome_with_name_then_full_explanation_when_bitrix_has_contact_for_phone() -> None:
     waha = FakeWahaClient()
     crm = FakeCrmClient(contacts={"7": {"NAME": "Juan", "LAST_NAME": "Pérez"}})
     crm.contact_by_phone["573001112233"] = "7"
@@ -51,10 +51,11 @@ def test_sends_known_welcome_with_name_then_offers_explanation_when_bitrix_has_c
     assert handled is True
     assert [c[1] for c in waha.calls] == [
         templates_store.render_template("whatsapp_welcome_known", nombre="Juan Pérez"),
-        templates_store.DEFAULT_TEMPLATES["whatsapp_offer_explanation"],
+        templates_store.DEFAULT_TEMPLATES["whatsapp_process_explanation"],
+        templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"],
     ]
-    assert waha.voice_calls == []  # el audio ya no se manda sin que la persona confirme
-    assert store.get_explanation_offered("573001112233@c.us") is True
+    assert len(waha.voice_calls) == 1  # ya no se pregunta antes: texto + audio + aceptación de una vez
+    assert store.get_explanation_sent("573001112233@c.us") is True
 
     # Bitrix ya conocía este teléfono (por eso saludó con el nombre) — la
     # identidad y el deal quedan resueltos en este mismo paso, sin esperar a
@@ -65,18 +66,18 @@ def test_sends_known_welcome_with_name_then_offers_explanation_when_bitrix_has_c
     assert store.get_deal_id("573001112233@c.us") is not None
 
 
-def test_does_not_offer_explanation_for_unknown_client() -> None:
+def test_does_not_send_explanation_for_unknown_client() -> None:
     waha = FakeWahaClient()
     crm = FakeCrmClient()
     store = ConversationStore()
 
     maybe_send_first_contact_welcome("573001112233@c.us", "default", waha, crm, store)
 
-    assert len(waha.calls) == 1  # solo la bienvenida a cliente nuevo, sin oferta todavía
-    assert store.get_explanation_offered("573001112233@c.us") is False
+    assert len(waha.calls) == 1  # solo la bienvenida a cliente nuevo, sin explicación todavía
+    assert store.get_explanation_sent("573001112233@c.us") is False
 
 
-def test_does_not_offer_explanation_when_welcome_text_fails() -> None:
+def test_does_not_send_explanation_when_welcome_text_fails() -> None:
     waha = FakeWahaClient(send_result=False)
     crm = FakeCrmClient(contacts={"7": {"NAME": "Juan", "LAST_NAME": "Pérez"}})
     crm.contact_by_phone["573001112233"] = "7"
@@ -85,7 +86,7 @@ def test_does_not_offer_explanation_when_welcome_text_fails() -> None:
     maybe_send_first_contact_welcome("573001112233@c.us", "default", waha, crm, store)
 
     assert len(waha.calls) == 1
-    assert store.get_explanation_offered("573001112233@c.us") is False
+    assert store.get_explanation_sent("573001112233@c.us") is False
 
 
 def test_does_not_send_when_chat_already_has_history() -> None:

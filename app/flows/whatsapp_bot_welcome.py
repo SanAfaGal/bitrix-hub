@@ -6,21 +6,17 @@ el chat no tiene historial todavía, se resuelve si Bitrix ya conoce al
 cliente por su teléfono (`CrmClient.find_contact_by_phone`) y se envía la
 plantilla correspondiente (`whatsapp_welcome_known`/`whatsapp_welcome_unknown`,
 ver `app/message_templates/store.py`) tal cual, sin generarla con el LLM. Si
-el cliente es conocido, además se le pregunta si quiere que le expliquen el
-proceso (`whatsapp_offer_explanation`) — la nota de voz fija que explica el
-proceso (`process_explanation_voice_base64`, definida acá y reusada también
-por `whatsapp_bot_explanation.py` para clientes nuevos) recién se manda si
-la persona confirma, ver `maybe_handle_explanation_response` en ese módulo.
+el cliente es conocido, además se le manda de una vez la explicación del
+proceso (`whatsapp_bot_explanation.maybe_send_explanation`) — sin preguntar
+antes si la quiere.
 """
 from __future__ import annotations
 
-import base64
 import logging
-from functools import lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.crm.protocol import CrmClient
+from app.flows.whatsapp_bot_explanation import maybe_send_explanation
 from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 
@@ -28,23 +24,6 @@ if TYPE_CHECKING:
     from app.flows.whatsapp_bot import ConversationStore
 
 logger = logging.getLogger(__name__)
-
-# Nota de voz fija que explica el proceso — no cambia en runtime, se lee una
-# sola vez y se cachea en base64 (evita releer disco en cada mensaje). La
-# reusan tanto la bienvenida de cliente conocido (acá) como la explicación
-# del proceso para clientes nuevos (`whatsapp_bot_explanation.py`).
-_PROCESS_EXPLANATION_VOICE_PATH = (
-    Path(__file__).resolve().parent.parent / "waha" / "assets" / "process_explanation_voice.ogg"
-)
-
-
-@lru_cache(maxsize=1)
-def process_explanation_voice_base64() -> str | None:
-    try:
-        return base64.b64encode(_PROCESS_EXPLANATION_VOICE_PATH.read_bytes()).decode("ascii")
-    except OSError as exc:
-        logger.error("No se pudo leer el audio de explicación del proceso (%s): %s", _PROCESS_EXPLANATION_VOICE_PATH, exc)
-        return None
 
 
 def maybe_send_first_contact_welcome(
@@ -97,10 +76,6 @@ def maybe_send_first_contact_welcome(
 
             _create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
-        offer_text = templates_store.get_template("whatsapp_offer_explanation")
-        offer_sent = waha_client.send_text(chat_id, offer_text, session=session)
-        if offer_sent:
-            store.add_turn(chat_id, "assistant", offer_text)
-            store.set_explanation_offered(chat_id)
+        maybe_send_explanation(chat_id, session, waha_client, store)
 
     return True

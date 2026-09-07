@@ -31,9 +31,9 @@ class Conversation(Base):
     `name`/`phone` vienen ya sanitizados del formulario
     (`app.graph.lead_email_parser`).
 
-    `explanation_offered`/`explanation_sent`/`authorization_link_sent` son
-    conceptos exclusivos del bot de WhatsApp — quedan en su default `False`
-    para un lead de correo, sin significado ahí. `status`/`detail` son el
+    `explanation_sent`/`authorization_link_sent` son conceptos exclusivos
+    del bot de WhatsApp — quedan en su default `False` para un lead de
+    correo, sin significado ahí. `status`/`detail` son el
     resultado de procesar un correo (`created`/`skipped`/`error` + motivo,
     ver `app.flows.graph_lead_store`) — `None` para un lead de WhatsApp.
     """
@@ -50,7 +50,6 @@ class Conversation(Base):
     name: str | None = Column(String(255), nullable=True)
     phone: str | None = Column(String(32), nullable=True)
 
-    explanation_offered: bool = Column(Boolean, nullable=False, default=False)
     explanation_sent: bool = Column(Boolean, nullable=False, default=False)
 
     # Fuente de verdad LOCAL de si ya mandamos el link de Autorización de

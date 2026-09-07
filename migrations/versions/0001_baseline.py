@@ -50,7 +50,6 @@ def upgrade() -> None:
         sa.Column("deal_id", sa.String(length=32), nullable=True),
         sa.Column("name", sa.String(length=255), nullable=True),
         sa.Column("phone", sa.String(length=32), nullable=True),
-        sa.Column("explanation_offered", sa.Boolean(), nullable=False),
         sa.Column("explanation_sent", sa.Boolean(), nullable=False),
         sa.Column("authorization_link_sent", sa.Boolean(), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=True),

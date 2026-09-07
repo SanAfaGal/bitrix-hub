@@ -215,17 +215,6 @@ def set_explanation_sent(session: Session, chat_id: str) -> None:
     session.commit()
 
 
-def get_explanation_offered(session: Session, chat_id: str) -> bool:
-    row = _get_by_chat_id(session, chat_id)
-    return bool(row.explanation_offered) if row else False
-
-
-def set_explanation_offered(session: Session, chat_id: str) -> None:
-    row = _get_or_create(session, chat_id)
-    row.explanation_offered = True
-    session.commit()
-
-
 def get_authorization_link_sent(session: Session, chat_id: str) -> bool:
     row = _get_by_chat_id(session, chat_id)
     return bool(row.authorization_link_sent) if row else False

@@ -4,7 +4,6 @@ from app.flows.whatsapp_bot import ConversationStore
 from app.flows.whatsapp_bot_explanation import (
     maybe_handle_acceptance,
     maybe_handle_delayed_explanation_request,
-    maybe_handle_explanation_response,
     maybe_send_explanation,
 )
 from app.message_templates import store as templates_store
@@ -32,7 +31,7 @@ class FakeWahaClient:
 # ── maybe_send_explanation ──────────────────────────────────────────────
 
 
-def test_sends_explanation_text_and_offer_question_once() -> None:
+def test_sends_text_audio_and_ask_acceptance_in_one_go_without_asking_first() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
 
@@ -41,17 +40,19 @@ def test_sends_explanation_text_and_offer_question_once() -> None:
     assert handled is True
     assert [c[1] for c in waha.calls] == [
         templates_store.DEFAULT_TEMPLATES["whatsapp_process_explanation"],
-        templates_store.DEFAULT_TEMPLATES["whatsapp_offer_explanation"],
+        templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"],
     ]
-    assert waha.voice_calls == []  # el audio no se manda sin que la persona confirme
-    assert store.get_explanation_offered("573001112233@c.us") is True
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert len(waha.voice_calls) == 1
+    assert store.get_explanation_sent("573001112233@c.us") is True
+
+    history = store.get_full_history("573001112233@c.us")
+    assert [h["role"] for h in history] == ["assistant", "assistant", "assistant"]
 
 
-def test_does_not_resend_explanation_offer_once_already_offered() -> None:
+def test_does_not_resend_explanation_once_already_sent() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
+    store.set_explanation_sent("573001112233@c.us")
 
     handled = maybe_send_explanation("573001112233@c.us", "default", waha, store)
 
@@ -60,101 +61,12 @@ def test_does_not_resend_explanation_offer_once_already_offered() -> None:
     assert waha.voice_calls == []
 
 
-# ── maybe_handle_explanation_response ───────────────────────────────────
-
-
-def test_sends_audio_and_ask_acceptance_when_person_accepts_the_explanation() -> None:
-    waha = FakeWahaClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-
-    handled = maybe_handle_explanation_response("573001112233@c.us", "si", waha, "default", store)
-
-    assert handled is True
-    assert len(waha.voice_calls) == 1
-    assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"]]
-    assert store.get_explanation_sent("573001112233@c.us") is True
-
-    # Este turno se resuelve sin pasar por el LLM, así que hay que registrar
-    # el mensaje de la persona y lo que le mandamos a mano — si no, la
-    # conversación tiene un hueco acá y el LLM "olvida" que esto pasó en
-    # cualquier turno futuro (bug real, visto en producción).
-    history = store.get_full_history("573001112233@c.us")
-    assert [h["role"] for h in history] == ["user", "assistant", "assistant"]
-    assert history[0]["content"] == "si"
-    assert history[-1]["content"] == templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"]
-
-
-def test_marks_declined_and_acks_when_person_declines_the_explanation() -> None:
-    waha = FakeWahaClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-
-    handled = maybe_handle_explanation_response("573001112233@c.us", "no gracias", waha, "default", store)
-
-    assert handled is True
-    assert waha.voice_calls == []
-    assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_explanation_declined_ack"]]
-    assert store.get_explanation_sent("573001112233@c.us") is False
-    assert [h["role"] for h in store.get_full_history("573001112233@c.us")] == ["user", "assistant"]
-
-
-def test_does_not_handle_ambiguous_reply_to_explanation_offer() -> None:
-    waha = FakeWahaClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-
-    handled = maybe_handle_explanation_response("573001112233@c.us", "y eso como es?", waha, "default", store)
-
-    assert handled is False
-    assert waha.calls == []
-    assert waha.voice_calls == []
-    assert store.get_explanation_sent("573001112233@c.us") is False
-
-
-def test_does_not_handle_when_explanation_was_not_offered() -> None:
-    waha = FakeWahaClient()
-    store = ConversationStore()
-
-    handled = maybe_handle_explanation_response("573001112233@c.us", "si", waha, "default", store)
-
-    assert handled is False
-    assert waha.calls == []
-
-
-def test_does_not_handle_once_explanation_already_sent() -> None:
-    waha = FakeWahaClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-    store.set_explanation_sent("573001112233@c.us")
-
-    handled = maybe_handle_explanation_response("573001112233@c.us", "si", waha, "default", store)
-
-    assert handled is False
-    assert waha.calls == []
-
-
-def test_handles_affirmation_on_a_later_turn_even_after_an_earlier_decline() -> None:
-    """No hay `explanation_declined` persistido — una vez declinada, si la persona cambia de
-    opinión en un turno posterior y dice "sí" claramente, sí se manda el audio (distinto de
-    antes, donde quedaba bloqueado hasta pedirlo explícitamente vía `explanation_requested`)."""
-    waha = FakeWahaClient()
-    store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
-
-    handled = maybe_handle_explanation_response("573001112233@c.us", "si", waha, "default", store)
-
-    assert handled is True
-    assert len(waha.voice_calls) == 1
-
-
 # ── maybe_handle_delayed_explanation_request ────────────────────────────
 
 
-def test_sends_audio_when_person_asks_for_explanation_after_declining_it() -> None:
+def test_sends_audio_when_person_asks_for_explanation_before_it_was_sent() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
 
     handled = maybe_handle_delayed_explanation_request("573001112233@c.us", True, waha, "default", store)
 
@@ -167,19 +79,8 @@ def test_sends_audio_when_person_asks_for_explanation_after_declining_it() -> No
 def test_does_not_send_audio_when_not_requested() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
 
     handled = maybe_handle_delayed_explanation_request("573001112233@c.us", False, waha, "default", store)
-
-    assert handled is False
-    assert waha.calls == []
-
-
-def test_does_not_resend_when_not_previously_declined() -> None:
-    waha = FakeWahaClient()
-    store = ConversationStore()
-
-    handled = maybe_handle_delayed_explanation_request("573001112233@c.us", True, waha, "default", store)
 
     assert handled is False
     assert waha.calls == []
@@ -188,7 +89,6 @@ def test_does_not_resend_when_not_previously_declined() -> None:
 def test_does_not_resend_when_explanation_already_sent() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_explanation_offered("573001112233@c.us")
     store.set_explanation_sent("573001112233@c.us")
 
     handled = maybe_handle_delayed_explanation_request("573001112233@c.us", True, waha, "default", store)

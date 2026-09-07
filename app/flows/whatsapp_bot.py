@@ -28,13 +28,13 @@ Si un asesor pausa el bot para un deal puntual (checkbox en Bitrix,
 persona pidió hablar con un humano, el webhook deja de responder para ese
 chat hasta que el campo se reactive manualmente.
 
-La nota de voz que explica el proceso nunca se manda sola: primero se
-pregunta si la persona la quiere (`whatsapp_offer_explanation`, ver
-`whatsapp_bot_welcome.py`/`whatsapp_bot_explanation.py`) y solo se envía si
-confirma — si declina, el bot no vuelve a ofrecerla ni avanza por su
-cuenta al link de Autorización, pero se la manda igual si la pide después
-en cualquier turno (`LlmTurn.explanation_requested`,
-`maybe_handle_delayed_explanation_request`). Si el cliente afirma en el
+La explicación del proceso (texto + nota de voz) se manda de una sola vez,
+sin preguntar antes si la persona la quiere, apenas se conoce su identidad
+(`whatsapp_bot_welcome.py`/`whatsapp_bot_explanation.py::maybe_send_explanation`).
+Si la persona la pide explícitamente antes de que le llegue por ese camino
+(ej. identidad todavía sin confirmar), se le manda igual
+(`LlmTurn.explanation_requested`, `maybe_handle_delayed_explanation_request`).
+Si el cliente afirma en el
 chat que ya firmó la Autorización de Corretaje (`LlmTurn.signed_claim`)
 pero el campo de Bitrix todavía no dice `"firmada"`, el bot se lo aclara y
 reenvía el link en vez de darlo por bueno.
@@ -59,7 +59,6 @@ from app.flows.whatsapp_bot_conversation_store import ConversationStore
 from app.flows.whatsapp_bot_explanation import (
     maybe_handle_acceptance,
     maybe_handle_delayed_explanation_request,
-    maybe_handle_explanation_response,
     maybe_send_explanation,
 )
 from app.flows.whatsapp_bot_llm import (
@@ -275,15 +274,6 @@ def _process(
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "transcription_failed"}
     inbound = replace(inbound, text=text)
 
-    if store.get_explanation_offered(inbound.chat_id) and not store.get_explanation_sent(inbound.chat_id):
-        if maybe_handle_explanation_response(inbound.chat_id, inbound.text, waha_client, inbound.session, store):
-            return {"ok": True, "chat_id": inbound.chat_id, "skipped": "explanation_response_handled"}
-        # Sin `explanation_declined` persistido, no hay forma de distinguir acá "todavía no
-        # respondió la oferta" de "ya dijo que no y ahora habla de otra cosa" — forzar una nota
-        # de "consiga un sí/no" en el segundo caso lo trababa insistiendo con el audio sin parar
-        # (el mismo patrón de bug de `awaiting_acceptance`/autorización, visto en producción).
-        # Se deja en manos del LLM, que ya ve el ofrecimiento + la respuesta en el historial.
-
     deal_id = store.get_deal_id(inbound.chat_id)
     if deal_id is not None and not crm_client.deal_exists(deal_id):
         logger.info("Deal cacheado %s (chat %s) ya no existe en el CRM, se resuelve uno nuevo", deal_id, inbound.chat_id)
@@ -377,10 +367,10 @@ def _process(
 
         if deal_id_before_identity_resolution is None and deal_id is not None:
             if not maybe_send_explanation(inbound.chat_id, inbound.session, waha_client, store):
-                # Cliente conocido: la explicación ya se había ofrecido/mandado antes de
-                # confirmar identidad (`whatsapp_bot_welcome.py`), así que la afirmación
-                # original a `whatsapp_ask_acceptance` se perdió respondiendo nombre/teléfono
-                # en su lugar. El deal recién se crea acá — hay que volver a pedirla, si no
+                # Cliente conocido: la explicación ya se había mandado antes de confirmar
+                # identidad (`whatsapp_bot_welcome.py`), así que la afirmación original a
+                # `whatsapp_ask_acceptance` se perdió respondiendo nombre/teléfono en su
+                # lugar. El deal recién se crea acá — hay que volver a pedirla, si no
                 # la conversación queda esperando sin que el bot pida nada.
                 if store.get_explanation_sent(inbound.chat_id) and not store.get_authorization_link_sent(
                     inbound.chat_id

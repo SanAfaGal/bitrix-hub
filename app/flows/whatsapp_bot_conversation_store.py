@@ -123,14 +123,6 @@ class ConversationStore:
         with self._SessionLocal() as session:
             store_db.set_explanation_sent(session, chat_id)
 
-    def get_explanation_offered(self, chat_id: str) -> bool:
-        with self._SessionLocal() as session:
-            return store_db.get_explanation_offered(session, chat_id)
-
-    def set_explanation_offered(self, chat_id: str) -> None:
-        with self._SessionLocal() as session:
-            store_db.set_explanation_offered(session, chat_id)
-
     def get_authorization_link_sent(self, chat_id: str) -> bool:
         with self._SessionLocal() as session:
             return store_db.get_authorization_link_sent(session, chat_id)
