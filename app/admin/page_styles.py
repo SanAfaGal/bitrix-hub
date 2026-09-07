@@ -391,8 +391,7 @@ ADMIN_STYLE = """<style>
   .prospect-row__name { font-size: 14px; font-weight: 700; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prospect-row__name--muted { color: var(--color-text-faint); font-weight: 600; font-style: italic; }
   .prospect-row__time { flex: 0 0 auto; font-size: 11px; color: var(--color-text-faint); }
-  .prospect-row__bottom { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-  .prospect-row__preview { min-width: 0; font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prospect-row__bottom { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); }
   .prospect-row__phone { font-size: 11px; color: var(--color-text-faint); }
 
   .prospect-badge {

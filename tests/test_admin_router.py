@@ -204,7 +204,7 @@ def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.Monk
     assert response.status_code == 200
     assert "Ana" in response.text
     assert "Deal 42" in response.text
-    assert "hola, quiero vender mi apto" in response.text
+    assert "/admin/prospects/573001112233@c.us" in response.text
 
 
 def test_prospects_list_shows_empty_state(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -246,8 +246,8 @@ def test_prospect_detail_keeps_the_chat_list_visible(client: TestClient, monkeyp
     response = client.get("/admin/prospects/111@c.us")
 
     assert response.status_code == 200
-    assert "chat uno" in response.text
-    assert "chat dos" in response.text
+    assert "chat uno" in response.text  # burbuja del hilo seleccionado (111@c.us)
+    assert "/admin/prospects/222@c.us" in response.text  # fila del otro chat sigue en la lista
     assert 'prospect-row--active' in response.text
 
 

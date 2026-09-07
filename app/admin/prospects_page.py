@@ -88,7 +88,6 @@ def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str
         else:
             name_html = '<span class="prospect-row__name prospect-row__name--muted">Sin confirmar</span>'
         phone = _display_phone(chat.get("confirmed_phone")) or ""
-        preview = (chat.get("last_content") or "").replace("\n", " ").strip()
         key = _row_key(chat)
         active = " prospect-row--active" if key == selected_chat_id else ""
         rows.append(
@@ -100,7 +99,6 @@ def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str
             f'<span class="prospect-row__time">{escape(_format_relative(chat.get("last_created_at")))}</span>'
             f"</div>"
             f'<div class="prospect-row__bottom">'
-            f'<span class="prospect-row__preview">{escape(preview)}</span>'
             f'{_channel_badge(chat.get("channel", "whatsapp"))}'
             f"{_deal_badge(chat.get('deal_id'))}"
             f"</div>"
