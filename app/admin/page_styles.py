@@ -401,6 +401,7 @@ ADMIN_STYLE = """<style>
   }
   .prospect-badge--deal { background: #dcecf1; color: var(--color-teal); }
   .prospect-badge--nodeal { background: #f1f1f6; color: var(--color-text-faint); }
+  .prospect-badge--channel { background: #fbe9d0; color: #a06a1a; }
 
   .prospect-empty { padding: var(--space-7); text-align: center; color: var(--color-text-muted); font-size: 14px; }
 

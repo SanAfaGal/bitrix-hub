@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from app.crm.protocol import CrmClient, PropertyListing
-from app.graph.lead_email_parser import parse_lead_email
+from app.graph.lead_email_parser import ParsedLead, parse_lead_email
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ class LeadIntakeResult:
     status: LeadIntakeStatus
     deal_id: str | None
     reason: str | None = None
+    nombre: str | None = None
+    telefono: str | None = None
 
 
 def process(message: dict[str, Any], crm_client: CrmClient) -> LeadIntakeResult:
@@ -65,27 +67,47 @@ def process(message: dict[str, Any], crm_client: CrmClient) -> LeadIntakeResult:
     body_text = (message.get("body") or {}).get("content") or ""
 
     lead = parse_lead_email(subject, body_text)
+    return create_lead(lead, crm_client)
 
+
+def create_lead(lead: ParsedLead, crm_client: CrmClient) -> LeadIntakeResult:
+    """Crea contacto + negociación en Bitrix a partir de un `ParsedLead` ya parseado.
+
+    Separado de `process()` para que el caller (`app/graph/router.py`) pueda
+    parsear una sola vez, calcular la clave de dedup (`email_tracking_id`)
+    ANTES de decidir si crea algo, y reusar el mismo `lead` acá — sin
+    parsear el cuerpo del correo dos veces.
+    """
     if lead.service_type != "vender":
-        logger.info("Correo %r con service_type=%s, se omite (fuera de alcance)", subject, lead.service_type)
-        return LeadIntakeResult(status="skipped", deal_id=None, reason=f"service_type={lead.service_type}")
+        logger.info("Correo con service_type=%s, se omite (fuera de alcance)", lead.service_type)
+        return LeadIntakeResult(
+            status="skipped", deal_id=None, reason=f"service_type={lead.service_type}", nombre=lead.nombre, telefono=lead.telefono
+        )
 
     if lead.telefono is None:
-        logger.warning("Lead de formulario web sin teléfono válido (tracking_id=%s), no se puede crear", lead.tracking_id)
-        return LeadIntakeResult(status="error", deal_id=None, reason="sin_telefono")
+        logger.warning(
+            "Lead de formulario web sin teléfono válido (email_tracking_id=%s), no se puede crear", lead.email_tracking_id
+        )
+        return LeadIntakeResult(status="error", deal_id=None, reason="sin_telefono", nombre=lead.nombre, telefono=None)
 
     contact_id = crm_client.find_or_create_property_seller_contact(
         lead.telefono, display_name=lead.nombre, email=lead.correo
     )
     if contact_id is None:
-        logger.error("No se pudo crear/encontrar el contacto en Bitrix para el lead tracking_id=%s", lead.tracking_id)
-        return LeadIntakeResult(status="error", deal_id=None, reason="contacto_no_creado")
+        logger.error(
+            "No se pudo crear/encontrar el contacto en Bitrix para el lead email_tracking_id=%s", lead.email_tracking_id
+        )
+        return LeadIntakeResult(
+            status="error", deal_id=None, reason="contacto_no_creado", nombre=lead.nombre, telefono=lead.telefono
+        )
 
     deal_title = f"Consignación Web - {lead.nombre or lead.telefono}"
     deal_id = crm_client.find_or_create_property_seller_deal(contact_id, title=deal_title)
     if deal_id is None:
         logger.error("No se pudo crear/encontrar el deal en Bitrix para el contacto %s", contact_id)
-        return LeadIntakeResult(status="error", deal_id=None, reason="deal_no_creado")
+        return LeadIntakeResult(
+            status="error", deal_id=None, reason="deal_no_creado", nombre=lead.nombre, telefono=lead.telefono
+        )
 
     crm_client.update_property_listing(
         deal_id,
@@ -100,13 +122,13 @@ def process(message: dict[str, Any], crm_client: CrmClient) -> LeadIntakeResult:
     if comment:
         crm_client.add_comment(deal_id, comment)
 
-    return LeadIntakeResult(status="created", deal_id=deal_id)
+    return LeadIntakeResult(status="created", deal_id=deal_id, nombre=lead.nombre, telefono=lead.telefono)
 
 
 def _build_comment(lead) -> str | None:
     lines = ["Lead recibido por formulario web (Quiero Vender)."]
     if lead.mensaje:
         lines.append(f"Mensaje: {lead.mensaje}")
-    if lead.tracking_id:
-        lines.append(f"ID de Seguimiento: {lead.tracking_id}")
+    if lead.email_tracking_id:
+        lines.append(f"ID de Seguimiento: {lead.email_tracking_id}")
     return "\n".join(lines)

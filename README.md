@@ -141,10 +141,8 @@ app/
     client.py         # GraphClient — auth client credentials + list_messages(sender=None, top=25) contra el Inbox de GRAPH_MAILBOX (incluye body en texto plano)
     settings.py        # GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_MAILBOX
     lead_email_parser.py # parse_lead_email() — extrae y sanitiza los campos del correo de formulario web
-    models.py, db.py     # ProcessedGraphMessage (SQLAlchemy) — dedup, reusa el pool MySQL de app.message_templates.db
-    store.py               # is_processed()/mark_processed() — sin fallback silencioso ante error de MySQL
     deps.py                  # get_graph_client()
-    router.py                  # GET /graph/inbox, POST /graph/process-leads (tag "Microsoft Graph")
+    router.py                  # GET /graph/inbox, POST /graph/process-leads (tag "Microsoft Graph") — dedup vía app.flows.graph_lead_store
   waha/
     client.py         # WahaClient — send_text(chat_id, text, session=None), resolve_lid_to_phone(lid, session=None)
     settings.py        # WAHA_BASE_URL, WAHA_API_KEY, WAHA_SESSION
@@ -164,6 +162,7 @@ app/
   flows/
     registry_duplicate_check.py    # CRM + Xposure: matrícula -> consulta -> comentario/campo (ex MLS/app/deal_event.py)
     graph_lead_intake.py             # Graph + CRM: correo de formulario web (Quiero Vender) -> contacto + negociación
+    graph_lead_store.py                # Dedup de correos por email_tracking_id contra la tabla leads (comparte MySQL con el bot)
     whatsapp_bot.py                  # Waha + LLM + CRM: bot conversacional (experimental) — ver sección Endpoints
     whatsapp_bot_welcome.py            # Bienvenida de primer contacto (texto fijo, sin LLM)
     router.py              # POST /webhook/deal-event (tag "Bitrix Webhooks")
@@ -274,10 +273,12 @@ curl "http://127.0.0.1:8000/graph/inbox?sender=cliente@dominio.com&top=10"
 
 Revisa el inbox filtrado por el remitente fijo `comunicados@albertoalvarez.com`
 (`app/flows/graph_lead_intake.py::LEAD_SENDER`), salta los correos ya
-procesados (tabla `graph_processed_messages`) y, para los correos "Quiero
-Vender" restantes, parsea el cuerpo (`app/graph/lead_email_parser.py`) y
-crea/encuentra el contacto y la negociación en el pipeline Consignación.
-Disparador manual/cron por ahora, no hay suscripción push de Graph.
+procesados (dedup por `email_tracking_id` contra la tabla `leads`,
+compartida con el bot de WhatsApp — ver `app/flows/graph_lead_store.py`) y,
+para los correos "Quiero Vender" restantes, parsea el cuerpo
+(`app/graph/lead_email_parser.py`) y crea/encuentra el contacto y la
+negociación en el pipeline Consignación. Disparador manual/cron por ahora,
+no hay suscripción push de Graph.
 
 La respuesta separa cada correo revisado en una de cuatro listas —
 `total` siempre es la suma de las cuatro:
@@ -291,9 +292,9 @@ La respuesta separa cada correo revisado en una de cuatro listas —
   pudo confirmar el estado de dedup — este último caso no se marca como
   procesado, se reintenta en la siguiente corrida).
 - **`already_processed`**: no se tocó en esta corrida — ya tenía una fila
-  en `graph_processed_messages` de una corrida anterior (con cualquiera de
-  los tres resultados de arriba). Trae el `status`/`deal_id`/`detail`
-  guardado entonces, para saber qué pasó sin reprocesarlo.
+  en `leads` de una corrida anterior (con cualquiera de los tres resultados
+  de arriba). Trae el `status`/`deal_id`/`detail` guardado entonces, para
+  saber qué pasó sin reprocesarlo.
 
 Ejemplo de respuesta:
 

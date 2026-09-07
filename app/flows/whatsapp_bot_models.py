@@ -1,35 +1,50 @@
-"""Modelos SQLAlchemy de las tablas de conversación del bot de WhatsApp en MySQL.
+"""Modelos SQLAlchemy de la tabla `leads` (prospectos, WhatsApp o correo) en MySQL.
 
-Una sola tabla `conversations` para todo lo que es 1:1 por chat (deal
-vinculado, identidad, estado de la explicación) — no hay razón de negocio
-para partirlo en varias tablas, todas comparten la misma PK (`chat_id`) y
-las escribe el mismo proceso. `conversation_messages` sí es 1:N y se queda
-aparte. El esquema lo posee Alembic (ver `migrations/`) — `create_all` solo
-se usa contra el SQLite en memoria de los tests (`build_sqlite_engine`).
+Una sola tabla `leads` para todo lo que es 1:1 por prospecto (deal
+vinculado, identidad, estado de la explicación del bot, dedup de correos
+del formulario web) — un prospecto llega por `chat_id` (WhatsApp,
+`channel="whatsapp"`) o por `email_tracking_id` (formulario web,
+`channel="email"`, ver `app.flows.graph_lead_store`); nunca por los dos.
+`chat_id`/`email_tracking_id` son nullable porque ninguno aplica a todas
+las filas — la PK es el `id` sintético. `conversation_messages` sí es 1:N
+(solo aplica a leads de WhatsApp) y se queda aparte. El esquema lo posee
+Alembic (ver `migrations/`) — `create_all` solo se usa contra el SQLite en
+memoria de los tests (`build_sqlite_engine`).
 """
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
 
 class Conversation(Base):
-    """Un prospecto por `chat_id` (JID de WhatsApp) — fuente de verdad de su identidad,
-    el `deal_id` de Bitrix vinculado, y en qué punto va la explicación del proceso.
+    """Un prospecto — por `chat_id` (WhatsApp) o `email_tracking_id` (formulario web).
 
-    `name`/`phone` solo se escriben juntos, atómicamente, una vez el LLM ya
-    tiene ambos confirmados (ver `_apply_confirmed_identity` en
-    whatsapp_bot.py) — no hay estado "a medias" persistido acá; mientras la
-    persona va confirmando uno a la vez, esa memoria vive en el propio
-    historial de la conversación (que el LLM ya recibe como contexto), no en
-    esta tabla.
+    `name`/`phone` en un lead de WhatsApp solo se escriben juntos,
+    atómicamente, una vez el LLM ya tiene ambos confirmados (ver
+    `_apply_confirmed_identity` en whatsapp_bot.py) — no hay estado "a
+    medias" persistido acá; mientras la persona va confirmando uno a la
+    vez, esa memoria vive en el propio historial de la conversación (que el
+    LLM ya recibe como contexto), no en esta tabla. En un lead de correo,
+    `name`/`phone` vienen ya sanitizados del formulario
+    (`app.graph.lead_email_parser`).
+
+    `explanation_offered`/`explanation_sent`/`authorization_link_sent` son
+    conceptos exclusivos del bot de WhatsApp — quedan en su default `False`
+    para un lead de correo, sin significado ahí. `status`/`detail` son el
+    resultado de procesar un correo (`created`/`skipped`/`error` + motivo,
+    ver `app.flows.graph_lead_store`) — `None` para un lead de WhatsApp.
     """
 
-    __tablename__ = "conversations"
+    __tablename__ = "leads"
 
-    chat_id: str = Column(String(64), primary_key=True)
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id: str | None = Column(String(64), nullable=True, unique=True)
+    email_tracking_id: str | None = Column(String(64), nullable=True, unique=True)
+    channel: str = Column(String(16), nullable=False)
+
     deal_id: str | None = Column(String(32), nullable=True, unique=True)
 
     name: str | None = Column(String(255), nullable=True)
@@ -46,6 +61,14 @@ class Conversation(Base):
     # link en cada turno sin mandarlo nunca). Ver `maybe_handle_acceptance`.
     authorization_link_sent: bool = Column(Boolean, nullable=False, default=False)
 
+    # Resultado de procesar un correo del formulario web (solo canal "email").
+    status: str | None = Column(String(16), nullable=True)
+    detail: str | None = Column(Text, nullable=True)
+
+    # Seteado explícito en código al crear la fila (mismo criterio que
+    # `ConversationMessage.created_at`, que tampoco usa default de la base).
+    created_at = Column(DateTime, nullable=True)
+
 
 class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
@@ -53,7 +76,7 @@ class ConversationMessage(Base):
 
     id: int = Column(Integer, primary_key=True, autoincrement=True)
     chat_id: str = Column(
-        String(64), ForeignKey("conversations.chat_id", ondelete="CASCADE"), nullable=False
+        String(64), ForeignKey("leads.chat_id", ondelete="CASCADE"), nullable=False
     )
     role: str = Column(String(16), nullable=False)
     content: str = Column(Text, nullable=False)

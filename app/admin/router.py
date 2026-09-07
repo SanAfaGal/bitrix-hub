@@ -174,24 +174,40 @@ def post_delete_prospect(chat_id: str, username: str = Depends(require_login)) -
 
 
 @router.get(
-    f"{PROSPECTS_PATH}/{{chat_id}}",
+    f"{PROSPECTS_PATH}/{{key}}",
     response_class=HTMLResponse,
     summary="Muestra el hilo de un prospecto junto con la lista completa",
 )
-def get_prospect_detail(chat_id: str, username: str = Depends(require_login)) -> HTMLResponse:
+def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTMLResponse:
+    """`key` es el `chat_id` (WhatsApp) o el `email_tracking_id` (lead de correo) — se resuelve buscando
+    en `list_chats()`, que ya trae ambos canales mezclados (ver `app.flows.whatsapp_bot_store.list_chats`).
+    """
     chats = conversation_store.list_chats()
-    confirmed_name, confirmed_phone = conversation_store.get_confirmed_identity(chat_id)
-    selected_meta = {
-        "confirmed_name": confirmed_name,
-        "confirmed_phone": confirmed_phone,
-        "deal_id": conversation_store.get_deal_id(chat_id),
-    }
-    selected_messages = conversation_store.get_full_history(chat_id)
+    selected = next((c for c in chats if c["chat_id"] == key or c["email_tracking_id"] == key), None)
+
+    if selected is None or selected["channel"] == "email":
+        selected_meta = {
+            "confirmed_name": selected["confirmed_name"] if selected else None,
+            "confirmed_phone": selected["confirmed_phone"] if selected else None,
+            "deal_id": selected["deal_id"] if selected else None,
+            "channel": "email",
+        }
+        selected_messages: list = []
+    else:
+        confirmed_name, confirmed_phone = conversation_store.get_confirmed_identity(key)
+        selected_meta = {
+            "confirmed_name": confirmed_name,
+            "confirmed_phone": confirmed_phone,
+            "deal_id": conversation_store.get_deal_id(key),
+            "channel": "whatsapp",
+        }
+        selected_messages = conversation_store.get_full_history(key)
+
     return HTMLResponse(
         render_prospects_html(
             username=username,
             chats=chats,
-            selected_chat_id=chat_id,
+            selected_chat_id=key,
             selected_meta=selected_meta,
             selected_messages=selected_messages,
         )

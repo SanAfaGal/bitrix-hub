@@ -7,10 +7,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.crm.deps import get_crm_client
-from app.flows.graph_lead_intake import LEAD_SENDER, process as process_lead_email
-from app.graph import store as processed_store
+from app.flows import graph_lead_store as processed_store
+from app.flows.graph_lead_intake import LEAD_SENDER, create_lead
 from app.graph.client import GraphClient
 from app.graph.deps import get_graph_client
+from app.graph.lead_email_parser import parse_lead_email
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,8 @@ def post_process_leads(
       último caso NO se marca como procesado, para reintentarlo en la
       siguiente corrida). Trae `reason` con el motivo puntual.
     - **already_processed**: NO se tocó en esta corrida — ya tenía una fila
-      en `graph_processed_messages` de una corrida anterior (que puede
+      en `leads` (tabla compartida con el bot de WhatsApp, `channel="email"`,
+      ver `app.flows.graph_lead_store`) de una corrida anterior (que puede
       haber sido cualquiera de los tres resultados de arriba). Trae el
       `status`/`deal_id`/`detail`/`processed_at` que quedó guardado
       entonces, para saber qué pasó sin tener que reprocesarlo.
@@ -88,8 +90,16 @@ def post_process_leads(
 
         entry_base = {"message_id": message_id, "subject": message.get("subject")}
 
+        subject = message.get("subject") or ""
+        body_text = (message.get("body") or {}).get("content") or ""
+        lead = parse_lead_email(subject, body_text)
+        # Sin ID de Seguimiento parseable (correo malformado) no hay clave de
+        # negocio para dedup — se usa el id de Graph como respaldo, así el
+        # correo igual queda cubierto en una corrida futura.
+        dedup_key = lead.email_tracking_id or message_id
+
         try:
-            previous = processed_store.get_processed(message_id)
+            previous = processed_store.get_processed(dedup_key)
             if previous is not None:
                 already_processed.append({**entry_base, **previous})
                 continue
@@ -98,7 +108,7 @@ def post_process_leads(
             errors.append({**entry_base, "reason": "dedup_no_confirmado"})
             continue
 
-        result = process_lead_email(message, crm_client)
+        result = create_lead(lead, crm_client)
 
         entry = {**entry_base, "reason": result.reason}
         if result.status == "created":
@@ -111,7 +121,12 @@ def post_process_leads(
 
         try:
             processed_store.mark_processed(
-                message_id, status=result.status, deal_id=result.deal_id, detail=result.reason
+                dedup_key,
+                status=result.status,
+                deal_id=result.deal_id,
+                detail=result.reason,
+                name=result.nombre,
+                phone=result.telefono,
             )
         except Exception:
             logger.exception("No se pudo marcar como procesado el mensaje %s (creado igual: %s)", message_id, result.deal_id)

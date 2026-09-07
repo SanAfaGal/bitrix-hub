@@ -8,7 +8,6 @@ from alembic import context
 from app.message_templates.models import Base as TemplatesBase
 from app.message_templates.settings import load_message_templates_settings
 from app.flows.whatsapp_bot_models import Base as BotBase
-from app.graph.models import Base as GraphBase
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -34,7 +33,7 @@ config.set_main_option("sqlalchemy.url", get_url())
 # su propio `Base` independiente) en un único MetaData para que autogenerate
 # vea ambos esquemas — no se fuerza un Base compartido entre paquetes.
 target_metadata = MetaData()
-for base in (TemplatesBase, BotBase, GraphBase):
+for base in (TemplatesBase, BotBase):
     for table in base.metadata.tables.values():
         table.to_metadata(target_metadata)
 

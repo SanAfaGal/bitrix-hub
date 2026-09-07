@@ -12,6 +12,7 @@ Funciones puras sobre una `Session` ya abierta (la abre y cierra
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -20,10 +21,16 @@ from sqlalchemy.orm import Session
 from app.flows.whatsapp_bot_models import Conversation, ConversationMessage
 
 
+def _get_by_chat_id(session: Session, chat_id: str) -> Conversation | None:
+    """`chat_id` ya no es la PK de `leads` (ver whatsapp_bot_models.py) — reemplaza
+    los `session.get(Conversation, chat_id)` de antes, que buscaban por PK."""
+    return session.execute(select(Conversation).where(Conversation.chat_id == chat_id)).scalar_one_or_none()
+
+
 def _get_or_create(session: Session, chat_id: str) -> Conversation:
-    row = session.get(Conversation, chat_id)
+    row = _get_by_chat_id(session, chat_id)
     if row is None:
-        row = Conversation(chat_id=chat_id)
+        row = Conversation(chat_id=chat_id, channel="whatsapp", created_at=datetime.now(timezone.utc))
         session.add(row)
         session.flush()
     return row
@@ -51,7 +58,21 @@ def get_full_history(session: Session, chat_id: str) -> list[dict[str, str]]:
 
 
 def list_chats(session: Session) -> list[dict[str, Any]]:
-    """Un resumen por chat (último mensaje, deal_id, identidad confirmada), para la lista del panel admin.
+    """Resumen de todos los leads (WhatsApp + correo) para la lista del panel admin.
+
+    Se arman por separado (formas muy distintas de "último mensaje": un
+    turno de chat real vs. el resultado de procesar un correo) y se
+    combinan ordenados por `last_created_at` descendente.
+    """
+    whatsapp_chats = _list_whatsapp_chats(session)
+    email_leads = _list_email_leads(session)
+    combined = whatsapp_chats + email_leads
+    combined.sort(key=lambda c: c["last_created_at"] or 0, reverse=True)
+    return combined
+
+
+def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
+    """Un resumen por chat (último mensaje, deal_id, identidad confirmada).
 
     Ordenado por último mensaje descendente — los chats sin ningún mensaje
     en `conversation_messages` no aparecen (no hay nada que mostrar de
@@ -80,6 +101,8 @@ def list_chats(session: Session) -> list[dict[str, Any]]:
     return [
         {
             "chat_id": chat_id,
+            "email_tracking_id": None,
+            "channel": "whatsapp",
             "last_content": last_content,
             "last_created_at": last_created_at,
             "message_count": message_count,
@@ -89,6 +112,35 @@ def list_chats(session: Session) -> list[dict[str, Any]]:
         }
         for chat_id, last_content, last_created_at, message_count, deal_id, name, phone in rows
     ]
+
+
+def _list_email_leads(session: Session) -> list[dict[str, Any]]:
+    """Un resumen por lead de correo (formulario web) — nunca tienen `conversation_messages`."""
+    rows = session.execute(
+        select(Conversation).where(Conversation.channel == "email").order_by(Conversation.created_at.desc())
+    ).scalars().all()
+    return [
+        {
+            "chat_id": None,
+            "email_tracking_id": row.email_tracking_id,
+            "channel": "email",
+            "last_content": _email_lead_preview(row),
+            "last_created_at": row.created_at.timestamp() if row.created_at else None,
+            "message_count": 0,
+            "deal_id": row.deal_id,
+            "confirmed_name": row.name,
+            "confirmed_phone": row.phone,
+        }
+        for row in rows
+    ]
+
+
+def _email_lead_preview(row: Conversation) -> str:
+    if row.status == "created":
+        return "Lead de formulario web — negociación creada"
+    if row.status == "skipped":
+        return f"Lead de formulario web — omitido ({row.detail})"
+    return f"Lead de formulario web — error ({row.detail})"
 
 
 def add_turn(session: Session, chat_id: str, role: str, content: str) -> None:
@@ -108,7 +160,7 @@ def delete_chat(session: Session, chat_id: str) -> None:
 
 
 def get_deal_id(session: Session, chat_id: str) -> str | None:
-    row = session.get(Conversation, chat_id)
+    row = _get_by_chat_id(session, chat_id)
     return row.deal_id if row else None
 
 
@@ -119,14 +171,14 @@ def set_deal_id(session: Session, chat_id: str, deal_id: str) -> None:
 
 
 def clear_deal_id(session: Session, chat_id: str) -> None:
-    row = session.get(Conversation, chat_id)
+    row = _get_by_chat_id(session, chat_id)
     if row is not None:
         row.deal_id = None
         session.commit()
 
 
 def get_confirmed_identity(session: Session, chat_id: str) -> tuple[str | None, str | None]:
-    row = session.get(Conversation, chat_id)
+    row = _get_by_chat_id(session, chat_id)
     if row is None:
         return (None, None)
     return (row.name, row.phone)
@@ -142,7 +194,7 @@ def set_confirmed_identity(session: Session, chat_id: str, name: str, phone: str
 
 
 def get_explanation_sent(session: Session, chat_id: str) -> bool:
-    row = session.get(Conversation, chat_id)
+    row = _get_by_chat_id(session, chat_id)
     return bool(row.explanation_sent) if row else False
 
 
@@ -153,7 +205,7 @@ def set_explanation_sent(session: Session, chat_id: str) -> None:
 
 
 def get_explanation_offered(session: Session, chat_id: str) -> bool:
-    row = session.get(Conversation, chat_id)
+    row = _get_by_chat_id(session, chat_id)
     return bool(row.explanation_offered) if row else False
 
 
@@ -164,7 +216,7 @@ def set_explanation_offered(session: Session, chat_id: str) -> None:
 
 
 def get_authorization_link_sent(session: Session, chat_id: str) -> bool:
-    row = session.get(Conversation, chat_id)
+    row = _get_by_chat_id(session, chat_id)
     return bool(row.authorization_link_sent) if row else False
 
 

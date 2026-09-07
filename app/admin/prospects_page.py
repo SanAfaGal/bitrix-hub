@@ -66,6 +66,17 @@ def _avatar_html(name: str | None, *, block: str) -> str:
     return f'<span class="{classes}">{escape(_initials(name))}</span>'
 
 
+def _row_key(chat: dict[str, Any]) -> str | None:
+    """Clave usada en la URL de la fila — `chat_id` (WhatsApp) o `email_tracking_id` (correo)."""
+    return chat.get("chat_id") or chat.get("email_tracking_id")
+
+
+def _channel_badge(channel: str) -> str:
+    if channel == "email":
+        return '<span class="prospect-badge prospect-badge--channel">Correo</span>'
+    return ""
+
+
 def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str:
     if not chats:
         return '<div class="prospect-list-pane"><div class="prospect-empty">Todavía no hay conversaciones registradas.</div></div>'
@@ -79,13 +90,15 @@ def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str
             name_html = '<span class="prospect-row__name prospect-row__name--muted">Sin confirmar</span>'
         phone = _display_phone(chat.get("confirmed_phone")) or ""
         preview = (chat.get("last_content") or "").replace("\n", " ").strip()
-        active = " prospect-row--active" if chat["chat_id"] == selected_chat_id else ""
+        key = _row_key(chat)
+        active = " prospect-row--active" if key == selected_chat_id else ""
         rows.append(
-            f'<a class="prospect-row{active}" href="{PROSPECTS_PATH}/{escape(chat["chat_id"])}">'
+            f'<a class="prospect-row{active}" href="{PROSPECTS_PATH}/{escape(key or "")}">'
             f'{_avatar_html(name, block="prospect-row__avatar")}'
             f'<div class="prospect-row__body">'
             f'<div class="prospect-row__top">'
             f"{name_html}"
+            f'{_channel_badge(chat.get("channel", "whatsapp"))}'
             f'<span class="prospect-row__time">{escape(_format_relative(chat.get("last_created_at")))}</span>'
             f"</div>"
             f'<div class="prospect-row__bottom">'
@@ -97,6 +110,22 @@ def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str
             f"</a>"
         )
     return f'<div class="prospect-list-pane">{"".join(rows)}</div>'
+
+
+def _delete_form_html(chat_id: str) -> str:
+    return f"""
+        <form class="prospect-header__delete-form" method="post" action="{PROSPECTS_PATH}/{escape(chat_id)}/delete"
+          onsubmit="return confirm('¿Eliminar esta conversación? Esta acción no se puede deshacer.')">
+          <button type="submit" class="prospect-header__delete-btn" aria-label="Eliminar conversación" title="Eliminar conversación">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+            </svg>
+          </button>
+        </form>
+    """
 
 
 def _thread_pane(
@@ -112,6 +141,7 @@ def _thread_pane(
     name = chat_meta.get("confirmed_name") if chat_meta else None
     phone = chat_meta.get("confirmed_phone") if chat_meta else None
     deal_id = chat_meta.get("deal_id") if chat_meta else None
+    channel = chat_meta.get("channel", "whatsapp") if chat_meta else "whatsapp"
     header_name = escape(name) if name else "Sin confirmar"
     display_phone = _display_phone(phone)
     header_phone = escape(display_phone) if display_phone else escape(chat_id)
@@ -143,17 +173,7 @@ def _thread_pane(
           <span class="prospect-header__phone">{header_phone}</span>
         </div>
         {_deal_badge(deal_id)}
-        <form class="prospect-header__delete-form" method="post" action="{PROSPECTS_PATH}/{escape(chat_id)}/delete"
-          onsubmit="return confirm('¿Eliminar esta conversación? Esta acción no se puede deshacer.')">
-          <button type="submit" class="prospect-header__delete-btn" aria-label="Eliminar conversación" title="Eliminar conversación">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
-            </svg>
-          </button>
-        </form>
+        {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
       </div>
       <div class="prospect-thread">{bubbles_html}</div>
     </div>
