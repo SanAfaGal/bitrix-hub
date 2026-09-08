@@ -11,6 +11,8 @@ from typing import Any, Literal, Protocol
 
 AuthorizationStatus = Literal["pendiente_envio", "pendiente_firma", "firmada"]
 
+DealSource = Literal["whatsapp", "pagina_web"]
+
 
 @dataclass(frozen=True)
 class PropertyListing:
@@ -122,12 +124,19 @@ class CrmClient(Protocol):
         """
         ...
 
-    def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None) -> str | None:
+    def find_or_create_property_seller_deal(
+        self, contact_id: str, title: str | None = None, source: DealSource | None = None
+    ) -> str | None:
         """Busca un deal de consignación abierto para el contacto; si no existe, lo crea. Retorna el deal_id, o None si falla.
 
         `title`, si se pasa, se usa como título del deal nuevo en vez del
         default (pensado para orígenes distintos a WhatsApp, ej. leads de
         formulario web) — no tiene efecto si el deal ya existía.
+
+        `source`, si se pasa, marca el canal de origen del deal nuevo —
+        tampoco tiene efecto si el deal ya existía, porque el canal de
+        origen es propio del primer contacto, no se reescribe en cada
+        reintento.
         """
         ...
 

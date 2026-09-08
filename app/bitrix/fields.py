@@ -49,6 +49,18 @@ FIELD_BOT_ACTIVE = "UF_CRM_1787762476957"
 # Pipeline "Consignación" donde caen los deals nuevos creados por el bot.
 CONSIGNACION_CATEGORY_ID = 34
 
+# Canal de origen del deal, obligatorio en Bitrix — ver
+# BitrixClient.find_or_create_property_seller_deal. Solo se listan acá los
+# valores que este hub sabe asignar hoy (WhatsApp, formulario web); el resto
+# del picklist ("Aviso", "Referido", etc.) se asigna a mano en Bitrix.
+FIELD_SOURCE = "UF_CRM_1787836749518"
+VALUE_SOURCE_WHATSAPP = 93060
+VALUE_SOURCE_PAGINA_WEB = 93026
+SOURCE_VALUE_BY_NAME: dict[str, int] = {
+    "whatsapp": VALUE_SOURCE_WHATSAPP,
+    "pagina_web": VALUE_SOURCE_PAGINA_WEB,
+}
+
 # TODO: llenar corriendo `scripts/list_bitrix_picklist_values.py UF_CRM_1773860139420`
 # contra el Bitrix real — no se puede adivinar el VALUE ID de cada tipo de
 # inmueble. Mientras esté vacío, `BitrixClient.update_property_listing`

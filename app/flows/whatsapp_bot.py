@@ -172,7 +172,7 @@ def _create_deal_from_confirmed_identity(
     if contact_id is None:
         return None
 
-    deal_id = crm_client.find_or_create_property_seller_deal(contact_id)
+    deal_id = crm_client.find_or_create_property_seller_deal(contact_id, source="whatsapp")
     if deal_id is not None:
         store.set_deal_id(chat_id, deal_id)
     return deal_id

@@ -14,7 +14,7 @@ import requests
 
 from app.bitrix import fields
 from app.bitrix._shared import REQUEST_TIMEOUT, error_detail
-from app.crm.protocol import AuthorizationStatus, PropertyListing
+from app.crm.protocol import AuthorizationStatus, DealSource, PropertyListing
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,9 @@ class DealsMixin:
         """Marca el checkbox de bot activo/pausado (`fields.FIELD_BOT_ACTIVE`) del deal."""
         self.update_deal(deal_id, {fields.FIELD_BOT_ACTIVE: 1 if active else 0})
 
-    def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None) -> str | None:
+    def find_or_create_property_seller_deal(
+        self, contact_id: str, title: str | None = None, source: DealSource | None = None
+    ) -> str | None:
         """Busca un deal de consignación abierto para el contacto; si no existe, lo crea."""
         try:
             response = requests.post(
@@ -145,18 +147,20 @@ class DealsMixin:
             )
             return None
 
+        deal_fields: dict[str, Any] = {
+            "CONTACT_ID": contact_id,
+            "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
+            "TITLE": title or f"Consignación WhatsApp - contacto {contact_id}",
+            fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
+            fields.FIELD_BOT_ACTIVE: 1,
+        }
+        if source is not None:
+            deal_fields[fields.FIELD_SOURCE] = fields.SOURCE_VALUE_BY_NAME[source]
+
         try:
             response = requests.post(
                 f"{self.webhook_url}crm.deal.add.json",
-                json={
-                    "fields": {
-                        "CONTACT_ID": contact_id,
-                        "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
-                        "TITLE": title or f"Consignación WhatsApp - contacto {contact_id}",
-                        fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
-                        fields.FIELD_BOT_ACTIVE: 1,
-                    }
-                },
+                json={"fields": deal_fields},
                 timeout=REQUEST_TIMEOUT,
             )
             response.raise_for_status()

@@ -489,10 +489,10 @@ def test_process_serializes_deal_creation_for_same_chat_to_prevent_duplicates() 
     intervals_lock = threading.Lock()
 
     class SlowFakeCrmClient(FakeCrmClient):
-        def find_or_create_property_seller_deal(self, contact_id: str) -> str | None:
+        def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None, source: str | None = None) -> str | None:
             start = time.monotonic()
             time.sleep(0.05)
-            result = super().find_or_create_property_seller_deal(contact_id)
+            result = super().find_or_create_property_seller_deal(contact_id, title, source)
             with intervals_lock:
                 intervals.append((start, time.monotonic()))
             return result

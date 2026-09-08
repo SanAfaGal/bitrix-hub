@@ -37,7 +37,7 @@ class FakeCrmClient:
             tuple[str | None, str | None, str | None, str | None]
         ] = []
         self.deal_by_contact: dict[str, str] = {}
-        self.find_or_create_property_seller_deal_calls: list[tuple[str, str | None]] = []
+        self.find_or_create_property_seller_deal_calls: list[tuple[str, str | None, str | None]] = []
         self._next_contact_id = 5000
         self._next_deal_id = 6000
         self.contact_identity_updates: list[tuple[str, str | None, str | None]] = []
@@ -136,8 +136,10 @@ class FakeCrmClient:
         if full_name:
             contact["NAME"] = full_name
 
-    def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None) -> str | None:
-        self.find_or_create_property_seller_deal_calls.append((contact_id, title))
+    def find_or_create_property_seller_deal(
+        self, contact_id: str, title: str | None = None, source: str | None = None
+    ) -> str | None:
+        self.find_or_create_property_seller_deal_calls.append((contact_id, title, source))
         if contact_id in self.deal_by_contact:
             return self.deal_by_contact[contact_id]
         deal_id = str(self._next_deal_id)

@@ -102,7 +102,7 @@ def create_lead(lead: ParsedLead, crm_client: CrmClient) -> LeadIntakeResult:
         )
 
     deal_title = f"Consignación Web - {lead.nombre or lead.telefono}"
-    deal_id = crm_client.find_or_create_property_seller_deal(contact_id, title=deal_title)
+    deal_id = crm_client.find_or_create_property_seller_deal(contact_id, title=deal_title, source="pagina_web")
     if deal_id is None:
         logger.error("No se pudo crear/encontrar el deal en Bitrix para el contacto %s", contact_id)
         return LeadIntakeResult(
