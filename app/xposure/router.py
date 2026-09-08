@@ -49,8 +49,16 @@ def get_properties_bulk(
     payload: BulkRequest,
     client: XposureClient = Depends(get_xposure_client),
 ) -> list[PropertySearchResult]:
-    """Ejecuta una búsqueda por cada matrícula de la lista, en el mismo orden."""
-    try:
-        return [client.search_property(tax_roll) for tax_roll in payload.tax_rolls]
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    """Ejecuta una búsqueda por cada matrícula de la lista, en el mismo orden.
+
+    Una matrícula que falle no descarta el resto del lote: queda como
+    `exists=False` con el motivo del fallo en `reason`, y las demás se
+    devuelven igual.
+    """
+    results: list[PropertySearchResult] = []
+    for tax_roll in payload.tax_rolls:
+        try:
+            results.append(client.search_property(tax_roll))
+        except Exception as exc:
+            results.append(PropertySearchResult(tax_roll=tax_roll, exists=False, reason=str(exc)))
+    return results

@@ -38,14 +38,23 @@ def webhook_waha_test(
         description="Sesión de Waha a usar (línea/número). Si se omite, usa WAHA_SESSION de .env.",
         examples=["default"],
     ),
+    secret: str | None = Query(
+        default=None, description="Debe coincidir con WHATSAPP_WEBHOOK_SECRET cuando esté configurado."
+    ),
     client: WahaClient = Depends(get_waha_client),
 ) -> dict[str, Any]:
     """Endpoint de scaffolding: valida que WahaClient puede enviar un mensaje.
 
     No cablea ningún flujo de negocio real todavía — se reemplaza por un
     endpoint por disparador de Bitrix cuando se implemente el primer flujo
-    que use Waha (ver app/flows/README.md).
+    que use Waha (ver app/flows/README.md). Mismo secreto compartido que
+    `/webhook/waha-message` — sin esto, cualquiera que descubra la URL podía
+    mandar WhatsApp arbitrario desde la línea del negocio.
     """
+    expected_secret = load_waha_settings().webhook_secret
+    if expected_secret is not None and not hmac.compare_digest(secret or "", expected_secret):
+        raise HTTPException(status_code=401, detail="secret inválido o faltante")
+
     sent = client.send_text(chat_id, text, session=session)
     return {"ok": sent, "chat_id": chat_id, "session": session or client.session}
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.admin.deps import require_login
 from app.graph.deps import get_graph_client
 from app.main import app
 from tests.fakes import FakeCrmClient
@@ -40,10 +41,33 @@ class _FakeGraphClient:
         return self._messages
 
 
+def test_inbox_requires_login() -> None:
+    app.dependency_overrides[get_graph_client] = lambda: _FakeGraphClient([])
+    try:
+        response = client.get("/graph/inbox", follow_redirects=False)
+    finally:
+        app.dependency_overrides.pop(get_graph_client, None)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/login"
+
+
+def test_process_leads_requires_login() -> None:
+    app.dependency_overrides[get_graph_client] = lambda: _FakeGraphClient([])
+    try:
+        response = client.post("/graph/process-leads", follow_redirects=False)
+    finally:
+        app.dependency_overrides.pop(get_graph_client, None)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/login"
+
+
 def test_process_leads_creates_deal_and_dedupes_on_second_call(monkeypatch, tmp_path) -> None:
     fake_crm = FakeCrmClient()
     monkeypatch.setattr("app.graph.router.get_crm_client", lambda: fake_crm)
     app.dependency_overrides[get_graph_client] = lambda: _FakeGraphClient([_VENDER_MESSAGE])
+    app.dependency_overrides[require_login] = lambda: "test-admin"
 
     processed: dict[str, dict] = {}
     monkeypatch.setattr(
@@ -60,6 +84,7 @@ def test_process_leads_creates_deal_and_dedupes_on_second_call(monkeypatch, tmp_
         second = client.post("/graph/process-leads")
     finally:
         app.dependency_overrides.pop(get_graph_client, None)
+        app.dependency_overrides.pop(require_login, None)
 
     assert first.status_code == 200
     body = first.json()

@@ -8,10 +8,11 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-import app.forms.rate_limit as rate_limit_module
+import app.shared.rate_limit as rate_limit_module
 from app.forms.link_token import sign_deal_id
 from app.main import app
 from app.xposure.models import PropertySearchResult
+from tests.fakes import FakeCrmClient as _SharedFakeCrmClient
 
 client = TestClient(app)
 
@@ -24,71 +25,35 @@ class FakeXposureClient:
         return self._result
 
 _LINK_SECRET = "test-secret"
+_DEAL_ID = "42"
 
 
 def _token_for(deal_id: str) -> str:
     return sign_deal_id(deal_id, _LINK_SECRET)
 
 
-class FakeCrmClient:
-    """Fake mínimo para tests del router: deal sin estado de firma por defecto."""
+def FakeCrmClient(
+    *,
+    authorization_status: str | None = None,
+    upload_file_result: str | None = "https://example.bitrix24.com/docs/file/firmado.pdf",
+    contact_id: str | None = "7",
+    contact_phone: str | None = "573001112233",
+) -> _SharedFakeCrmClient:
+    """Arma `tests.fakes.FakeCrmClient` (compartido entre todos los tests) con el único deal
+    ("42") que usa este archivo, en vez de mantener una redefinición local del mismo fake."""
+    deal: dict[str, object] = {}
+    if authorization_status is not None:
+        deal["AUTHORIZATION_STATUS"] = authorization_status
+    if contact_id is not None:
+        deal["CONTACT_ID"] = contact_id
 
-    def __init__(
-        self,
-        authorization_status: str | None = None,
-        upload_file_result: str | None = "https://example.bitrix24.com/docs/file/firmado.pdf",
-        contact_id: str | None = "7",
-        contact_phone: str | None = "573001112233",
-    ) -> None:
-        self.authorization_status = authorization_status
-        self.comments: list[tuple[str, str]] = []
-        self.status_updates: list[tuple[str, str]] = []
-        self.uploaded_files: list[tuple[str, str, bytes]] = []
-        self.property_listing_updates: list[tuple[str, object]] = []
-        self.bot_active_updates: list[tuple[str, bool]] = []
-        self.pins: list[tuple[int, str]] = []
-        self.duplicado_updates: list[tuple[str, bool]] = []
-        self.upload_file_result = upload_file_result
-        self.contact_id = contact_id
-        self.contact_phone = contact_phone
+    contacts: dict[str, dict[str, object]] = {}
+    if contact_id is not None:
+        contacts[contact_id] = {"PHONE": contact_phone} if contact_phone is not None else {}
 
-    def get_deal(self, deal_id):
-        return {"ID": deal_id}
-
-    def get_authorization_status(self, deal):
-        return self.authorization_status
-
-    def set_authorization_status(self, deal_id, status):
-        self.status_updates.append((deal_id, status))
-
-    def add_comment(self, deal_id, comment):
-        self.comments.append((deal_id, comment))
-        return 1
-
-    def upload_file(self, folder_id, filename, content):
-        self.uploaded_files.append((folder_id, filename, content))
-        return self.upload_file_result
-
-    def get_deal_contact_id(self, deal):
-        return self.contact_id
-
-    def get_contact(self, contact_id):
-        return {"ID": contact_id}
-
-    def get_contact_phone(self, contact):
-        return self.contact_phone
-
-    def update_property_listing(self, deal_id, listing):
-        self.property_listing_updates.append((deal_id, listing))
-
-    def set_bot_active(self, deal_id, active):
-        self.bot_active_updates.append((deal_id, active))
-
-    def pin_comment(self, comment_id, deal_id):
-        self.pins.append((comment_id, deal_id))
-
-    def set_duplicado_status(self, deal_id, has_duplicate):
-        self.duplicado_updates.append((deal_id, has_duplicate))
+    fake = _SharedFakeCrmClient(deals={_DEAL_ID: deal}, contacts=contacts)
+    fake.upload_file_result = upload_file_result
+    return fake
 
 
 class FakeWahaClient:
@@ -114,7 +79,7 @@ def _form_link_secret(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _drive_folder_id(monkeypatch):
-    monkeypatch.setattr("app.forms.router.load_signed_form_drive_folder_id", lambda: "595608")
+    monkeypatch.setattr("app.flows.brokerage_authorization_signed.load_signed_form_drive_folder_id", lambda: "595608")
 
 
 def _signature_data_url() -> str:
@@ -501,7 +466,7 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
     deal_id, comment = fake_crm.comments[0]
     assert deal_id == "42"
     assert "firm" in comment.lower()
-    assert fake_crm.status_updates == [("42", "firmada")]
+    assert fake_crm.authorization_status_updates == [("42", "firmada")]
     assert fake_crm.bot_active_updates == [("42", False)]
     assert len(fake_crm.property_listing_updates) == 1
     listing_deal_id, listing = fake_crm.property_listing_updates[0]
@@ -566,7 +531,7 @@ def test_post_form_still_marks_signed_when_whatsapp_notification_fails(monkeypat
 
     assert response.status_code == 200
     assert response.content.startswith(b"%PDF")
-    assert fake_crm.status_updates == [("42", "firmada")]
+    assert fake_crm.authorization_status_updates == [("42", "firmada")]
 
 
 def test_post_form_does_not_notify_when_contact_has_no_phone(monkeypatch):
@@ -629,7 +594,7 @@ def test_post_form_still_marks_signed_when_drive_upload_fails(monkeypatch):
 
     assert response.status_code == 200
     assert response.content.startswith(b"%PDF")
-    assert fake_crm.status_updates == [("42", "firmada")]
+    assert fake_crm.authorization_status_updates == [("42", "firmada")]
     _, comment = fake_crm.comments[0]
     assert "http" not in comment
 
@@ -672,11 +637,13 @@ def test_post_form_without_deal_id_does_not_touch_bitrix(monkeypatch):
 
 
 def test_post_form_still_returns_pdf_when_bitrix_comment_fails(monkeypatch):
-    class FailingCrmClient(FakeCrmClient):
-        def add_comment(self, deal_id, comment):
-            raise RuntimeError("Bitrix caído")
+    fake_crm = FakeCrmClient()
 
-    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FailingCrmClient())
+    def _failing_add_comment(deal_id, comment):
+        raise RuntimeError("Bitrix caído")
+
+    fake_crm.add_comment = _failing_add_comment
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
 
     payload = _valid_form_payload()
     payload["deal_id"] = "42"
@@ -741,7 +708,8 @@ def test_verify_matricula_with_deal_id_records_duplicate_on_deal(monkeypatch):
     assert response.status_code == 200
     assert response.json()["duplicate"] is True
     assert fake_crm.duplicado_updates == [("42", True)]
-    assert fake_crm.pins == [(1, "42")]
+    assert len(fake_crm.pins) == 1
+    assert fake_crm.pins[0][1] == "42"
 
 
 def test_verify_matricula_rejects_deal_id_without_valid_token(monkeypatch):

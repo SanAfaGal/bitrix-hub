@@ -98,7 +98,12 @@ class GraphClient:
             raise RuntimeError("No se pudo autenticar contra Microsoft Graph") from exc
 
         token_data = response.json()
-        self._token = token_data["access_token"]
+        access_token = token_data.get("access_token")
+        if not access_token:
+            logger.error("Respuesta de Microsoft Graph sin access_token: %s", token_data)
+            raise RuntimeError("No se pudo autenticar contra Microsoft Graph")
+
+        self._token = access_token
         # Renueva un poco antes de que expire de verdad, para no correr con un token al filo.
         self._token_expires_at = time.monotonic() + max(int(token_data.get("expires_in", 0)) - 60, 0)
         return self._token

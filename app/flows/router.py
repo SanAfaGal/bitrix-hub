@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 
 from app.crm.deps import get_crm_client
 from app.flows.registry_duplicate_check import process_deal_event
 from app.flows.notify_contact import process_notify_contact
-from app.flows.settings import load_public_base_url
+from app.flows.settings import load_bitrix_webhook_secret, load_public_base_url
 from app.flows.welcome_authorization import process_welcome_and_authorization
 from app.forms.settings import load_form_link_secret
 from app.waha.deps import get_waha_client
@@ -22,6 +23,16 @@ router = APIRouter(tags=["Bitrix Webhooks"])
 
 _DEAL_ID_ALIAS_DATA_FIELDS = "data[FIELDS][ID]"
 _DEAL_ID_ALIAS_DOCUMENT_ID_2 = "document_id[2]"
+
+_SECRET_DESCRIPTION = "Debe coincidir con BITRIX_WEBHOOK_SECRET cuando esté configurado."
+
+
+def _check_bitrix_webhook_secret(secret: str | None) -> None:
+    """Mismo patrón que `app/waha/router.py::webhook_waha_message` — sin esto, cualquiera que
+    descubra la URL puede disparar acciones reales en Bitrix/WhatsApp a nombre del negocio."""
+    expected_secret = load_bitrix_webhook_secret()
+    if expected_secret is not None and not hmac.compare_digest(secret or "", expected_secret):
+        raise HTTPException(status_code=401, detail="secret inválido o faltante")
 
 
 async def _resolve_deal_id(
@@ -74,6 +85,7 @@ async def webhook_deal_event(
         description="Alternativa simple, útil para pruebas manuales con curl.",
         examples=["42"],
     ),
+    secret: str | None = Query(default=None, description=_SECRET_DESCRIPTION),
 ) -> dict[str, Any]:
     """Recibe un evento de deal de Bitrix y delega el procesamiento a app.flows.registry_duplicate_check.
 
@@ -82,6 +94,7 @@ async def webhook_deal_event(
     timeline (fijado solo si es duplicado) + actualiza el campo
     Duplicado/Sin duplicado (`UF_CRM_1773861337167`) del deal.
     """
+    _check_bitrix_webhook_secret(secret)
     try:
         deal_id = await _resolve_deal_id(request, deal_id_data_fields, document_id_2, deal_id_simple)
 
@@ -130,6 +143,7 @@ async def webhook_deal_notify_test(
         description="Sesión de Waha a usar. Si se omite, usa WAHA_SESSION de .env.",
         examples=["default"],
     ),
+    secret: str | None = Query(default=None, description=_SECRET_DESCRIPTION),
 ) -> dict[str, Any]:
     """Endpoint de prueba: igual patrón que /webhook/deal-event, pero para Waha.
 
@@ -141,6 +155,7 @@ async def webhook_deal_notify_test(
     app/flows/README.md). Acepta el mismo ID del deal que manda Bitrix, en
     las mismas variantes que `/webhook/deal-event`.
     """
+    _check_bitrix_webhook_secret(secret)
     deal_id = await _resolve_deal_id(request, deal_id_data_fields, document_id_2, deal_id_simple)
 
     if not deal_id:
@@ -159,7 +174,7 @@ async def webhook_deal_notify_test(
 
 @router.post(
     "/webhook/deal-stage-broker-auth",
-    summary="Cambio de etapa de deal de Bitrix -> WhatsApp de bienvenida + enlace de Autorización de Corretaje",
+    summary="Cambio de etapa de deal de Bitrix -> WhatsApp con enlace de Autorización de Corretaje",
 )
 async def webhook_deal_stage_broker_auth(
     request: Request,
@@ -185,17 +200,17 @@ async def webhook_deal_stage_broker_auth(
         description="Sesión de Waha a usar. Si se omite, usa WAHA_SESSION de .env.",
         examples=["default"],
     ),
+    secret: str | None = Query(default=None, description=_SECRET_DESCRIPTION),
 ) -> dict[str, Any]:
-    """Recibe el evento de cambio de etapa y le manda al contacto del deal, por WhatsApp:
-
-    1. Un mensaje de bienvenida.
-    2. Tras una pausa aleatoria (simula comportamiento humano), el enlace al
-       formulario público de Autorización de Corretaje, con el `deal_id`
-       incluido para poder amarrar la firma al deal después.
+    """Recibe el evento de cambio de etapa y le manda al contacto del deal, por WhatsApp, el
+    enlace al formulario público de Autorización de Corretaje (con el `deal_id` incluido para
+    poder amarrar la firma al deal después). Ver `app.flows.welcome_authorization` para el
+    contenido real del mensaje (una sola llamada `send_text`, sin pausa ni mensaje previo).
 
     Apuntar acá la regla de automatización de Bitrix de la etapa que
     dispara este flujo.
     """
+    _check_bitrix_webhook_secret(secret)
     deal_id = await _resolve_deal_id(request, deal_id_data_fields, document_id_2, deal_id_simple)
 
     if not deal_id:

@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.admin.deps import require_login
 from app.crm.deps import get_crm_client
 from app.flows import graph_lead_store as processed_store
 from app.flows.graph_lead_intake import LEAD_SENDER, create_lead
@@ -30,8 +31,13 @@ def get_inbox(
     ),
     top: int = Query(default=25, ge=1, le=100, description="Cantidad máxima de mensajes a devolver."),
     client: GraphClient = Depends(get_graph_client),
+    _: str = Depends(require_login),
 ) -> list[dict[str, Any]]:
-    """Endpoint de prueba: confirma acceso al inbox y el filtrado por remitente."""
+    """Endpoint de prueba: confirma acceso al inbox y el filtrado por remitente.
+
+    Protegido con el login del panel admin: expone contenido de correo real
+    de la bandeja compartida, no debe quedar accesible sin autenticación.
+    """
     try:
         return client.list_messages(sender=sender, top=top)
     except Exception as exc:
@@ -45,8 +51,13 @@ def get_inbox(
 def post_process_leads(
     top: int = Query(default=25, ge=1, le=100, description="Cantidad máxima de correos a revisar en esta corrida."),
     client: GraphClient = Depends(get_graph_client),
+    _: str = Depends(require_login),
 ) -> dict[str, Any]:
     """Lista los correos de `LEAD_SENDER`, salta los ya procesados y crea contacto+negociación para el resto.
+
+    Protegido con el login del panel admin: dispara escritura real en
+    Bitrix (contactos/negociaciones), no debe quedar accesible sin
+    autenticación.
 
     Disparador manual/cron por ahora (no hay suscripción push de Graph
     todavía) — ver `app/flows/graph_lead_intake.py`.
@@ -76,7 +87,10 @@ def post_process_leads(
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    messages = client.list_messages(sender=LEAD_SENDER, top=top)
+    try:
+        messages = client.list_messages(sender=LEAD_SENDER, top=top)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []

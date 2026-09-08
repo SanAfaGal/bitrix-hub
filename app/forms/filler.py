@@ -20,6 +20,11 @@ import pymupdf as fitz  # `import fitz` está deprecado por PyMuPDF, usar `pymup
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "AUTORIZACIÓN DE CORRETAJE INMOBILIARIO ALBERTO ÁLVAREZ.pdf"
 
+# Mismo tope que `app/forms/signature_cleaner.py`: sin esto, un PNG chico en
+# disco pero con dimensiones absurdas agota memoria al decodificarse acá
+# también (endpoint público de envío del formulario).
+_MAX_SIGNATURE_DIMENSION_PX = 4000
+
 _BOGOTA_TZ = ZoneInfo("America/Bogota")
 _SPANISH_MONTHS = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -144,7 +149,7 @@ def _signing_date_values() -> dict[str, str]:
     }
 
 
-def _left_aligned_fit(box: fitz.Rect, image_bytes: bytes) -> fitz.Rect:
+def _left_aligned_fit(box: fitz.Rect, pixmap: fitz.Pixmap) -> fitz.Rect:
     """Rect dentro de `box` para la firma, pegada al borde izquierdo (no centrada).
 
     `insert_image` con el rect completo del `box` centra la imagen si su
@@ -155,7 +160,6 @@ def _left_aligned_fit(box: fitz.Rect, image_bytes: bytes) -> fitz.Rect:
     así que acá solo hace falta calcular su tamaño real dentro de `box`
     manteniendo proporción, y anclarlo a la izquierda en vez de centrarlo.
     """
-    pixmap = fitz.Pixmap(image_bytes)
     scale = min(box.width / pixmap.width, box.height / pixmap.height)
     width = pixmap.width * scale
     height = pixmap.height * scale
@@ -170,6 +174,10 @@ def fill_and_sign(values: dict[str, str], signature_png_bytes: bytes) -> bytes:
     Los campos sin valor (opcionales que quedaron en blanco) se dejan tal
     cual están en la plantilla, con su subrayado.
     """
+    pixmap = fitz.Pixmap(signature_png_bytes)
+    if pixmap.width > _MAX_SIGNATURE_DIMENSION_PX or pixmap.height > _MAX_SIGNATURE_DIMENSION_PX:
+        raise ValueError("La imagen de la firma es demasiado grande.")
+
     values = {**values, **_signing_date_values()}
     doc = fitz.open(TEMPLATE_PATH)
     try:
@@ -201,7 +209,7 @@ def fill_and_sign(values: dict[str, str], signature_png_bytes: bytes) -> bytes:
             -SIGNATURE_MARGIN,
             -SIGNATURE_MARGIN,
         )
-        signature_rect = _left_aligned_fit(signature_box, signature_png_bytes)
+        signature_rect = _left_aligned_fit(signature_box, pixmap)
         doc[SIGNATURE_PAGE].insert_image(signature_rect, stream=signature_png_bytes)
 
         return doc.tobytes()

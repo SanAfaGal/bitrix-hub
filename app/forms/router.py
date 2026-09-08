@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 
 from app.crm.deps import get_crm_client
 from app.crm.protocol import PropertyListing
+from app.flows.brokerage_authorization_signed import process_authorization_signed
 from app.flows.registry_live_check import check_registration_number_live
 from app.forms.cleaning import slugify_filename
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
@@ -26,13 +27,10 @@ from app.forms.page import (
     render_form_html,
     render_link_invalid_html,
 )
-from app.forms.rate_limit import rate_limit
-from app.forms.settings import load_form_link_secret, load_signed_form_drive_folder_id
+from app.shared.rate_limit import rate_limit
+from app.forms.settings import load_form_link_secret
 from app.forms.signature_cleaner import clean_signature_photo
-from app.message_templates import store as templates_store
-from app.waha.client import WahaClient
 from app.waha.deps import get_waha_client
-from app.waha.phone import to_chat_id
 from app.xposure.deps import get_xposure_client
 
 logger = logging.getLogger(__name__)
@@ -222,6 +220,8 @@ def post_brokerage_authorization_form(
 
     try:
         pdf_bytes = fill_and_sign(values, signature_png_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
         logger.exception("Error generando el PDF de Autorización de Corretaje")
         raise HTTPException(status_code=500, detail="No se pudo generar el documento.") from None
@@ -247,16 +247,6 @@ def _signed_pdf_filename(deal_id: str, address: str, signed_at: datetime) -> str
     return f"Autorizacion_{deal_id}_{slugify_filename(address)}_{fecha}.pdf"
 
 
-def _upload_signed_pdf(crm_client, deal_id: str, address: str, pdf_bytes: bytes, signed_at: datetime) -> str | None:
-    try:
-        folder_id = load_signed_form_drive_folder_id()
-    except RuntimeError:
-        logger.exception("Falta configuración para subir el PDF firmado al drive")
-        return None
-    filename = _signed_pdf_filename(deal_id, address, signed_at)
-    return crm_client.upload_file(folder_id, filename, pdf_bytes)
-
-
 def _property_listing_from_payload(payload: BrokerageAuthorizationPayload) -> PropertyListing:
     """Solo los campos del inmueble que ya tienen mapeo definido a Bitrix.
 
@@ -272,54 +262,16 @@ def _property_listing_from_payload(payload: BrokerageAuthorizationPayload) -> Pr
 
 
 def _mark_as_signed(payload: BrokerageAuthorizationPayload, pdf_bytes: bytes, signed_at: datetime) -> None:
-    """Deja constancia de la firma en el deal: sube el PDF al drive, comenta en el timeline
-    (con el link al documento si la subida funcionó), actualiza los datos del inmueble,
-    marca el estado 'Firmada', pausa el bot de WhatsApp y le avisa al cliente que la recibimos.
-
-    Pausar el bot acá (no solo cuando pide hablar con un humano) es
-    deliberado: una vez firmada la Autorización, el siguiente contacto con
-    el cliente lo debe llevar un asesor, no el bot conversando sobre el
-    inmueble (que ya no aplica, ver `app/flows/whatsapp_bot.py`).
-
-    Best-effort: nunca rompe la descarga del PDF si Bitrix o Waha fallan.
-    """
+    """Delega a `app.flows.brokerage_authorization_signed` (combina CRM + Waha, ver su
+    docstring) — este router solo arma los datos propios del formulario."""
     deal_id = payload.deal_id
     try:
         crm_client = get_crm_client()
-        file_url = _upload_signed_pdf(crm_client, deal_id, payload.address, pdf_bytes, signed_at)
-        comment = "El cliente firmó la Autorización de Corretaje."
-        if file_url:
-            comment += f" Documento firmado: {file_url}"
-        crm_client.add_comment(deal_id, comment)
-        crm_client.update_property_listing(deal_id, _property_listing_from_payload(payload))
-        crm_client.set_authorization_status(deal_id, "firmada")
-        crm_client.set_bot_active(deal_id, False)
-        crm_client.add_comment(deal_id, "Bot: Autorización de Corretaje firmada, bot pausado automáticamente.")
-        _notify_client_signed(crm_client, deal_id)
-    except Exception:
-        logger.exception("Error marcando la firma de la Autorización de Corretaje en el deal %s", deal_id)
-
-
-def _notify_client_signed(crm_client, deal_id: str) -> None:
-    """Le avisa al cliente por WhatsApp que su Autorización de Corretaje firmada llegó.
-
-    Best-effort, silencioso si algo falta (sin contacto, sin teléfono, o
-    falla Waha) — no debe romper `_mark_as_signed`, que ya deja la
-    constancia importante (comentario + estado) en el deal aunque este
-    aviso no se pueda mandar.
-    """
-    deal = crm_client.get_deal(deal_id)
-    contact_id = crm_client.get_deal_contact_id(deal)
-    if not contact_id:
-        logger.warning("Deal %s firmado sin contacto vinculado, no se avisa por WhatsApp", deal_id)
+    except (HTTPException, RuntimeError):
+        logger.exception("No se pudo obtener el cliente de CRM para marcar la firma del deal %s", deal_id)
         return
 
-    contact = crm_client.get_contact(contact_id)
-    raw_phone = crm_client.get_contact_phone(contact)
-    chat_id = to_chat_id(raw_phone) if raw_phone else None
-    if not chat_id:
-        logger.warning("Deal %s firmado sin teléfono válido, no se avisa por WhatsApp", deal_id)
-        return
-
-    waha_client: WahaClient = get_waha_client()
-    waha_client.send_text(chat_id, templates_store.get_template("whatsapp_authorization_signed_message"))
+    filename = _signed_pdf_filename(deal_id, payload.address, signed_at)
+    process_authorization_signed(
+        deal_id, filename, pdf_bytes, _property_listing_from_payload(payload), crm_client, get_waha_client
+    )

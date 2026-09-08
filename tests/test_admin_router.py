@@ -14,9 +14,17 @@ from app.main import app
 from app.message_templates import db as templates_db
 from app.message_templates import store as templates_store
 from app.message_templates.models import Base
+from app.shared import rate_limit as rate_limit_module
 
 _CREDENTIALS = AdminSettings(username="admin", password="secret123", session_secret="test-secret")
 _FIRST_TEMPLATE_KEY = templates_store.TEMPLATE_SECTIONS[0]["keys"][0]
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> None:
+    """El rate limit del login es en memoria de proceso — sin esto, los tests de este archivo
+    comparten el mismo bucket (TestClient no trae IP real) y se agotan entre sí."""
+    rate_limit_module._hits.clear()
 
 
 @pytest.fixture
@@ -49,6 +57,16 @@ def test_login_with_wrong_credentials_shows_error(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "incorrectos" in response.text
+
+
+def test_login_is_rate_limited_after_too_many_attempts(client: TestClient) -> None:
+    for _ in range(10):
+        response = client.post("/admin/login", data={"username": "admin", "password": "incorrecta"})
+        assert response.status_code == 200
+
+    blocked = client.post("/admin/login", data={"username": "admin", "password": "incorrecta"})
+
+    assert blocked.status_code == 429
 
 
 def test_login_redirects_to_first_template(client: TestClient) -> None:

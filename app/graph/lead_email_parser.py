@@ -14,7 +14,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from app.forms.models import PROPERTY_TYPES
-from app.waha.phone import from_chat_id, to_chat_id
+from app.shared.phone import normalize_phone_digits
 
 logger = logging.getLogger(__name__)
 
@@ -130,8 +130,7 @@ def _sanitize_phone(value: str | None) -> str | None:
     cleaned = _sanitize_text(value)
     if cleaned is None:
         return None
-    chat_id = to_chat_id(cleaned)
-    return from_chat_id(chat_id) if chat_id else None
+    return normalize_phone_digits(cleaned)
 
 
 def _sanitize_price(value: str | None) -> int | None:

@@ -250,11 +250,6 @@ def _process(
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "duplicate_message"}
     store.mark_processed(inbound.message_id)
 
-    if store.is_rate_limited(inbound.chat_id):
-        logger.info("Chat %s rate limited, no se responde", inbound.chat_id)
-        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "rate_limited"}
-    store.mark_message_received(inbound.chat_id)
-
     if maybe_send_first_contact_welcome(inbound.chat_id, inbound.session, waha_client, crm_client, store):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "first_contact_welcome"}
 
@@ -273,6 +268,15 @@ def _process(
         )
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "transcription_failed"}
     inbound = replace(inbound, text=text)
+
+    if store.is_rate_limited(inbound.chat_id):
+        # No se descarta el mensaje: quien manda varias burbujas seguidas (uso normal de
+        # WhatsApp) no debe perder lo que escribió — se guarda en el historial para que el
+        # LLM lo vea en el próximo turno, aunque este no se responda individualmente.
+        logger.info("Chat %s rate limited, se guarda el mensaje sin responder todavía", inbound.chat_id)
+        store.add_turn(inbound.chat_id, "user", inbound.text)
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "rate_limited"}
+    store.mark_message_received(inbound.chat_id)
 
     deal_id = store.get_deal_id(inbound.chat_id)
     if deal_id is not None and not crm_client.deal_exists(deal_id):

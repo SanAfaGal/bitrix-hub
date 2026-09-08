@@ -152,6 +152,33 @@ def test_process_sends_llm_reply_and_updates_history() -> None:
     ]
 
 
+def test_process_saves_message_but_does_not_reply_when_rate_limited() -> None:
+    """El mensaje no se descarta: si llega dentro del cooldown, se guarda en el historial (para
+    que el LLM lo vea en el próximo turno) aunque no se le responda todavía."""
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.mark_message_received("573001112233@c.us")
+
+    result = process(
+        _inbound(message_id="msg2", text="y tambien quiero preguntar algo mas"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "rate_limited"}
+    assert waha.calls == []
+    assert llm.calls == []
+    assert store.get_history("573001112233@c.us") == [
+        {"role": "user", "content": "y tambien quiero preguntar algo mas"},
+    ]
+
+
 def test_process_transcribes_audio_and_replies_as_if_it_were_text() -> None:
     waha = FakeWahaClient(media_bytes=b"nota-de-voz")
     llm = FakeLlmClient(reply_text=_plain_reply("hola! como te ayudo?"))

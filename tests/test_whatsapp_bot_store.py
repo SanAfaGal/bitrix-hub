@@ -1,6 +1,23 @@
 from __future__ import annotations
 
+from app.flows import whatsapp_bot_conversation_store as store_module
 from app.flows.whatsapp_bot import ConversationStore
+
+
+def test_last_message_time_is_purged_after_ttl_expires(monkeypatch) -> None:
+    """Sin esto, `_last_message_time` crece sin límite: un timestamp por cada chat
+    distinto que haya escrito alguna vez, nunca liberado."""
+    store = ConversationStore()
+    fake_now = [1000.0]
+    monkeypatch.setattr(store_module.time, "monotonic", lambda: fake_now[0])
+
+    store.mark_message_received("111@c.us")
+    assert "111@c.us" in store._last_message_time
+
+    fake_now[0] += store_module.LAST_MESSAGE_TIME_TTL_SECONDS + 1
+    store.is_rate_limited("222@c.us")  # cualquier llamada dispara la purga
+
+    assert "111@c.us" not in store._last_message_time
 
 
 def test_get_full_history_returns_all_turns_in_order() -> None:

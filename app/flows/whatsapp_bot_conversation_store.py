@@ -18,6 +18,10 @@ from app.flows import whatsapp_bot_store as store_db
 
 SEEN_MESSAGE_TTL_SECONDS = 600
 RATE_LIMIT_COOLDOWN_SECONDS = 5  # Max 1 msg every 5 seconds per chat
+# Purga de `_last_message_time`: una hora sin mensajes de un chat es de sobra
+# para el cooldown de `RATE_LIMIT_COOLDOWN_SECONDS` — sin esto, ese dict
+# crece sin límite, uno por cada chat distinto que haya escrito alguna vez.
+LAST_MESSAGE_TIME_TTL_SECONDS = 3600
 
 
 @dataclass
@@ -49,6 +53,20 @@ class ConversationStore:
         del mismo chat corren en threads distintos y ambos pueden ver
         `deal_id is None` antes de que cualquiera lo cree, si no se
         serializan acá.
+
+        Lock de memoria del proceso, no distribuido — asume un único worker
+        de `uvicorn` (ver `docker-compose.yml`/`docker-compose.override.yml`,
+        ninguno pasa `--workers`). Si el hub llega a correr con más de un
+        worker/réplica, este lock deja de servir (cada proceso tendría el
+        suyo) y hay que migrar a algo compartido (ej. `SELECT ... FOR UPDATE`
+        en MySQL) para seguir evitando deals duplicados.
+
+        No se purgan las entradas de `_chat_locks` con el tiempo: a
+        diferencia de `_last_message_time`, borrar un lock mientras otro
+        thread ya lo obtuvo de acá (antes de hacer `with lock:`) recrearía
+        exactamente la condición de carrera que este lock evita. El costo de
+        no purgar es acotado — un `threading.Lock` por cada chat distinto que
+        haya escrito alguna vez, no por mensaje.
         """
         with self._chat_locks_guard:
             lock = self._chat_locks.get(chat_id)
@@ -66,6 +84,7 @@ class ConversationStore:
 
     def is_rate_limited(self, chat_id: str) -> bool:
         """Retorna True si el chat está en cooldown (más de 1 msg en últimos 5 seg)."""
+        self._purge_expired_last_message_time()
         now = time.monotonic()
         if chat_id in self._last_message_time:
             elapsed = now - self._last_message_time[chat_id]
@@ -82,6 +101,12 @@ class ConversationStore:
         expired = [mid for mid, seen_at in self._seen_message_ids.items() if seen_at < cutoff]
         for mid in expired:
             del self._seen_message_ids[mid]
+
+    def _purge_expired_last_message_time(self) -> None:
+        cutoff = time.monotonic() - LAST_MESSAGE_TIME_TTL_SECONDS
+        expired = [cid for cid, seen_at in self._last_message_time.items() if seen_at < cutoff]
+        for cid in expired:
+            del self._last_message_time[cid]
 
     def get_history(self, chat_id: str) -> list[dict[str, str]]:
         with self._SessionLocal() as session:

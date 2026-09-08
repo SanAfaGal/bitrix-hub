@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 mimetypes.add_type("image/webp", ".webp")
 
 from app.admin.router import router as admin_router
+from app.admin.settings import load_admin_settings
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
 from app.graph.router import router as graph_router
@@ -80,8 +80,11 @@ tags_metadata = [
 async def _lifespan(app: FastAPI):
     """Siembra los defaults de plantillas en MySQL si hace falta.
 
-    El esquema (tablas de plantillas y de conversación) lo crea Alembic al
-    arrancar el contenedor (ver scripts/entrypoint.sh), no la app.
+    El esquema (tablas de plantillas y de conversación) lo crea Alembic, no
+    la app: en desarrollo, `docker-compose.override.yml` corre
+    `alembic upgrade head` antes de levantar uvicorn; en producción es un
+    paso manual del operador (`docker compose exec api alembic upgrade
+    head`, ver Dockerfile y README, sección de despliegue).
     Best-effort: si MySQL no está disponible (ej. desarrollo local sin
     docker compose), solo loguea — el bot de WhatsApp sigue funcionando con
     los defaults hardcodeados en app/message_templates/store.py (el
@@ -107,10 +110,11 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
-# Firma la cookie de sesión del panel admin (app/admin/). Sin
-# ADMIN_SESSION_SECRET en .env cae a un secreto de desarrollo — no usar así
-# en producción (ver README).
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("ADMIN_SESSION_SECRET") or "dev-insecure-secret-change-me")
+# Firma la cookie de sesión del panel admin (app/admin/). `load_admin_settings()`
+# falla duro si falta ADMIN_SESSION_SECRET en .env — sin esto, un despliegue mal
+# configurado firmaría cookies con un secreto público y permitiría forjar sesión
+# de admin sin credenciales.
+app.add_middleware(SessionMiddleware, secret_key=load_admin_settings().session_secret)
 
 app.include_router(xposure_router)
 app.include_router(flows_router)

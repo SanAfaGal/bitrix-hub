@@ -152,8 +152,15 @@ class LlmClient:
 
     @staticmethod
     def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float | None:
-        """Estima costo basado en modelo y tokens (aproximado)."""
+        """Estima costo basado en modelo y tokens (aproximado).
+
+        `MODEL_PRICING` no se mantiene sincronizada con cada modelo que se
+        pruebe (ver comentario en `_completion_kwargs` sobre gpt-4.1-nano/
+        gpt-5-nano) — sin una entrada ahí, solo se pierde el log de costo,
+        nunca la respuesta del LLM.
+        """
         pricing = MODEL_PRICING.get(model)
         if not pricing:
+            logger.debug("Sin pricing configurado para el modelo %s, no se estima costo", model)
             return None
         return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1000

@@ -21,6 +21,18 @@ _ADAPTIVE_C = 12
 # pudo descartar del todo.
 _MAX_COMPONENT_AREA_FRACTION = 0.06
 
+# Una foto de firma real (celular o canvas recortado) nunca necesita más
+# resolución que esto. Sin este tope, un PNG bien comprimido pero con
+# dimensiones absurdas (p. ej. 30000x30000) puede pesar pocos MB en el data
+# URL y aun así demandar varios GB de RAM al decodificarse — bomba de
+# descompresión en un endpoint público sin autenticación.
+_MAX_DIMENSION_PX = 4000
+
+
+def _check_dimensions(width: int, height: int) -> None:
+    if width > _MAX_DIMENSION_PX or height > _MAX_DIMENSION_PX:
+        raise ValueError("La imagen es demasiado grande.")
+
 
 def clean_signature_photo(image_bytes: bytes) -> bytes:
     """Recibe una foto (jpg/png) de una firma en papel y devuelve un PNG con fondo
@@ -40,6 +52,7 @@ def clean_signature_photo(image_bytes: bytes) -> bytes:
     image = cv2.imdecode(array, cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("No se pudo leer la imagen.")
+    _check_dimensions(image.shape[1], image.shape[0])
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)

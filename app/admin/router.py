@@ -22,10 +22,15 @@ from app.admin.page import (
 from app.admin.prospects_page import render_prospects_html
 from app.flows.whatsapp_bot import conversation_store
 from app.message_templates import store as templates_store
+from app.shared.rate_limit import rate_limit
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Admin"])
+
+# Sin límite de intentos, un usuario/clave débiles quedan expuestos a fuerza
+# bruta si el panel llega a estar accesible desde internet.
+_LOGIN_RATE_LIMIT = {"max_requests": 10, "window_seconds": 60}
 
 
 def _template_keys() -> list[str]:
@@ -42,6 +47,7 @@ def get_login() -> HTMLResponse:
 
 @router.post(LOGIN_PATH, summary="Autentica al usuario del panel admin", response_model=None)
 def post_login(request: Request, username: str = Form(...), password: str = Form(...)) -> HTMLResponse | RedirectResponse:
+    rate_limit(request, "admin-login", **_LOGIN_RATE_LIMIT)
     try:
         payload = LoginPayload(username=username, password=password)
     except ValidationError:

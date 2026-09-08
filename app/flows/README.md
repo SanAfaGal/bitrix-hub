@@ -41,7 +41,9 @@ cliente); el flujo se testea con todos los clientes mockeados usando
 `tests/fakes.py::FakeCrmClient`, igual que `MLS/tests/test_deal_event.py`.
 
 Flujos reales existentes: `registry_duplicate_check.py` (CRM + Xposure),
-`notify_contact.py` y `welcome_authorization.py` (CRM + Waha).
+`notify_contact.py`, `welcome_authorization.py` y
+`brokerage_authorization_signed.py` (CRM + Waha, disparado desde
+`app/forms/router.py` al firmarse la Autorización de Corretaje).
 
 `whatsapp_bot.py` (Waha + LLM + CRM, experimental) es distinto a los
 anteriores: no lo dispara un webhook de Bitrix sino uno de Waha (mensaje

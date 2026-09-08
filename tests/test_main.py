@@ -86,6 +86,26 @@ def test_webhook_deal_stage_broker_auth_sends_welcome_and_link(monkeypatch) -> N
     assert body == {"ok": True, "deal_id": "42", "contact_id": "7", "chat_id": "573001112233@c.us"}
 
 
+def test_webhook_deal_event_rejects_missing_or_wrong_secret_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr("app.flows.router.load_bitrix_webhook_secret", lambda: "the-secret")
+
+    missing = client.post("/webhook/deal-event", data={"data[FIELDS][ID]": "42"})
+    wrong = client.post("/webhook/deal-event?secret=nope", data={"data[FIELDS][ID]": "42"})
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+
+
+def test_webhook_deal_event_accepts_correct_secret_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr("app.flows.router.load_bitrix_webhook_secret", lambda: "the-secret")
+    monkeypatch.setattr("app.flows.router.get_crm_client", lambda: FakeCrmClient())
+    monkeypatch.setattr("app.flows.router.get_xposure_client", lambda: None)
+
+    response = client.post("/webhook/deal-event?secret=the-secret", data={"data[FIELDS][ID]": "42"})
+
+    assert response.status_code == 200
+
+
 def test_webhook_deal_stage_broker_auth_requires_deal_id() -> None:
     response = client.post("/webhook/deal-stage-broker-auth", data={})
 
@@ -100,6 +120,36 @@ def test_webhook_waha_message_skips_when_not_applicable() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"ok": True, "skipped": "not_applicable"}
+
+
+def test_webhook_waha_message_rejects_missing_or_wrong_secret_when_configured(monkeypatch) -> None:
+    from app.waha.settings import WahaSettings
+
+    monkeypatch.setattr(
+        "app.waha.router.load_waha_settings",
+        lambda: WahaSettings(base_url="http://waha", api_key=None, session="default", webhook_secret="the-secret"),
+    )
+
+    missing = client.post("/webhook/waha-message", json=_WAHA_MESSAGE_EVENT)
+    wrong = client.post("/webhook/waha-message?secret=nope", json=_WAHA_MESSAGE_EVENT)
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+
+
+def test_webhook_waha_test_rejects_missing_or_wrong_secret_when_configured(monkeypatch) -> None:
+    from app.waha.settings import WahaSettings
+
+    monkeypatch.setattr(
+        "app.waha.router.load_waha_settings",
+        lambda: WahaSettings(base_url="http://waha", api_key=None, session="default", webhook_secret="the-secret"),
+    )
+
+    missing = client.post("/webhook/waha-test", params={"chat_id": "573001112233@c.us"})
+    wrong = client.post("/webhook/waha-test", params={"chat_id": "573001112233@c.us", "secret": "nope"})
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
 
 
 def test_webhook_waha_message_skips_when_bot_disabled(monkeypatch) -> None:

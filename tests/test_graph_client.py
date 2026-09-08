@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import requests
 
 from app.graph.client import GraphClient
@@ -23,6 +24,16 @@ def _client() -> GraphClient:
     client._token = "fake-token"
     client._token_expires_at = float("inf")
     return client
+
+
+def test_get_token_raises_runtime_error_when_response_has_no_access_token(monkeypatch) -> None:
+    """Regresión: un 200 sin `access_token` lanzaba `KeyError` sin controlar en vez de fallar
+    de forma consistente con el resto del cliente (nunca lanza excepciones inesperadas)."""
+    client = GraphClient("tenant", "client-id", "secret", "gestionventas@albertoalvarez.com")
+    monkeypatch.setattr(client.session, "post", lambda *a, **k: FakeResponse({"error": "invalid_client"}))
+
+    with pytest.raises(RuntimeError, match="No se pudo autenticar"):
+        client._get_token()
 
 
 def test_list_messages_without_sender_does_not_filter(monkeypatch) -> None:

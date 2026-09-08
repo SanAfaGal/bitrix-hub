@@ -25,8 +25,12 @@ class PropertySearchResult(BaseModel):
 class BulkRequest(BaseModel):
     """Cuerpo de la petición para consultar varias matrículas a la vez."""
 
+    # Tope superior: cada matrícula dispara un login + búsqueda contra
+    # Xposure (red externa, ~15s de timeout cada una) — sin límite, un lote
+    # arbitrariamente grande mantiene el proceso ocupado mucho tiempo.
     tax_rolls: list[str] = Field(
         min_length=1,
-        description="Lista de números de matrícula a consultar, en orden.",
+        max_length=50,
+        description="Lista de números de matrícula a consultar, en orden (máximo 50 por petición).",
         examples=[["5322493", "5322494"]],
     )
