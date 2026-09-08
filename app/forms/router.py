@@ -13,13 +13,19 @@ from fastapi.responses import HTMLResponse
 from app.crm.deps import get_crm_client
 from app.crm.protocol import PropertyListing
 from app.flows.brokerage_authorization_signed import process_authorization_signed
-from app.flows.registry_live_check import check_registration_number_live
+from app.flows.registry_live_check import check_registration_number_live, confirm_registration_number_match
 from app.forms.cleaning import slugify_filename
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
 from app.forms.link_token import verify_deal_id_token
-from app.forms.models import BrokerageAuthorizationPayload, CleanSignaturePhotoPayload, VerifyRegistrationNumberPayload
+from app.forms.models import (
+    BrokerageAuthorizationPayload,
+    CleanSignaturePhotoPayload,
+    ConfirmMatriculaMatchPayload,
+    VerifyRegistrationNumberPayload,
+)
 from app.forms.page import (
     CLEAN_SIGNATURE_PATH,
+    CONFIRM_MATRICULA_MATCH_PATH,
     FORM_PATH,
     TEMPLATE_PATH_URL,
     VERIFY_MATRICULA_PATH,
@@ -42,6 +48,7 @@ router = APIRouter(tags=["Formularios"])
 _CLEAN_SIGNATURE_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
 _SUBMIT_FORM_RATE_LIMIT = {"max_requests": 6, "window_seconds": 60}
 _VERIFY_MATRICULA_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
+_CONFIRM_MATRICULA_MATCH_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
 
 
 def _limit_clean_signature(request: Request) -> None:
@@ -54,6 +61,10 @@ def _limit_submit_form(request: Request) -> None:
 
 def _limit_verify_matricula(request: Request) -> None:
     rate_limit(request, "verify-matricula", **_VERIFY_MATRICULA_RATE_LIMIT)
+
+
+def _limit_confirm_matricula_match(request: Request) -> None:
+    rate_limit(request, "confirm-matricula-match", **_CONFIRM_MATRICULA_MATCH_RATE_LIMIT)
 
 
 _YES_NO_LABELS = {"si": "Sí", "no": "No"}
@@ -179,6 +190,36 @@ def post_verify_registration_number(
 
     return check_registration_number_live(
         payload.registration_number, get_xposure_client, crm_client=crm_client, deal_id=payload.deal_id
+    )
+
+
+@router.post(
+    CONFIRM_MATRICULA_MATCH_PATH,
+    summary="Paso del wizard: el cliente confirma si el inmueble encontrado en Xposure es el suyo",
+)
+def post_confirm_matricula_match(
+    payload: ConfirmMatriculaMatchPayload, _: None = Depends(_limit_confirm_matricula_match)
+) -> dict[str, Any]:
+    """Después de que `post_verify_registration_number` encuentra un duplicado, el wizard le
+    pregunta al cliente "¿es este tu inmueble?" antes de bloquear — este endpoint recibe esa
+    respuesta y recién ahí deja constancia en Bitrix (`confirm_registration_number_match`), para
+    no marcar Duplicado en un deal sobre un match que la persona no confirmó."""
+    crm_client = None
+    if payload.deal_id:
+        if not _is_valid_link(payload.deal_id, payload.token):
+            raise HTTPException(status_code=403, detail="Enlace inválido.")
+        try:
+            crm_client = get_crm_client()
+        except (HTTPException, RuntimeError):
+            logger.exception("No se pudo obtener el cliente de CRM para confirmar-matricula-match")
+            crm_client = None
+
+    return confirm_registration_number_match(
+        payload.registration_number,
+        payload.url,
+        payload.confirmed,
+        crm_client=crm_client,
+        deal_id=payload.deal_id,
     )
 
 

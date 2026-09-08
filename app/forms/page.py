@@ -20,6 +20,7 @@ FORM_PATH = "/formularios/autorizacion-de-corretaje"
 TEMPLATE_PATH_URL = f"{FORM_PATH}/plantilla.pdf"
 CLEAN_SIGNATURE_PATH = f"{FORM_PATH}/limpiar-firma"
 VERIFY_MATRICULA_PATH = f"{FORM_PATH}/verify-matricula"
+CONFIRM_MATRICULA_MATCH_PATH = f"{FORM_PATH}/confirm-matricula-match"
 
 # Assets de marca (favicon, logo) — copiados de flash-view, ver app/static/imgs/.
 FAVICON_URL = "/static/imgs/favicon.ico"
@@ -160,6 +161,7 @@ __STYLE__
       <span class="brand__name">Alberto Álvarez</span>
       <span class="brand__tagline">Servicios Integrales Inmobiliarios</span>
     </div>
+    <button type="button" class="start-over-btn start-over-btn--hidden" id="start-over-btn">Empezar de nuevo</button>
     <div id="form-flow">
     <div class="card">
       <div class="card__header">
@@ -468,6 +470,7 @@ def render_form_html(deal_id: str | None = None, token: str | None = None) -> st
         .replace(
             "__SCRIPT__",
             FORM_SCRIPT.replace("__CLEAN_SIGNATURE_PATH__", CLEAN_SIGNATURE_PATH)
-            + WIZARD_SCRIPT.replace("__VERIFY_MATRICULA_PATH__", VERIFY_MATRICULA_PATH),
+            + WIZARD_SCRIPT.replace("__VERIFY_MATRICULA_PATH__", VERIFY_MATRICULA_PATH)
+            .replace("__CONFIRM_MATRICULA_MATCH_PATH__", CONFIRM_MATRICULA_MATCH_PATH),
         )
     )

@@ -25,19 +25,21 @@ def check_registration_number_live(
 ) -> dict[str, Any]:
     """Consulta una matrícula ya validada (formato correcto) en Xposure y responde si bloquea.
 
-    Si hay `deal_id` y `crm_client`, deja la misma constancia en el deal que
-    `process_deal_event` (comentario + Duplicado/Sin duplicado, fijado si es
-    duplicado) — así el asesor ve en Bitrix que el cliente fue bloqueado acá,
-    aunque el deal todavía no tuviera la matrícula guardada.
+    Si se encuentra un duplicado, NO se toca el CRM todavía — el wizard le
+    pregunta primero al cliente "¿es este tu inmueble?" (con el link acá
+    devuelto) antes de bloquear, porque folios no son únicos entre oficinas
+    distintas y un match sin código de oficina confirmado podría ser un
+    inmueble ajeno. La constancia en Bitrix (comentario + Duplicado/Sin
+    duplicado) la deja `confirm_registration_number_match()` una vez el cliente
+    responde. Cuando no es duplicado no hay nada que confirmar, así que sí se
+    deja constancia de inmediato, igual que antes.
     """
     xposure_client = get_xposure_client()
-    is_duplicate, comment, url = check_matricula_in_xposure(registration_number, xposure_client)
+    is_duplicate, comment, url, exact_match = check_matricula_in_xposure(registration_number, xposure_client)
 
-    if crm_client is not None and deal_id is not None:
-        comment_id = crm_client.add_comment(deal_id, comment)
-        if is_duplicate and comment_id is not None:
-            crm_client.pin_comment(comment_id, deal_id)
-        crm_client.set_duplicado_status(deal_id, is_duplicate)
+    if not is_duplicate and crm_client is not None and deal_id is not None:
+        crm_client.add_comment(deal_id, comment)
+        crm_client.set_duplicado_status(deal_id, False)
 
     message = (
         "Este inmueble ya está publicado en Xposure MLS (la plataforma donde las inmobiliarias "
@@ -46,4 +48,34 @@ def check_registration_number_live(
         if is_duplicate
         else ""
     )
-    return {"duplicate": is_duplicate, "message": message, "url": url}
+    return {"duplicate": is_duplicate, "exact_match": exact_match, "message": message, "url": url}
+
+
+def confirm_registration_number_match(
+    registration_number: str,
+    url: str | None,
+    confirmed: bool,
+    crm_client: CrmClient | None = None,
+    deal_id: str | None = None,
+) -> dict[str, Any]:
+    """Deja constancia en el CRM de la respuesta del cliente a "¿es este tu inmueble?"
+
+    Llamada por el wizard después de `check_registration_number_live` haber
+    encontrado un duplicado y preguntado — acá sí se actualiza Bitrix, ahora
+    que la persona ya confirmó o descartó el match.
+    """
+    if crm_client is not None and deal_id is not None:
+        comment = (
+            f"El cliente confirmó que el inmueble encontrado en Xposure es el suyo. Ver: {url}"
+            if confirmed
+            else (
+                f'El cliente indicó que el inmueble encontrado en Xposure para la matrícula "{registration_number}" '
+                f"NO es el suyo — probablemente escribió mal el código de oficina o el folio. Ver: {url}"
+            )
+        )
+        comment_id = crm_client.add_comment(deal_id, comment)
+        if confirmed and comment_id is not None:
+            crm_client.pin_comment(comment_id, deal_id)
+        crm_client.set_duplicado_status(deal_id, confirmed)
+
+    return {"ok": True}

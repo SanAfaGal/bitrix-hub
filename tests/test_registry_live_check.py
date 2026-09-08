@@ -2,7 +2,7 @@
 de Autorización de Corretaje (app/flows/registry_live_check.py)."""
 from __future__ import annotations
 
-from app.flows.registry_live_check import check_registration_number_live
+from app.flows.registry_live_check import check_registration_number_live, confirm_registration_number_match
 from app.xposure.models import PropertySearchResult
 from tests.fakes import FakeCrmClient
 
@@ -10,6 +10,9 @@ from tests.fakes import FakeCrmClient
 class FakeXposureClient:
     def __init__(self, result: PropertySearchResult) -> None:
         self._result = result
+
+    def resolve_area_code(self, office_code: str) -> str | None:
+        return office_code.strip().upper()
 
     def search_property(self, tax_roll: str, tax_roll_area_code: str | None = None) -> PropertySearchResult:
         return self._result
@@ -23,6 +26,7 @@ def test_check_registration_number_live_found_blocks_without_crm() -> None:
     result = check_registration_number_live("50C-1945945", lambda: fake_xposure)
 
     assert result["duplicate"] is True
+    assert result["exact_match"] is True
     assert result["message"] != ""
     assert result["url"] == "https://example.com/999"
 
@@ -39,7 +43,13 @@ def test_check_registration_number_live_not_found_does_not_block() -> None:
     assert result["url"] is None
 
 
-def test_check_registration_number_live_records_duplicate_on_deal_when_given() -> None:
+def test_check_registration_number_live_does_not_touch_crm_when_duplicate_found() -> None:
+    # Antes de tocar el CRM, el wizard le pregunta al cliente "¿es este tu
+    # inmueble?" — check_registration_number_live solo devuelve la info para
+    # esa pregunta (duplicate/exact_match/message/url); la constancia en
+    # Bitrix la deja confirm_registration_number_match una vez responde (ver
+    # tests más abajo). Esto vale tanto para un match exacto como para uno
+    # inseguro (exact_match=False) — se pregunta siempre.
     fake_crm = FakeCrmClient(deals={"42": {"ID": "42"}})
     fake_xposure = FakeXposureClient(
         PropertySearchResult(tax_roll="1945945", exists=True, mls="999", url="https://example.com/999")
@@ -50,9 +60,9 @@ def test_check_registration_number_live_records_duplicate_on_deal_when_given() -
     )
 
     assert result["duplicate"] is True
-    assert fake_crm.duplicado_updates == [("42", True)]
-    assert fake_crm.pins == [(1000, "42")]
-    assert len(fake_crm.comments) == 1
+    assert fake_crm.duplicado_updates == []
+    assert fake_crm.pins == []
+    assert fake_crm.comments == []
 
 
 def test_check_registration_number_live_does_not_pin_when_not_duplicate() -> None:
@@ -78,5 +88,45 @@ def test_check_registration_number_live_without_deal_id_does_not_touch_crm() -> 
 
     check_registration_number_live("50C-1945945", lambda: fake_xposure, crm_client=fake_crm, deal_id=None)
 
+    assert fake_crm.duplicado_updates == []
+    assert fake_crm.comments == []
+
+
+def test_confirm_registration_number_match_confirmed_marks_duplicado_and_pins() -> None:
+    fake_crm = FakeCrmClient(deals={"42": {"ID": "42"}})
+
+    result = confirm_registration_number_match(
+        "50C-1945945", "https://example.com/999", True, crm_client=fake_crm, deal_id="42"
+    )
+
+    assert result == {"ok": True}
+    assert fake_crm.duplicado_updates == [("42", True)]
+    assert len(fake_crm.comments) == 1
+    assert fake_crm.pins == [(1000, "42")]
+
+
+def test_confirm_registration_number_match_not_confirmed_marks_sin_duplicado_without_pin() -> None:
+    fake_crm = FakeCrmClient(deals={"42": {"ID": "42"}})
+
+    result = confirm_registration_number_match(
+        "50C-1945945", "https://example.com/999", False, crm_client=fake_crm, deal_id="42"
+    )
+
+    assert result == {"ok": True}
+    assert fake_crm.duplicado_updates == [("42", False)]
+    assert fake_crm.pins == []
+    deal_id, comment = fake_crm.comments[0]
+    assert deal_id == "42"
+    assert "NO es el suyo" in comment
+
+
+def test_confirm_registration_number_match_without_deal_id_does_not_touch_crm() -> None:
+    fake_crm = FakeCrmClient()
+
+    result = confirm_registration_number_match(
+        "50C-1945945", "https://example.com/999", True, crm_client=fake_crm, deal_id=None
+    )
+
+    assert result == {"ok": True}
     assert fake_crm.duplicado_updates == []
     assert fake_crm.comments == []

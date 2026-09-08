@@ -10,49 +10,93 @@ import logging
 import re
 from typing import Any, Callable
 
+import requests
+
 from app.crm.protocol import CrmClient
 from app.xposure.client import XposureClient
 
 logger = logging.getLogger(__name__)
 
-# [Código de Oficina (ORIP)]-[Número de Folio], ej. 50C-1945945 o 001-123456;
-# también válido solo el folio, sin código de oficina, ej. 1945945.
-MATRICULA_PATTERN = re.compile(r"^\d{2,3}[A-Za-z]?-\d{4,10}$|^\d{4,10}$")
+# [Código de Oficina (ORIP), 3-4 caracteres]-[Número de Folio, 5-8 dígitos],
+# ej. 50C-19459 o 001-1234567; también válido solo el folio, sin código de
+# oficina, ej. 1945945 (formato viejo sin separador).
+MATRICULA_PATTERN = re.compile(r"^(?:\d{3}[A-Za-z]?|\d{2}[A-Za-z])-\d{5,8}$|^\d{4,10}$")
 
 
-def check_matricula_in_xposure(matricula: str, xposure_client: XposureClient) -> tuple[bool, str, str | None]:
+def check_matricula_in_xposure(
+    matricula: str, xposure_client: XposureClient
+) -> tuple[bool, str, str | None, bool]:
     """Consulta una matrícula ya validada (formato correcto) en Xposure.
 
-    Retorna `(is_duplicate, comment, url)` — `is_duplicate` solo es `True` si
-    el inmueble existe Y tiene un MLS asociado (existir sin MLS no cuenta,
-    ver `test_process_deal_event_found_without_mls_does_not_pin`); `url` es
-    la ficha del inmueble en Xposure cuando es duplicado, si no `None` — la
-    usa `registry_live_check.py` para que el cliente pueda ver el inmueble
-    ya publicado, en vez de solo decirle que existe.
+    Retorna `(is_duplicate, comment, url, exact_match)` — `is_duplicate` solo es
+    `True` si el inmueble existe Y tiene un MLS asociado (existir sin MLS no
+    cuenta, ver `test_process_deal_event_found_without_mls_does_not_pin`); `url`
+    es la ficha del inmueble en Xposure cuando es duplicado, si no `None` — la
+    usa `registry_live_check.py` para que el cliente pueda ver el inmueble ya
+    publicado, en vez de solo decirle que existe. `exact_match` es `True` si el
+    resultado vino directo de la búsqueda precisa (código de oficina + folio),
+    `False` si hubo que reintentar solo con el folio (ver más abajo) — folios no
+    son únicos entre oficinas distintas, así que un match del reintento puede
+    ser un inmueble totalmente distinto al que escribió la persona. No decide
+    si se bloquea o no (eso hoy lo pregunta el wizard antes de bloquear, ver
+    `registry_live_check.py`); solo viaja como metadata para el comentario que
+    queda en Bitrix.
     Compartido entre `process_deal_event` (matrícula ya guardada en el deal)
     y el chequeo en vivo del wizard del formulario
     (`app/flows/registry_live_check.py`, matrícula recién tecleada por el
     cliente).
     """
+    exact_match = True
     if "-" in matricula:
         area_code, _, tax_roll = matricula.partition("-")
-        result = xposure_client.search_property(tax_roll, tax_roll_area_code=area_code)
-        if not result.exists:
-            # El código de oficina que trae la matrícula del deal puede no
-            # coincidir con el que Xposure tiene guardado para ese folio (o
-            # puede no tener ninguno guardado) — filtrar por él ahí deja
-            # afuera inmuebles que sí existen. Se reintenta solo con el folio
-            # antes de concluir que no existe.
+        # tax_roll_area_code no es el código de oficina en texto, es un id
+        # interno de Xposure sin relación con él (ver
+        # XposureClient.resolve_area_code) — hay que resolverlo antes de
+        # buscar. Si no se pudo resolver (código no está en el catálogo de
+        # Xposure, o falló la consulta que trae el catálogo), no tiene caso
+        # intentar la búsqueda precisa: iría directo a fallar o a no
+        # encontrar nada. Directo a folio.
+        resolved_area_id = xposure_client.resolve_area_code(area_code)
+        if resolved_area_id is None:
             result = xposure_client.search_property(tax_roll)
+            exact_match = False
+        else:
+            try:
+                result = xposure_client.search_property(tax_roll, tax_roll_area_code=resolved_area_id)
+            except requests.exceptions.RequestException:
+                # Aun con el id correcto, la búsqueda puede fallar por otra
+                # razón transitoria — mismo tratamiento que "0 resultados"
+                # abajo: se reintenta solo con el folio antes de concluir que
+                # no existe.
+                logger.warning(
+                    "Búsqueda en Xposure con código de oficina '%s' falló, reintentando solo con folio '%s'",
+                    area_code, tax_roll,
+                )
+                result = xposure_client.search_property(tax_roll)
+                exact_match = False
+            else:
+                if not result.exists:
+                    # El código de oficina que trae la matrícula del deal puede
+                    # no coincidir con el que Xposure tiene guardado para ese
+                    # folio (o puede no tener ninguno guardado) — filtrar por
+                    # él ahí deja afuera inmuebles que sí existen. Se reintenta
+                    # solo con el folio antes de concluir que no existe.
+                    result = xposure_client.search_property(tax_roll)
+                    exact_match = False
     else:
         result = xposure_client.search_property(matricula)
 
     is_duplicate = result.exists and bool(result.mls)
     if is_duplicate:
-        comment = f"Inmueble encontrado en Xposure. MLS: {result.mls}. Ver: {result.url}"
+        caveat = (
+            "" if exact_match else
+            " (encontrado solo por número de folio, sin confirmar el código de oficina — "
+            "verificar manualmente si es el mismo inmueble)"
+        )
+        comment = f"Inmueble encontrado en Xposure{caveat}. MLS: {result.mls}. Ver: {result.url}"
     else:
         comment = f"No se encontró el inmueble en Xposure para la matrícula {matricula}."
-    return is_duplicate, comment, (result.url if is_duplicate else None)
+    return is_duplicate, comment, (result.url if is_duplicate else None), exact_match
 
 
 def process_deal_event(
@@ -87,7 +131,7 @@ def process_deal_event(
     logger.info("Deal %s matrícula: %s", deal_id, matricula)
 
     xposure_client = get_xposure_client()
-    es_duplicado, comentario, _url = check_matricula_in_xposure(matricula, xposure_client)
+    es_duplicado, comentario, _url, _exact_match = check_matricula_in_xposure(matricula, xposure_client)
     logger.info("Consulta Xposure para deal %s: duplicado=%s", deal_id, es_duplicado)
 
     comment_id = crm_client.add_comment(deal_id, comentario)

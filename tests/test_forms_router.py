@@ -21,6 +21,9 @@ class FakeXposureClient:
     def __init__(self, result: PropertySearchResult) -> None:
         self._result = result
 
+    def resolve_area_code(self, office_code: str) -> str | None:
+        return office_code.strip().upper()
+
     def search_property(self, tax_roll: str, tax_roll_area_code: str | None = None) -> PropertySearchResult:
         return self._result
 
@@ -669,6 +672,7 @@ def test_verify_matricula_blocks_when_already_published_in_xposure(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["duplicate"] is True
+    assert body["exact_match"] is True
     assert body["message"] != ""
 
 
@@ -692,7 +696,11 @@ def test_verify_matricula_rejects_invalid_format():
     assert response.status_code == 422
 
 
-def test_verify_matricula_with_deal_id_records_duplicate_on_deal(monkeypatch):
+def test_verify_matricula_with_deal_id_does_not_touch_bitrix_before_client_confirms(monkeypatch):
+    # El wizard le pregunta al cliente "¿es este tu inmueble?" antes de
+    # bloquear — /verify-matricula ya no marca Duplicado ni comenta en Bitrix
+    # por su cuenta, eso lo hace /confirm-matricula-match una vez responde
+    # (ver los tests de ese endpoint más abajo).
     fake_crm = FakeCrmClient()
     fake_xposure = FakeXposureClient(
         PropertySearchResult(tax_roll="1945945", exists=True, mls="999", url="https://example.com/999")
@@ -707,9 +715,9 @@ def test_verify_matricula_with_deal_id_records_duplicate_on_deal(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["duplicate"] is True
-    assert fake_crm.duplicado_updates == [("42", True)]
-    assert len(fake_crm.pins) == 1
-    assert fake_crm.pins[0][1] == "42"
+    assert fake_crm.duplicado_updates == []
+    assert fake_crm.pins == []
+    assert fake_crm.comments == []
 
 
 def test_verify_matricula_rejects_deal_id_without_valid_token(monkeypatch):
@@ -742,6 +750,88 @@ def test_verify_matricula_is_rate_limited(monkeypatch):
 
     responses = [
         client.post(_VERIFY_MATRICULA_PATH, json={"registration_number": "50C-1945945"}) for _ in range(16)
+    ]
+
+    assert responses[-1].status_code == 429
+    assert any(r.status_code == 200 for r in responses)
+
+
+_CONFIRM_MATRICULA_MATCH_PATH = "/formularios/autorizacion-de-corretaje/confirm-matricula-match"
+
+
+def test_confirm_matricula_match_confirmed_marks_duplicado_and_pins(monkeypatch):
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    response = client.post(
+        _CONFIRM_MATRICULA_MATCH_PATH,
+        json={
+            "registration_number": "50C-1945945",
+            "url": "https://example.com/999",
+            "confirmed": True,
+            "deal_id": "42",
+            "token": _token_for("42"),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert fake_crm.duplicado_updates == [("42", True)]
+    assert len(fake_crm.pins) == 1
+
+
+def test_confirm_matricula_match_not_confirmed_marks_sin_duplicado_without_pin(monkeypatch):
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    response = client.post(
+        _CONFIRM_MATRICULA_MATCH_PATH,
+        json={
+            "registration_number": "50C-1945945",
+            "url": "https://example.com/999",
+            "confirmed": False,
+            "deal_id": "42",
+            "token": _token_for("42"),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert fake_crm.duplicado_updates == [("42", False)]
+    assert fake_crm.pins == []
+
+
+def test_confirm_matricula_match_rejects_deal_id_without_valid_token():
+    response = client.post(
+        _CONFIRM_MATRICULA_MATCH_PATH,
+        json={"registration_number": "50C-1945945", "confirmed": True, "deal_id": "42"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_confirm_matricula_match_without_deal_id_does_not_touch_bitrix():
+    def fail_if_called():
+        raise AssertionError("no debería construirse un cliente de CRM sin deal_id")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr("app.forms.router.get_crm_client", fail_if_called)
+        response = client.post(
+            _CONFIRM_MATRICULA_MATCH_PATH,
+            json={"registration_number": "50C-1945945", "confirmed": True},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_confirm_matricula_match_is_rate_limited(monkeypatch):
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
+
+    responses = [
+        client.post(_CONFIRM_MATRICULA_MATCH_PATH, json={"registration_number": "50C-1945945", "confirmed": True})
+        for _ in range(16)
     ]
 
     assert responses[-1].status_code == 429

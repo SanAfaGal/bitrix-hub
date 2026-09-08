@@ -57,10 +57,11 @@ _LOCATION_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-,.\s]+$")
 # "juan@example.c").
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[a-zA-Z]{2,}$")
 # Matrícula inmobiliaria: "código de oficina - número de matrícula" (ej.
-# "50C-1945945"), con letra opcional en el código de oficina; o solo dígitos
+# "50C-1945945"), código de oficina de 3-4 caracteres (dígitos con letra
+# opcional al final) y número de matrícula de 5-8 dígitos; o solo dígitos
 # para el formato viejo sin separador. Misma regla que `MATRICULA_PATTERN`
 # en app/flows/registry_duplicate_check.py.
-_REGISTRATION_NUMBER_RE = re.compile(r"^\d{2,3}[A-Z]?-\d{4,10}$|^\d{4,10}$")
+_REGISTRATION_NUMBER_RE = re.compile(r"^(?:\d{3}[A-Z]?|\d{2}[A-Z])-\d{5,8}$|^\d{4,10}$")
 # Letras, números y guion — cédula, cédula de extranjería o pasaporte (puede
 # traer letras); el guion se permite porque en varios países es parte real
 # del número, no solo formato (ver clean_id_number).
@@ -204,6 +205,21 @@ class VerifyRegistrationNumberPayload(BaseModel):
     """Body del chequeo en vivo de matrícula (paso de excepción del wizard, ver app/forms/router.py)."""
 
     registration_number: str
+    deal_id: str | None = None
+    token: str | None = None
+
+    @field_validator("registration_number", mode="before")
+    @classmethod
+    def _validate_registration_number(cls, value: str) -> str:
+        return validate_registration_number(value)
+
+
+class ConfirmMatriculaMatchPayload(BaseModel):
+    """Body de la respuesta del cliente a "¿es este tu inmueble?" (ver app/forms/router.py)."""
+
+    registration_number: str
+    url: str | None = None
+    confirmed: bool
     deal_id: str | None = None
     token: str | None = None
 
