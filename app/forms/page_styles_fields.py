@@ -99,6 +99,16 @@ FIELD_STYLE = """  .form-section__title {
     color: var(--color-text-muted);
     cursor: not-allowed;
   }
+  /* select nativo: flecha propia con más aire a la derecha — la del
+     navegador queda pegada al borde del campo. */
+  select.field__input {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 40px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23848484' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+  }
   .field__confirm {
     display: block;
     font-size: 12px;
