@@ -40,8 +40,18 @@ def maybe_send_first_contact_welcome(
     (turno normal, sigue el flujo del LLM). El teléfono se resuelve acá
     mismo (import local para evitar el ciclo `whatsapp_bot` <-> este
     módulo) — así un chat en curso no paga ese costo de más.
+
+    La freshness se decide con `store.has_assistant_turn` (¿el bot ya le
+    contestó algo alguna vez a este chat?), NO con `store.get_history`
+    no-vacío: mientras `bot_enabled=False`, `_process()` en whatsapp_bot.py
+    ya guarda cada mensaje entrante localmente (para que el chat aparezca en
+    /admin/prospects) — eso deja historial local con solo turnos `role=
+    "user"` para un chat que, desde la perspectiva del bot, nunca fue
+    contactado. Con el criterio viejo, el caso típico de go-live (cliente
+    nuevo escribe con el bot apagado, se guarda su mensaje, un admin activa
+    el chat) hacía que la bienvenida nunca se mandara.
     """
-    if store.get_history(chat_id) or store.get_deal_id(chat_id) is not None:
+    if store.has_assistant_turn(chat_id) or store.get_deal_id(chat_id) is not None:
         return False
 
     from app.flows.whatsapp_bot import _resolve_phone  # noqa: PLC0415 — evita el ciclo de imports

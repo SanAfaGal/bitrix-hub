@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 
 from app.crm.protocol import PropertyListing
 from app.flows.whatsapp_bot import BotConfig, ConversationStore, _parse_llm_output, process
+from app.flows.whatsapp_bot_history_seed import seed_history_from_waha
 from app.flows.whatsapp_bot_models import Base
 from app.message_templates import store as templates_store
 from app.waha.inbound import InboundMessage
@@ -53,6 +54,7 @@ class FakeWahaClient:
         send_result: bool = True,
         resolved_lids: dict[str, str] | None = None,
         media_bytes: bytes | None = b"audio-bytes",
+        chat_messages: list[dict] | None = None,
     ) -> None:
         self.send_result = send_result
         self.calls: list[tuple[str, str, str | None]] = []
@@ -61,6 +63,8 @@ class FakeWahaClient:
         self.resolve_lid_to_phone_calls: list[tuple[str, str | None]] = []
         self._media_bytes = media_bytes
         self.download_media_calls: list[str] = []
+        self._chat_messages = chat_messages
+        self.get_chat_messages_calls: list[tuple[str, int]] = []
 
     def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
         self.calls.append((chat_id, text, session))
@@ -77,6 +81,13 @@ class FakeWahaClient:
     def download_media(self, media_path: str) -> bytes | None:
         self.download_media_calls.append(media_path)
         return self._media_bytes
+
+    def get_chat_messages(self, chat_id: str, *, limit: int = 50, session: str | None = None) -> list[dict] | None:
+        """Usado solo por `seed_history_from_waha` — ver la sección de activación del bot
+        por chat más abajo. Sin mensajes configurados por default (la mayoría de los tests
+        de este archivo no llaman a `seed_history_from_waha`)."""
+        self.get_chat_messages_calls.append((chat_id, limit))
+        return self._chat_messages
 
 
 class FakeLlmClient:
@@ -1415,6 +1426,95 @@ def test_process_replies_normally_once_bot_enabled_for_chat(monkeypatch) -> None
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
     assert waha.calls == [("573001112233@c.us", "hola! como te ayudo?", "default")]
+
+
+_HISTORY_ANALYSIS_JSON = (
+    '{"client_full_name": "Carlos Ramírez", "client_phone": "573001112233", '
+    '"process_explained": true, "authorization_mentioned": false, "summary": "resumen"}'
+)
+
+_PRIOR_WAHA_MESSAGES = [
+    {"id": "wa1", "fromMe": False, "body": "hola, quiero vender mi apto", "timestamp": 100},
+    {"id": "wa2", "fromMe": True, "body": "claro, soy Andrea, le explico el proceso", "timestamp": 101},
+    {"id": "wa3", "fromMe": False, "body": "listo, gracias", "timestamp": 102},
+]
+
+
+def test_disabled_chat_then_activate_seeds_waha_history_and_next_message_uses_it_as_context(
+    monkeypatch,
+) -> None:
+    """Integración de punta a punta del Hallazgo Crítico de la revisión final: un chat
+    desactivado recibe un mensaje entrante (se guarda, sin respuesta); un admin lo activa
+    con historial previo real en Waha (`seed_history_from_waha`, mismo mecanismo que usa
+    `app/admin/router.py::post_activate_bot`); el próximo mensaje entrante ya debe llegarle
+    al LLM con ese historial importado como contexto — no vacío, no solo con el mensaje del
+    período desactivado."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    chat_id = "573001112233@c.us"
+    store = ConversationStore()
+    crm = FakeCrmClient()
+
+    # 1. Chat desactivado recibe un mensaje entrante — se persiste localmente, sin respuesta.
+    inbound_waha = FakeWahaClient()
+    inbound_llm = FakeLlmClient()
+    result = process(
+        _inbound(text="hola, alguien ahi?"),
+        inbound_waha,
+        inbound_llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+    )
+    assert result == {"ok": True, "chat_id": chat_id, "skipped": "bot_disabled_for_chat"}
+    assert inbound_waha.calls == []
+    assert inbound_llm.calls == []
+    assert [m["content"] for m in store.get_full_history(chat_id)] == ["hola, alguien ahi?"]
+
+    # 2. Un admin activa el chat — mismo mecanismo que app/admin/router.py::post_activate_bot:
+    # seed_history_from_waha primero, set_bot_enabled después.
+    seed_waha = FakeWahaClient(chat_messages=_PRIOR_WAHA_MESSAGES)
+    seed_llm = FakeLlmClient(reply_text=_HISTORY_ANALYSIS_JSON)
+    seed_result = seed_history_from_waha(store, seed_waha, seed_llm, chat_id)
+    store.set_bot_enabled(chat_id, True)
+
+    assert seed_result["seeded"] is True
+    assert seed_result["messages_imported"] == 3
+    assert len(seed_llm.calls) == 1  # el LLM sí analizó el historial previo, esta vez.
+
+    seeded_history = store.get_full_history(chat_id)
+    # El mensaje del período desactivado quedó reemplazado por los 3 turnos reales de
+    # Waha (no duplicado — no hay 4 turnos).
+    assert [m["content"] for m in seeded_history] == [
+        "hola, quiero vender mi apto",
+        "claro, soy Andrea, le explico el proceso",
+        "listo, gracias",
+    ]
+    assert store.get_confirmed_identity(chat_id) == ("Carlos Ramírez", "573001112233")
+    assert store.get_explanation_sent(chat_id) is True
+    assert store.get_history_seeded(chat_id) is True
+
+    # 3. El próximo mensaje entrante, ya con el bot activado, le llega al LLM con el
+    # historial importado como contexto (no vacío).
+    reply_waha = FakeWahaClient()
+    reply_llm = FakeLlmClient(reply_text=_plain_reply("dale, seguimos con el proceso"))
+    result = process(
+        _inbound(message_id="msg2", text="ok, sigamos"),
+        reply_waha,
+        reply_llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+    )
+
+    assert result["ok"] is True
+    assert len(reply_llm.calls) == 1
+    _system_prompt, history_sent_to_llm, user_text = reply_llm.calls[0]
+    assert user_text == "ok, sigamos"
+    assert history_sent_to_llm  # no vacío: el bot ve la conversación previa importada de Waha.
+    assert {"role": "user", "content": "hola, quiero vender mi apto"} in history_sent_to_llm
+    assert {"role": "assistant", "content": "claro, soy Andrea, le explico el proceso"} in history_sent_to_llm
 
 
 # ── Persistencia de historial (sobrevive a un "restart") ────────────────

@@ -61,13 +61,30 @@ def seed_history_from_waha(
     limit: int | None = None,
     max_history_turns: int | None = None,
 ) -> dict[str, Any]:
-    """Si el chat no tiene historial local todavía, lo trae de Waha, lo analiza con IA e importa.
+    """Si el chat todavía no tiene el historial de Waha importado, lo trae, lo analiza con IA e importa.
 
-    No hace nada (ni pega a Waha ni al LLM) si `messages` ya tiene filas
-    para este chat — evita reimportar/reanalizar en cada reactivación. Si
-    Waha no devuelve mensajes (chat realmente nuevo, o falla la llamada),
-    tampoco hace nada. `limit`/`max_history_turns` son overrides opcionales
-    para tests — en producción se cargan de `BotConfig`
+    La señal de "ya importado" es el flag dedicado `history_seeded`
+    (columna de `leads`, `ConversationStore.get_history_seeded`/
+    `set_history_seeded`) — NO si `messages` ya tiene filas para este chat.
+    Esas dos cosas no son lo mismo: mientras `bot_enabled=False`, `_process()`
+    en whatsapp_bot.py ya guarda cada mensaje entrante localmente (para que
+    el chat aparezca en /admin/prospects), así que para cuando un admin
+    activa un chat casi siempre YA hay historial local — con el criterio
+    viejo ("hay historial local") esta función nunca llegaba a pegarle a
+    Waha ni al LLM, y el contexto previo real (nombre/teléfono, si ya se
+    explicó el proceso, etc.) nunca se importaba. Ver Hallazgo Crítico de la
+    revisión final de esta rama.
+
+    Si Waha sí devuelve mensajes y ya había turnos locales del período
+    desactivado, esos turnos locales se reemplazan (no se duplican) por los
+    recién importados de Waha — son un subconjunto estricto de lo que Waha
+    devuelve para el mismo chat, ver `store.clear_messages`.
+
+    Si Waha no devuelve mensajes (chat realmente nuevo, o falla la llamada),
+    no hay nada que importar, pero igual se marca `history_seeded` — así una
+    reactivación futura de ese mismo chat no vuelve a pegarle a Waha para
+    nada. `limit`/`max_history_turns` son overrides opcionales para tests —
+    en producción se cargan de `BotConfig`
     (`WHATSAPP_BOT_HISTORY_ANALYSIS_LIMIT` / `WHATSAPP_BOT_MAX_HISTORY_TURNS`).
 
     No toca `bot_enabled` — eso lo decide un nivel más arriba (la ruta de
@@ -78,8 +95,8 @@ def seed_history_from_waha(
     "analysis": dict | None}` para que la ruta de admin le muestre algo útil
     a quien activó el chat.
     """
-    if store.get_full_history(chat_id):
-        logger.info("Chat %s ya tiene historial local, no se reimporta desde Waha", chat_id)
+    if store.get_history_seeded(chat_id):
+        logger.info("Chat %s ya tiene el historial de Waha importado, no se reimporta", chat_id)
         return {"seeded": False, "messages_imported": 0, "analysis": None}
 
     config = load_bot_config()
@@ -89,13 +106,18 @@ def seed_history_from_waha(
     messages = waha_client.get_chat_messages(chat_id, limit=resolved_limit)
     if not messages:
         logger.info("Sin historial previo en Waha para %s, no hay nada que importar", chat_id)
+        store.set_history_seeded(chat_id)
         return {"seeded": False, "messages_imported": 0, "analysis": None}
 
     analysis = analyze_prior_history(llm_client, messages)
 
     turns = _map_to_turns(messages, max_turns=resolved_max_turns * 2)
-    for role, content in turns:
-        store.add_turn(chat_id, role, content)
+    if turns:
+        # Reemplaza (no duplica) los turnos locales del período desactivado —
+        # ver docstring de arriba.
+        store.clear_messages(chat_id)
+        for role, content in turns:
+            store.add_turn(chat_id, role, content)
 
     confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
     if confirmed_name is None and confirmed_phone is None:
@@ -106,8 +128,18 @@ def seed_history_from_waha(
     if analysis["process_explained"] and not store.get_explanation_sent(chat_id):
         store.set_explanation_sent(chat_id)
 
-    if analysis["authorization_mentioned"] and not store.get_authorization_link_sent(chat_id):
-        store.set_authorization_link_sent(chat_id)
+    # OJO: `analysis["authorization_mentioned"]` (el LLM detectó que se
+    # HABLÓ de la Autorización en la conversación previa) NO se mapea a
+    # `authorization_link_sent` — ese flag significa en el resto del código
+    # (`maybe_handle_acceptance` en whatsapp_bot_explanation.py,
+    # `Conversation.authorization_link_sent` en whatsapp_bot_models.py) que
+    # el link REAL ya se mandó, y se usa para no volver a mandarlo nunca. Un
+    # asesor humano mencionando la Autorización en el chat ("te voy a mandar
+    # la Autorización") no es lo mismo que haberla mandado — setear el flag
+    # acá bloquearía silenciosa y permanentemente que el bot mande el link
+    # real. `authorization_mentioned` solo se usa para el `summary` del
+    # análisis, no cambia ningún estado.
+    store.set_history_seeded(chat_id)
 
     logger.info(
         "Historial previo de %s importado desde Waha: %d turnos, process_explained=%s, authorization_mentioned=%s",

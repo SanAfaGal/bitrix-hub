@@ -66,7 +66,11 @@ def test_seed_history_imports_turns_and_sets_lead_fields_from_analysis(monkeypat
 
     assert store.get_confirmed_identity("573001112233@c.us") == ("Carlos Ramírez", "573001112233")
     assert store.get_explanation_sent("573001112233@c.us") is True
-    assert store.get_authorization_link_sent("573001112233@c.us") is True
+    # authorization_mentioned (mera mención en la conversación) no implica que el link
+    # REAL ya se mandó — ver docstring de seed_history_from_waha, Hallazgo 3 de la
+    # revisión final.
+    assert store.get_authorization_link_sent("573001112233@c.us") is False
+    assert store.get_history_seeded("573001112233@c.us") is True
 
     assert waha.calls == [("573001112233@c.us", 40)]
 
@@ -94,6 +98,8 @@ def test_seed_history_no_op_when_waha_returns_none(monkeypatch) -> None:
     assert result == {"seeded": False, "messages_imported": 0, "analysis": None}
     assert store.get_full_history("573001112233@c.us") == []
     assert llm.calls == []
+    # Se marca igual: no hay nada que importar, evita reintentar Waha en cada reactivación.
+    assert store.get_history_seeded("573001112233@c.us") is True
 
 
 def test_seed_history_no_op_when_waha_returns_empty_list(monkeypatch) -> None:
@@ -108,21 +114,62 @@ def test_seed_history_no_op_when_waha_returns_empty_list(monkeypatch) -> None:
     assert llm.calls == []
 
 
-def test_seed_history_no_op_when_local_history_already_exists(monkeypatch) -> None:
+def test_seed_history_no_op_when_already_seeded(monkeypatch) -> None:
+    """La señal de idempotencia es `history_seeded` (columna dedicada), no si el chat ya
+    tiene historial local — un chat puede tener historial local (mensajes guardados durante
+    el período con `bot_enabled=False`) sin que Waha ya se haya importado, ver el test de
+    abajo que cubre justo ese caso (el bug del Hallazgo Crítico de la revisión final)."""
     monkeypatch.setattr("app.flows.whatsapp_bot_history_seed.load_bot_config", lambda: _config())
     store = ConversationStore(max_history_turns=6)
     store.add_turn("573001112233@c.us", "user", "ya hay algo acá")
+    store.set_history_seeded("573001112233@c.us")
     waha = FakeWahaClient(_PRIOR_MESSAGES)
     llm = FakeLlmClient(_ANALYSIS_JSON)
 
     result = seed_history_from_waha(store, waha, llm, "573001112233@c.us")
 
     assert result == {"seeded": False, "messages_imported": 0, "analysis": None}
-    # No se reimporta ni se reanaliza en una reactivación.
+    # No se reimporta ni se reanaliza en una reactivación ya seedeada.
     assert waha.calls == []
     assert llm.calls == []
     history = store.get_full_history("573001112233@c.us")
     assert len(history) == 1
+
+
+def test_seed_history_imports_from_waha_and_replaces_local_disabled_period_messages(monkeypatch) -> None:
+    """Reproduce el Hallazgo Crítico de la revisión final: un chat que ya tiene historial
+    local (mensajes guardados mientras `bot_enabled=False`, ver `_process()` en
+    whatsapp_bot.py) pero que TODAVÍA no tiene `history_seeded=True` debe seguir yendo a
+    buscar el historial real a Waha, analizarlo con el LLM e importarlo — reemplazando el
+    historial local del período desactivado (subconjunto de lo que Waha devuelve), no
+    duplicándolo."""
+    monkeypatch.setattr(
+        "app.flows.whatsapp_bot_history_seed.load_bot_config", lambda: _config(max_history_turns=6)
+    )
+    store = ConversationStore(max_history_turns=6)
+    # Simula lo que `_process()` ya guardó mientras el chat estaba desactivado.
+    store.add_turn("573001112233@c.us", "user", "hola, quiero vender mi apto")
+    assert store.get_history_seeded("573001112233@c.us") is False
+
+    waha = FakeWahaClient(_PRIOR_MESSAGES)
+    llm = FakeLlmClient(_ANALYSIS_JSON)
+
+    result = seed_history_from_waha(store, waha, llm, "573001112233@c.us")
+
+    assert result["seeded"] is True
+    assert result["messages_imported"] == 3
+    assert waha.calls == [("573001112233@c.us", 40)]
+    assert len(llm.calls) == 1
+
+    history = store.get_full_history("573001112233@c.us")
+    # El turno local del período desactivado quedó reemplazado por los 3 turnos de Waha,
+    # no duplicado (no hay 4 turnos).
+    assert [m["content"] for m in history] == [
+        "hola, quiero vender mi apto",
+        "claro, soy Andrea, le explico el proceso",
+        "listo, gracias",
+    ]
+    assert store.get_history_seeded("573001112233@c.us") is True
 
 
 def test_seed_history_truncates_imported_turns_to_max_history_turns_times_two(monkeypatch) -> None:

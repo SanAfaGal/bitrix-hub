@@ -65,6 +65,18 @@ class Conversation(Base):
     # tareas siguientes del plan). Sin significado para un lead de correo.
     bot_enabled: bool = Column(Boolean, nullable=False, default=False)
 
+    # True una vez que ya se intentó importar el historial previo de WhatsApp
+    # desde Waha para este chat (`app.flows.whatsapp_bot_history_seed.
+    # seed_history_from_waha`), sea que haya encontrado mensajes o no —
+    # evita reimportar/reanalizar en cada reactivación. Deliberadamente
+    # independiente de si `messages` tiene filas: mientras `bot_enabled` está
+    # apagado, `_process()` en whatsapp_bot.py ya guarda cada mensaje
+    # entrante localmente (para que el chat aparezca en /admin/prospects), y
+    # ese historial local NO implica que ya se haya importado nada de Waha —
+    # antes de este campo, esa confusión hacía que el seed nunca se
+    # ejecutara. Sin significado para un lead de correo.
+    history_seeded: bool = Column(Boolean, nullable=False, default=False)
+
     # Resultado de procesar un correo del formulario web (solo canal "email").
     status: str | None = Column(String(16), nullable=True)
     detail: str | None = Column(Text, nullable=True)

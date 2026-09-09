@@ -18,6 +18,17 @@ logger = logging.getLogger(__name__)
 
 MAX_TOKENS = 250
 
+# El SDK de OpenAI, sin esto, usa su propio default (puede tardar varios
+# minutos con reintentos incluidos) — inaceptable para `analyze_prior_history`
+# (llamada síncrona dentro de POST /admin/prospects/{chat_id}/bot/activate:
+# un proveedor caído/lento colgaría el navegador del admin) y tampoco
+# deseable para la conversación normal del bot (el webhook de Waha también
+# espera la respuesta síncrona). 20s alcanza de sobra para una respuesta
+# corta (MAX_TOKENS=250); 1 reintento en vez del default del SDK para no
+# multiplicar la espera.
+LLM_REQUEST_TIMEOUT_SECONDS = 20.0
+LLM_MAX_RETRIES = 1
+
 # Los modelos actuales de OpenAI (probado con gpt-4.1-nano y gpt-5-nano, no
 # solo la familia "reasoning" o1/o3/o4) rechazan `max_tokens` en Chat
 # Completions y piden `max_completion_tokens` en su lugar. Además gastan
@@ -61,7 +72,12 @@ class LlmClient:
         self.fallback_model = settings.fallback_model
         self._fallback_base_url = settings.fallback_base_url
         self._fallback_api_key = settings.fallback_api_key
-        self._client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+        self._client = openai.OpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=LLM_MAX_RETRIES,
+        )
 
     def reply(self, system_prompt: str, history: list[dict[str, str]], user_text: str) -> str | None:
         """Genera una respuesta de texto dado un system prompt y el historial de turnos.
@@ -100,7 +116,10 @@ class LlmClient:
         try:
             if fallback and self._fallback_base_url:
                 client = openai.OpenAI(
-                    api_key=self._fallback_api_key or self._api_key, base_url=self._fallback_base_url
+                    api_key=self._fallback_api_key or self._api_key,
+                    base_url=self._fallback_base_url,
+                    timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=LLM_MAX_RETRIES,
                 )
                 base_url = self._fallback_base_url
             else:

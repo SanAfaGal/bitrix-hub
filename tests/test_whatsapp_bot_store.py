@@ -44,6 +44,46 @@ def test_get_full_history_is_never_trimmed_while_get_history_caps_to_llm_context
     assert len(store.get_history("573001112233@c.us")) == 2
 
 
+def test_history_seeded_defaults_to_false_and_can_be_set() -> None:
+    store = ConversationStore()
+
+    assert store.get_history_seeded("573001112233@c.us") is False
+
+    store.set_history_seeded("573001112233@c.us")
+
+    assert store.get_history_seeded("573001112233@c.us") is True
+
+
+def test_has_assistant_turn_false_for_user_only_history() -> None:
+    store = ConversationStore()
+    store.add_turn("573001112233@c.us", "user", "hola")
+
+    assert store.has_assistant_turn("573001112233@c.us") is False
+
+    store.add_turn("573001112233@c.us", "assistant", "hola! en qué te ayudo")
+
+    assert store.has_assistant_turn("573001112233@c.us") is True
+
+
+def test_has_assistant_turn_false_for_unknown_chat() -> None:
+    store = ConversationStore()
+
+    assert store.has_assistant_turn("573001112233@c.us") is False
+
+
+def test_clear_messages_removes_turns_but_keeps_lead_row() -> None:
+    store = ConversationStore()
+    store.add_turn("573001112233@c.us", "user", "hola")
+    store.add_turn("573001112233@c.us", "assistant", "hola! en qué te ayudo")
+    store.set_deal_id("573001112233@c.us", "42")
+
+    store.clear_messages("573001112233@c.us")
+
+    assert store.get_full_history("573001112233@c.us") == []
+    # La fila de lead (deal_id, identidad, etc.) no se toca.
+    assert store.get_deal_id("573001112233@c.us") == "42"
+
+
 def test_list_chats_empty_store() -> None:
     store = ConversationStore()
     assert store.list_chats() == []

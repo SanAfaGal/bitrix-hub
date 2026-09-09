@@ -168,6 +168,22 @@ class ConversationStore:
         with self._SessionLocal() as session:
             return store_db.get_full_history(session, chat_id)
 
+    def get_history_seeded(self, chat_id: str) -> bool:
+        with self._SessionLocal() as session:
+            return store_db.get_history_seeded(session, chat_id)
+
+    def set_history_seeded(self, chat_id: str) -> None:
+        with self._SessionLocal() as session:
+            store_db.set_history_seeded(session, chat_id)
+
+    def has_assistant_turn(self, chat_id: str) -> bool:
+        with self._SessionLocal() as session:
+            return store_db.has_assistant_turn(session, chat_id)
+
+    def clear_messages(self, chat_id: str) -> None:
+        with self._SessionLocal() as session:
+            store_db.clear_messages(session, chat_id)
+
     def list_chats(self) -> list[dict[str, Any]]:
         with self._SessionLocal() as session:
             return store_db.list_chats(session)

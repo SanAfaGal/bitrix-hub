@@ -54,6 +54,7 @@ LLM_API_KEY=sk-tu-api-key
 LLM_BASE_URL=
 LLM_MODEL=gpt-4o-mini
 WHATSAPP_BOT_ALLOWED_NUMBERS=
+WHATSAPP_BOT_HISTORY_ANALYSIS_LIMIT=40
 
 # Panel admin de plantillas (/admin/templates) y su base MySQL
 ADMIN_USERNAME=admin
@@ -457,6 +458,26 @@ sin llamar al LLM ni al CRM. Para activarlo:
    (`docker compose restart waha`, y si la sesión ya estaba escaneada,
    confirmar en el dashboard de Waha que el webhook quedó configurado —
    `WAHA_DASHBOARD_ENABLED=true`).
+
+**El verdadero freno para producción ya no es `WHATSAPP_BOT_ALLOWED_NUMBERS`
+(ese sigue siendo solo un mecanismo de desarrollo)**, sino la activación por
+chat (opt-in): cada chat de WhatsApp tiene su propio flag `bot_enabled`
+(columna en `leads`, apagado por defecto para todo chat nuevo o viejo). Con
+`WHATSAPP_BOT_ENABLED=true` y sin restringir números, el webhook de Waha
+sigue llegando para todos los chats, pero mientras un chat no esté activado
+el bot guarda el mensaje entrante localmente (para que aparezca en
+`/admin/prospects`) y no manda bienvenida, no transcribe audio ni llama al
+LLM — un asesor puede seguir atendiéndolo a mano por WhatsApp Web sin que el
+bot interfiera. Un admin logueado en `/admin/prospects` activa el bot
+chat por chat, cuando ese chat puntual está listo para que el bot lo
+atienda; al activarlo, si Waha tiene conversación previa con esa persona
+(un asesor ya habló por WhatsApp Web antes de activarlo), se importa y
+analiza automáticamente como contexto (ver
+`app/flows/whatsapp_bot_history_seed.py`) para que el bot no la ignore ni
+repita preguntas ya respondidas. Este es el mecanismo pensado para un
+rollout gradual en producción — `WHATSAPP_BOT_ALLOWED_NUMBERS` sigue
+existiendo solo para pruebas de desarrollo previas a exponer el bot al
+tráfico real.
 
 Limitaciones conocidas, por ser experimental:
 

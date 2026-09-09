@@ -238,3 +238,48 @@ def set_bot_enabled(session: Session, chat_id: str, enabled: bool) -> None:
     row = _get_or_create(session, chat_id)
     row.bot_enabled = enabled
     session.commit()
+
+
+def get_history_seeded(session: Session, chat_id: str) -> bool:
+    row = _get_by_chat_id(session, chat_id)
+    return bool(row.history_seeded) if row else False
+
+
+def set_history_seeded(session: Session, chat_id: str) -> None:
+    row = _get_or_create(session, chat_id)
+    row.history_seeded = True
+    session.commit()
+
+
+def has_assistant_turn(session: Session, chat_id: str) -> bool:
+    """True si el chat ya tiene al menos un turno `role="assistant"` guardado.
+
+    Señal real de que el bot (o la bienvenida fija) ya le contestó algo a la
+    persona — a diferencia de `get_history`/`get_full_history` no vacío, que
+    también da True para un chat que solo tiene mensajes entrantes guardados
+    mientras `bot_enabled=False` (ver `_process()` en whatsapp_bot.py) y
+    todavía nunca fue contactado. Usado por `maybe_send_first_contact_welcome`
+    para no confundir esos dos casos."""
+    lead = _get_by_chat_id(session, chat_id)
+    if lead is None:
+        return False
+    row = session.execute(
+        select(ConversationMessage.id)
+        .where(ConversationMessage.lead_id == lead.id, ConversationMessage.role == "assistant")
+        .limit(1)
+    ).first()
+    return row is not None
+
+
+def clear_messages(session: Session, chat_id: str) -> None:
+    """Borra los turnos guardados de un chat (tabla `messages`), sin tocar la fila de `leads`.
+
+    Usado por `seed_history_from_waha` para reemplazar los turnos locales
+    guardados durante el período en que el bot estuvo desactivado por los
+    turnos reales importados de Waha para ese mismo chat — el conjunto local
+    es un subconjunto estricto de lo que Waha devuelve (mismo chat, mismo
+    rango de tiempo), así que se descartan en vez de duplicarse."""
+    row = _get_by_chat_id(session, chat_id)
+    if row is not None:
+        session.execute(delete(ConversationMessage).where(ConversationMessage.lead_id == row.id))
+        session.commit()

@@ -89,11 +89,31 @@ def test_does_not_send_explanation_when_welcome_text_fails() -> None:
     assert store.get_explanation_sent("573001112233@c.us") is False
 
 
-def test_does_not_send_when_chat_already_has_history() -> None:
+def test_sends_welcome_when_chat_only_has_disabled_period_user_messages() -> None:
+    """Caso típico de go-live (Hallazgo 2 de la revisión final): un cliente nuevo escribe
+    mientras `bot_enabled=False`, `_process()` en whatsapp_bot.py guarda ese mensaje
+    localmente (para que el chat aparezca en /admin/prospects); cuando un admin activa el
+    chat, el bot todavía nunca le contestó nada — la bienvenida sí debe mandarse, aunque el
+    chat ya tenga historial local con puros turnos `role="user"`."""
     waha = FakeWahaClient()
     crm = FakeCrmClient()
     store = ConversationStore()
     store.add_turn("573001112233@c.us", "user", "hola")
+
+    handled = maybe_send_first_contact_welcome("573001112233@c.us", "default", waha, crm, store)
+
+    assert handled is True
+    assert len(waha.calls) == 1
+
+
+def test_does_not_send_when_bot_already_replied() -> None:
+    """A diferencia del caso de arriba, un turno `role="assistant"` sí es señal real de que
+    el bot (o esta misma bienvenida, en una llamada anterior) ya contactó al chat."""
+    waha = FakeWahaClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.add_turn("573001112233@c.us", "user", "hola")
+    store.add_turn("573001112233@c.us", "assistant", "hola! bienvenido")
 
     handled = maybe_send_first_contact_welcome("573001112233@c.us", "default", waha, crm, store)
 
