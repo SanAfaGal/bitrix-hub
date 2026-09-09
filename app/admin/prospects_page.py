@@ -49,6 +49,32 @@ def _deal_badge(deal_id: str | None) -> str:
     return '<span class="prospect-badge prospect-badge--nodeal">Sin deal</span>'
 
 
+def _bot_badge(bot_enabled: bool | None) -> str:
+    """`bot_enabled` es `None` para leads de correo (no aplica, ver
+    `app.flows.whatsapp_bot_store.list_chats`) — no se muestra nada ahí."""
+    if bot_enabled is None:
+        return ""
+    if bot_enabled:
+        return '<span class="prospect-badge prospect-badge--bot-on">Bot: ON</span>'
+    return '<span class="prospect-badge prospect-badge--bot-off">Bot: OFF</span>'
+
+
+def _bot_toggle_form(chat_id: str, bot_enabled: bool, *, css_class: str) -> str:
+    """Botón para activar/desactivar el bot del chat — activa si está apagado, desactiva si está prendido."""
+    action = "deactivate" if bot_enabled else "activate"
+    label = "Desactivar bot" if bot_enabled else "Activar bot"
+    confirm = (
+        ""
+        if bot_enabled
+        else " onsubmit=\"this.querySelector('button').disabled=true; this.querySelector('button').textContent='Activando…';\""
+    )
+    return f"""
+        <form class="{css_class}" method="post" action="{PROSPECTS_PATH}/{escape(chat_id)}/bot/{action}"{confirm}>
+          <button type="submit" class="{css_class}-btn">{label}</button>
+        </form>
+    """
+
+
 def _initials(name: str | None) -> str:
     if not name:
         return "?"
@@ -101,6 +127,7 @@ def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str
             f'<div class="prospect-row__bottom">'
             f'{_channel_badge(chat.get("channel", "whatsapp"))}'
             f"{_deal_badge(chat.get('deal_id'))}"
+            f"{_bot_badge(chat.get('bot_enabled'))}"
             f"</div>"
             f'<span class="prospect-row__phone">{escape(phone)}</span>'
             f"</div>"
@@ -139,6 +166,7 @@ def _thread_pane(
     phone = chat_meta.get("confirmed_phone") if chat_meta else None
     deal_id = chat_meta.get("deal_id") if chat_meta else None
     channel = chat_meta.get("channel", "whatsapp") if chat_meta else "whatsapp"
+    bot_enabled = chat_meta.get("bot_enabled") if chat_meta else None
     header_name = escape(name) if name else "Sin confirmar"
     display_phone = _display_phone(phone)
     header_phone = escape(display_phone) if display_phone else escape(chat_id)
@@ -171,6 +199,8 @@ def _thread_pane(
         </div>
         {_channel_badge(channel)}
         {_deal_badge(deal_id)}
+        {_bot_badge(bot_enabled)}
+        {_bot_toggle_form(chat_id, bot_enabled, css_class="prospect-header__bot-toggle") if channel == "whatsapp" else ""}
         {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
       </div>
       <div class="prospect-thread">{bubbles_html}</div>

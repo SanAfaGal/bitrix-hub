@@ -97,6 +97,7 @@ def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
             Conversation.deal_id,
             Conversation.name,
             Conversation.phone,
+            Conversation.bot_enabled,
         )
         .select_from(msg)
         .join(last_id_subq, (msg.lead_id == last_id_subq.c.lead_id) & (msg.id == last_id_subq.c.last_id))
@@ -118,8 +119,9 @@ def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
             "deal_id": deal_id,
             "confirmed_name": name,
             "confirmed_phone": phone,
+            "bot_enabled": bool(bot_enabled),
         }
-        for chat_id, last_content, last_created_at, message_count, deal_id, name, phone in rows
+        for chat_id, last_content, last_created_at, message_count, deal_id, name, phone, bot_enabled in rows
     ]
 
 
@@ -139,6 +141,7 @@ def _list_email_leads(session: Session) -> list[dict[str, Any]]:
             "deal_id": row.deal_id,
             "confirmed_name": row.name,
             "confirmed_phone": row.phone,
+            "bot_enabled": None,  # No aplica al canal correo, ver Conversation.bot_enabled
         }
         for row in rows
     ]

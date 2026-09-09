@@ -402,6 +402,8 @@ ADMIN_STYLE = """<style>
   .prospect-badge--nodeal { background: #f1f1f6; color: var(--color-text-faint); }
   .prospect-badge--channel-email { background: #fbe9d0; color: #a06a1a; }
   .prospect-badge--channel-whatsapp { background: #dcf1e3; color: #1f8a4c; }
+  .prospect-badge--bot-on { background: #dcf1e3; color: #1f8a4c; }
+  .prospect-badge--bot-off { background: #f1f1f6; color: var(--color-text-faint); }
 
   .prospect-empty { padding: var(--space-7); text-align: center; color: var(--color-text-muted); font-size: 14px; }
 
@@ -436,6 +438,15 @@ ADMIN_STYLE = """<style>
     transition: background-color 0.15s var(--ease-standard), color 0.15s var(--ease-standard);
   }
   .prospect-header__delete-btn:hover { background: var(--color-error-bg); color: var(--color-error); }
+
+  .prospect-header__bot-toggle { flex: 0 0 auto; margin: 0; }
+  .prospect-header__bot-toggle-btn {
+    font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: var(--radius-pill);
+    border: 1px solid var(--color-teal); background: var(--color-card); color: var(--color-teal); cursor: pointer;
+    transition: background-color 0.15s var(--ease-standard), color 0.15s var(--ease-standard);
+  }
+  .prospect-header__bot-toggle-btn:hover { background: var(--color-teal); color: var(--color-on-accent); }
+  .prospect-header__bot-toggle-btn:disabled { opacity: 0.6; cursor: default; }
 
   .prospect-thread {
     flex: 1 1 auto; overflow-y: auto; padding: 24px 32px; display: flex; flex-direction: column; gap: 10px;

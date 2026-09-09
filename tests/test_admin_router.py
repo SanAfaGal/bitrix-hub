@@ -274,3 +274,127 @@ def test_prospect_detail_requires_login(client: TestClient) -> None:
 
     assert response.status_code == 303
     assert response.headers["location"] == "/admin/login"
+
+
+def test_prospects_list_shows_bot_off_badge_by_default(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = ConversationStore()
+    store.add_turn("573001112233@c.us", "user", "hola")
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    _log_in(client)
+    response = client.get("/admin/prospects")
+
+    assert response.status_code == 200
+    assert "Bot: OFF" in response.text
+    assert "Bot: ON" not in response.text
+
+
+def test_prospect_detail_shows_bot_on_badge_and_deactivate_form(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    store.add_turn(chat_id, "user", "hola")
+    store.set_bot_enabled(chat_id, True)
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    _log_in(client)
+    response = client.get(f"/admin/prospects/{chat_id}")
+
+    assert response.status_code == 200
+    assert "Bot: ON" in response.text
+    assert f"/admin/prospects/{chat_id}/bot/deactivate" in response.text
+
+
+def test_activate_bot_requires_login(client: TestClient) -> None:
+    response = client.post("/admin/prospects/573001112233@c.us/bot/activate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/login"
+
+
+def test_deactivate_bot_requires_login(client: TestClient) -> None:
+    response = client.post("/admin/prospects/573001112233@c.us/bot/deactivate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/login"
+
+
+def test_activate_bot_seeds_history_and_enables_bot(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: object())
+    monkeypatch.setattr(admin_router, "get_llm_client", lambda: object())
+    seed_calls: list[tuple] = []
+    monkeypatch.setattr(
+        admin_router,
+        "seed_history_from_waha",
+        lambda s, w, l, cid: seed_calls.append((s, w, l, cid))
+        or {"seeded": True, "messages_imported": 3, "analysis": None},
+    )
+
+    _log_in(client)
+    response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/admin/prospects/{chat_id}"
+    assert store.get_bot_enabled(chat_id) is True
+    assert len(seed_calls) == 1
+    assert seed_calls[0][0] is store
+    assert seed_calls[0][3] == chat_id
+
+
+def test_activate_bot_is_a_noop_when_already_enabled(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guarda contra el doble clic en "Activar" — si ya estaba prendido, no reimporta el historial."""
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    store.set_bot_enabled(chat_id, True)
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+    seed_calls: list[tuple] = []
+    monkeypatch.setattr(
+        admin_router,
+        "seed_history_from_waha",
+        lambda s, w, l, cid: seed_calls.append((s, w, l, cid)) or {"seeded": False, "messages_imported": 0, "analysis": None},
+    )
+
+    _log_in(client)
+    response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert store.get_bot_enabled(chat_id) is True
+    assert seed_calls == []
+
+
+def test_activate_bot_handles_misconfigured_integration_gracefully(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si Waha/LLM no están configurados, la ruta no debe romper el panel — solo activa sin sembrar historial."""
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    def _raise() -> None:
+        raise RuntimeError("falta configuración")
+
+    monkeypatch.setattr(admin_router, "get_waha_client", _raise)
+
+    _log_in(client)
+    response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert store.get_bot_enabled(chat_id) is True
+
+
+def test_deactivate_bot_disables_bot(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    store.set_bot_enabled(chat_id, True)
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    _log_in(client)
+    response = client.post(f"/admin/prospects/{chat_id}/bot/deactivate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/admin/prospects/{chat_id}"
+    assert store.get_bot_enabled(chat_id) is False

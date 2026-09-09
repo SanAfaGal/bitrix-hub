@@ -23,9 +23,12 @@ from app.admin.page import (
 )
 from app.admin.prospects_page import render_prospects_html
 from app.flows.whatsapp_bot import conversation_store
+from app.flows.whatsapp_bot_history_seed import seed_history_from_waha
+from app.llm.deps import get_llm_client
 from app.location_catalog import client as location_catalog_client
 from app.message_templates import store as templates_store
 from app.shared.rate_limit import rate_limit
+from app.waha.deps import get_waha_client
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +185,35 @@ def post_delete_prospect(chat_id: str, username: str = Depends(require_login)) -
     return RedirectResponse(url=PROSPECTS_PATH, status_code=303)
 
 
+@router.post(
+    f"{PROSPECTS_PATH}/{{chat_id}}/bot/activate",
+    summary="Activa el bot para un chat, importando su historial previo de WhatsApp si hace falta",
+)
+def post_activate_bot(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
+    # Si ya estaba activo no reintenta el seed — evita reimportar/reanalizar
+    # de más ante un doble clic en "Activar" (ver nota de revisión de la Tarea 3).
+    if not conversation_store.get_bot_enabled(chat_id):
+        try:
+            waha_client = get_waha_client()
+            llm_client = get_llm_client()
+            seed_history_from_waha(conversation_store, waha_client, llm_client, chat_id)
+        except Exception:  # noqa: BLE001 — una integración mal configurada no debe romper el panel admin
+            logger.exception(
+                "No se pudo importar el historial de Waha al activar el bot para %s — se activa igual", chat_id
+            )
+        conversation_store.set_bot_enabled(chat_id, True)
+    return RedirectResponse(url=f"{PROSPECTS_PATH}/{chat_id}", status_code=303)
+
+
+@router.post(
+    f"{PROSPECTS_PATH}/{{chat_id}}/bot/deactivate",
+    summary="Desactiva el bot para un chat",
+)
+def post_deactivate_bot(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
+    conversation_store.set_bot_enabled(chat_id, False)
+    return RedirectResponse(url=f"{PROSPECTS_PATH}/{chat_id}", status_code=303)
+
+
 @router.get(
     f"{PROSPECTS_PATH}/{{key}}",
     response_class=HTMLResponse,
@@ -209,6 +241,7 @@ def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTM
             "confirmed_phone": confirmed_phone,
             "deal_id": conversation_store.get_deal_id(key),
             "channel": "whatsapp",
+            "bot_enabled": conversation_store.get_bot_enabled(key),
         }
         selected_messages = conversation_store.get_full_history(key)
 
