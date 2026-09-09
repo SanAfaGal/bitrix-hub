@@ -77,6 +77,20 @@ class XposureClient:
 
         logger.info("Sesión iniciada")
 
+    def is_reachable(self) -> bool:
+        """Chequeo liviano de disponibilidad (indicador de estado en el wizard, ver
+        app/forms/router.py) — un GET sin autenticar a /portal/Login, no consume
+        sesión ni dispara login real (no manda credenciales). A diferencia del
+        resto de esta clase (que sí lanza, ver login()/search_property()), este
+        método nunca lanza: loguea y devuelve False, porque alimenta un
+        indicador visual, no un flujo que deba fallar."""
+        try:
+            response = self._get("/portal/Login")
+            return response.ok
+        except requests.exceptions.RequestException:
+            logger.warning("Xposure no está respondiendo (chequeo de disponibilidad)")
+            return False
+
     def resolve_area_code(self, office_code: str) -> str | None:
         """Traduce un código de oficina en texto (ej. "001N", "50C") al id interno que
         Xposure espera en `tax_roll_area_code` (ver search_property) — NO es el mismo

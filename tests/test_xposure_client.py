@@ -28,10 +28,36 @@ class _FakeResponse:
         self.text = text
         self.url = url
         self.status_code = status_code
+        self.ok = status_code < 400
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise requests.HTTPError(f"HTTP {self.status_code}")
+
+
+def test_is_reachable_returns_true_when_login_page_responds_ok(monkeypatch) -> None:
+    client = _client()
+    monkeypatch.setattr(client, "_get", lambda *a, **k: _FakeResponse(status_code=200))
+
+    assert client.is_reachable() is True
+
+
+def test_is_reachable_returns_false_when_login_page_responds_with_error(monkeypatch) -> None:
+    client = _client()
+    monkeypatch.setattr(client, "_get", lambda *a, **k: _FakeResponse(status_code=500))
+
+    assert client.is_reachable() is False
+
+
+def test_is_reachable_returns_false_when_request_fails(monkeypatch) -> None:
+    client = _client()
+
+    def _raise(*_a, **_k):
+        raise requests.exceptions.ConnectionError("no llega")
+
+    monkeypatch.setattr(client, "_get", _raise)
+
+    assert client.is_reachable() is False
 
 
 def test_login_succeeds_when_redirect_leaves_login_page(monkeypatch) -> None:
