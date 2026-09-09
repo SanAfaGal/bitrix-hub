@@ -29,6 +29,17 @@ def _waha_message_event(message_id: str, text: str = "hola", chat_id: str = "573
 _WAHA_MESSAGE_EVENT = _waha_message_event("msg1")
 
 
+def _disable_waha_webhook_secret(monkeypatch) -> None:
+    """Los tests que no ejercitan el check de secreto en sí no deben depender de si
+    WHATSAPP_WEBHOOK_SECRET está configurado en el .env local o no."""
+    from app.waha.settings import WahaSettings
+
+    monkeypatch.setattr(
+        "app.waha.router.load_waha_settings",
+        lambda: WahaSettings(base_url="http://waha", api_key=None, session="default", webhook_secret=None),
+    )
+
+
 def test_health_endpoint() -> None:
     response = client.get("/health")
     assert response.status_code == 200
@@ -52,6 +63,7 @@ def test_single_property_lookup() -> None:
 
 
 def test_webhook_deal_event_delegates_to_flow(monkeypatch) -> None:
+    monkeypatch.setattr("app.flows.router.load_bitrix_webhook_secret", lambda: None)
     monkeypatch.setattr("app.flows.router.get_crm_client", lambda: FakeCrmClient())
     monkeypatch.setattr("app.flows.router.get_xposure_client", lambda: None)
 
@@ -74,6 +86,7 @@ def test_webhook_deal_stage_broker_auth_sends_welcome_and_link(monkeypatch) -> N
             self.calls.append((chat_id, text, session))
             return True
 
+    monkeypatch.setattr("app.flows.router.load_bitrix_webhook_secret", lambda: None)
     monkeypatch.setattr("app.flows.router.get_crm_client", lambda: fake_crm)
     monkeypatch.setattr("app.flows.router.get_waha_client", lambda: FakeWahaClient())
     monkeypatch.setattr("app.flows.router.load_public_base_url", lambda: "https://hub.example.com")
@@ -106,14 +119,17 @@ def test_webhook_deal_event_accepts_correct_secret_when_configured(monkeypatch) 
     assert response.status_code == 200
 
 
-def test_webhook_deal_stage_broker_auth_requires_deal_id() -> None:
+def test_webhook_deal_stage_broker_auth_requires_deal_id(monkeypatch) -> None:
+    monkeypatch.setattr("app.flows.router.load_bitrix_webhook_secret", lambda: None)
+
     response = client.post("/webhook/deal-stage-broker-auth", data={})
 
     assert response.status_code == 200
     assert response.json() == {"ok": False, "error": "Falta ID"}
 
 
-def test_webhook_waha_message_skips_when_not_applicable() -> None:
+def test_webhook_waha_message_skips_when_not_applicable(monkeypatch) -> None:
+    _disable_waha_webhook_secret(monkeypatch)
     event = {"event": "session.status", "session": "default", "payload": {}}
 
     response = client.post("/webhook/waha-message", json=event)
@@ -153,6 +169,7 @@ def test_webhook_waha_test_rejects_missing_or_wrong_secret_when_configured(monke
 
 
 def test_webhook_waha_message_skips_when_bot_disabled(monkeypatch) -> None:
+    _disable_waha_webhook_secret(monkeypatch)
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
         lambda: BotConfig(enabled=False, max_history_turns=6),
@@ -178,6 +195,7 @@ def test_webhook_waha_message_replies_via_llm_when_enabled(monkeypatch) -> None:
             return "hola! como te ayudo?"
 
     fake_waha = FakeWahaClient()
+    _disable_waha_webhook_secret(monkeypatch)
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
         lambda: BotConfig(enabled=True, max_history_turns=6),
@@ -219,6 +237,7 @@ def test_webhook_waha_message_creates_deal_and_updates_property_listing(monkeypa
             )
 
     fake_crm = FakeCrmClient()
+    _disable_waha_webhook_secret(monkeypatch)
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
         lambda: BotConfig(enabled=True, max_history_turns=6),
@@ -249,6 +268,7 @@ def test_webhook_waha_message_returns_error_when_llm_not_configured(monkeypatch)
 
         raise HTTPException(status_code=500, detail="Falta variable de entorno: LLM_API_KEY")
 
+    _disable_waha_webhook_secret(monkeypatch)
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
         lambda: BotConfig(enabled=True, max_history_turns=6),
@@ -274,6 +294,7 @@ def test_webhook_waha_message_returns_error_when_crm_not_configured(monkeypatch)
         def reply(self, system_prompt: str, history: list[dict], user_text: str) -> str | None:
             return "no debería llegar a llamarse"
 
+    _disable_waha_webhook_secret(monkeypatch)
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
         lambda: BotConfig(enabled=True, max_history_turns=6),
@@ -300,6 +321,7 @@ def test_webhook_waha_message_returns_error_when_transcription_not_configured(mo
         def reply(self, system_prompt: str, history: list[dict], user_text: str) -> str | None:
             return "no debería llegar a llamarse"
 
+    _disable_waha_webhook_secret(monkeypatch)
     monkeypatch.setattr(
         "app.waha.router.load_bot_config",
         lambda: BotConfig(enabled=True, max_history_turns=6),
@@ -325,6 +347,7 @@ def test_webhook_deal_stage_broker_auth_logs_error_when_public_base_url_missing(
     def raise_missing_public_base_url():
         raise RuntimeError("Falta variable de entorno: HUB_PUBLIC_BASE_URL")
 
+    monkeypatch.setattr("app.flows.router.load_bitrix_webhook_secret", lambda: None)
     monkeypatch.setattr("app.flows.router.get_crm_client", lambda: FakeCrmClient())
     monkeypatch.setattr("app.flows.router.get_waha_client", lambda: object())
     monkeypatch.setattr("app.flows.router.load_public_base_url", raise_missing_public_base_url)
