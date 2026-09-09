@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.location_catalog import db
@@ -29,6 +29,102 @@ logger = logging.getLogger(__name__)
 class LocationSuggestion:
     sector_code: str
     display_label: str
+
+
+@dataclass(frozen=True)
+class Sector:
+    sector_code: str
+    sector: str
+    zona: str
+    ciudad: str
+    departamento: str
+    pais: str
+    cobertura: bool
+
+
+def fetch_all_sectores() -> list[Sector]:
+    """Lista completa de sectores para el admin de cobertura de ventas — sin el
+    dedupe de `fetch_all_locations` (acá cada `sector_code` se administra por
+    separado, aunque dos terminen con el mismo texto de ubicación)."""
+    view_name = load_location_catalog_settings().view_name
+    query = text(
+        f"SELECT sector_code, sector, zona, ciudad, departamento, pais, cobertura_ventas "  # noqa: S608 — view_name es config del operador
+        f"FROM {view_name} ORDER BY ciudad, sector"
+    )
+    try:
+        with db.engine.connect() as connection:
+            rows = connection.execute(query).all()
+    except SQLAlchemyError:
+        logger.exception("No se pudo leer el catálogo de sectores del DWH de Mobilia")
+        return []
+
+    return [
+        Sector(
+            sector_code=row.sector_code,
+            sector=row.sector,
+            zona=row.zona,
+            ciudad=row.ciudad,
+            departamento=row.departamento,
+            pais=row.pais,
+            cobertura=bool(row.cobertura_ventas),
+        )
+        for row in rows
+    ]
+
+
+def set_cobertura(sector_codes: list[str], covered: bool) -> bool:
+    """Activa/desactiva `cobertura_ventas` para los `sector_code` dados, en batch.
+
+    Primer write de este repo contra `mobilia_dwh` — hasta ahora todo acceso acá
+    era de solo lectura. Igual que el resto del archivo, nunca lanza: loguea y
+    devuelve `False` si la conexión o el UPDATE fallan."""
+    if not sector_codes:
+        return True
+
+    view_name = load_location_catalog_settings().view_name
+    query = text(
+        f"UPDATE {view_name} SET cobertura_ventas = :covered WHERE sector_code IN :codes"  # noqa: S608 — view_name es config del operador
+    ).bindparams(bindparam("codes", expanding=True))
+    try:
+        with db.engine.begin() as connection:
+            connection.execute(query, {"covered": covered, "codes": sector_codes})
+    except SQLAlchemyError:
+        logger.exception("No se pudo actualizar cobertura_ventas en el DWH de Mobilia")
+        return False
+    return True
+
+
+def get_sector_coverage(sector_code: str) -> bool | None:
+    """None = no se pudo determinar (sector_code no existe o falló la consulta) —
+    fresca siempre, nunca cacheada ni servida por fetch_all_locations()/
+    get_cached_locations(): ese cache dedupea por display_label y puede
+    colapsar sector_codes distintos con cobertura distinta en una sola
+    sugerencia. Acá la frescura importa (decide si se bloquea a un cliente),
+    no es cosmético como la lista de sugerencias."""
+    view_name = load_location_catalog_settings().view_name
+    query = text(
+        f"SELECT cobertura_ventas FROM {view_name} WHERE sector_code = :sector_code"  # noqa: S608 — view_name es config del operador
+    )
+    try:
+        with db.engine.connect() as connection:
+            row = connection.execute(query, {"sector_code": sector_code}).first()
+    except SQLAlchemyError:
+        logger.exception("No se pudo leer cobertura_ventas para sector_code=%s", sector_code)
+        return None
+    return None if row is None else bool(row.cobertura_ventas)
+
+
+def is_reachable() -> bool:
+    """Chequeo liviano de conectividad al DWH (indicador de estado del wizard,
+    ver app/forms/router.py) — un SELECT 1 puro, no depende de view_name ni de
+    que la vista esté bien configurada, solo de la conexión a MySQL."""
+    try:
+        with db.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        logger.exception("mobilia_dwh no está respondiendo (chequeo de disponibilidad)")
+        return False
+    return True
 
 
 def fetch_all_locations() -> list[LocationSuggestion]:
