@@ -1,18 +1,31 @@
 """JS del wizard previo al formulario completo — separado de page_script.py por tamaño.
 
-Contiene `__VERIFY_MATRICULA_PATH__` y `__CONFIRM_MATRICULA_MATCH_PATH__`,
-reemplazados por `render_form_html()` en `page.py` (mismo mecanismo de
-placeholders que `page_script.py`). Corre en su
-propia IIFE, después del `<script>` de `page_script.py` en el HTML final —
-no depende de sus funciones internas; solo comparte elementos del DOM por id
-(`field-location`, `field-registration_number`, `authorization-form`) y los
-helpers de storage de `page_storage_script.py` (única fuente de esa lógica,
-compartida en tiempo de compilación de la plantilla, no en tiempo de
-ejecución — ver el docstring de ese módulo).
+`WIZARD_SCRIPT` se arma concatenando esta parte "core" (consentimiento,
+paso de ubicación con su chequeo de cobertura, indicador de estado,
+tarjeta genérica de bloqueo, "Corregir" y `bhRestoreWizard`) con el
+fragmento de matrícula (`page_wizard_script_matricula.py`, separado por el
+mismo límite de 500 líneas por archivo) — éste último debe ir DESPUÉS de la
+parte que declara `hide`/`show`/`showBlocked`/`blockedReturnStep`/
+`setWizardFieldError`/`confirmField`/`showConfirmMatch`/`bhSaveState` (las
+usa) y ANTES de los botones "Corregir"/`bhRestoreWizard` (que necesitan
+`matriculaInput` ya declarado) — mismo patrón de fragmentos-en-una-sola-IIFE
+que `page_script.py`.
+
+Contiene `__VERIFY_MATRICULA_PATH__`, `__CONFIRM_MATRICULA_MATCH_PATH__`,
+`__VERIFY_COBERTURA_PATH__` y `__ESTADO_SERVICIOS_PATH__`, reemplazados por
+`render_form_html()` en `page.py` (mismo mecanismo de placeholders que
+`page_script.py`). Corre en su propia IIFE, después del `<script>` de
+`page_script.py` en el HTML final — no depende de sus funciones internas;
+solo comparte elementos del DOM por id (`field-location`,
+`field-location_sector_code`, `field-registration_number`,
+`authorization-form`) y los helpers de storage de `page_storage_script.py`
+(única fuente de esa lógica, compartida en tiempo de compilación de la
+plantilla, no en tiempo de ejecución — ver el docstring de ese módulo).
 """
 from __future__ import annotations
 
 from app.forms.page_storage_script import STORAGE_SCRIPT
+from app.forms.page_wizard_script_matricula import WIZARD_MATRICULA_SCRIPT
 
 WIZARD_SCRIPT = (
     """<script>
@@ -54,6 +67,7 @@ WIZARD_SCRIPT = (
     bhSaveState({ wizard: { consentAccepted: true, step: 'location' } });
     hide(stepAuthorization);
     show(stepLocation);
+    refreshServiceStatus();
     locationInput.focus();
   });
   document.getElementById('wizard-authorize-no').addEventListener('click', function () {
@@ -78,15 +92,22 @@ WIZARD_SCRIPT = (
     bhSaveState({ wizard: { step: 'location' } });
     hide(stepMatricula);
     show(stepLocation);
+    refreshServiceStatus();
     locationInput.focus();
   });
   document.getElementById('wizard-back-blocked').addEventListener('click', function () {
-    // El paso guardado ya queda en 'matricula' cuando se bloquea (ver
-    // showBlocked más abajo, llamado desde el handler de verify-matricula)
-    // — no hace falta volver a guardarlo acá.
+    // El paso guardado ya queda en 'matricula' o 'location' según el origen
+    // del bloqueo (ver showBlocked/blockedReturnStep) — no hace falta volver
+    // a guardarlo acá.
     hide(stepBlocked);
-    show(stepMatricula);
-    matriculaInput.focus();
+    refreshServiceStatus();
+    if (blockedReturnStep === 'location') {
+      show(stepLocation);
+      locationInput.focus();
+    } else {
+      show(stepMatricula);
+      matriculaInput.focus();
+    }
   });
 
   function showFullForm() {
@@ -110,6 +131,38 @@ WIZARD_SCRIPT = (
     }
     show(stepBlocked);
   }
+
+  // A qué paso volver desde el bloqueo con "Regresar" — lo fija cada llamada
+  // a showBlocked() justo antes de llamarla (ver el chequeo de cobertura y
+  // "¿es tu inmueble?" más abajo), 'matricula' es el default porque era el
+  // único origen posible antes de que existiera el bloqueo por cobertura.
+  var blockedReturnStep = 'matricula';
+
+  // Estado de los servicios externos (mobilia_dwh, Xposure) — solo
+  // informativo para el puntico de cada paso, nunca bloquea nada (esa
+  // decisión ya la toma el backend, ver is_location_covered/
+  // check_registration_number_live, que fallan abiertos cuando no pueden
+  // determinar algo). Se llama al cargar la página y de nuevo en cada
+  // transición hacia el paso de ubicación o matrícula, para reflejar si el
+  // servicio se cayó o se recuperó entre pasos, sin necesidad de sondeo continuo.
+  function setStatusDot(dot, ok, label) {
+    if (!dot) return;
+    dot.classList.toggle('wizard-status-dot--ok', ok);
+    dot.classList.toggle('wizard-status-dot--down', !ok);
+    dot.title = ok
+      ? 'Servicio de ' + label + ' disponible.'
+      : 'Servicio de ' + label + ' no disponible en este momento — igual puedes continuar.';
+  }
+  function refreshServiceStatus() {
+    fetch('__ESTADO_SERVICIOS_PATH__')
+      .then(function (response) { return response.json(); })
+      .then(function (body) {
+        setStatusDot(document.getElementById('wizard-status-location'), body.mobilia_dwh, 'ubicaciones');
+        setStatusDot(document.getElementById('wizard-status-matricula'), body.xposure, 'matrícula (Xposure)');
+      })
+      .catch(function () { /* best-effort, no bloquea nada — el punto se queda en gris/pendiente */ });
+  }
+  refreshServiceStatus();
 
   // Antes de bloquear por duplicado, se le pregunta al cliente si el inmueble
   // encontrado es el suyo — folios de matrícula no son únicos entre oficinas
@@ -181,9 +234,10 @@ WIZARD_SCRIPT = (
 
   var locationInput = document.getElementById('field-location');
   var locationError = document.getElementById('error-location');
+  var locationSectorCodeInput = document.getElementById('field-location_sector_code');
   var locationContinueButton = document.getElementById('wizard-location-continue');
   locationInput.addEventListener('input', function () {
-    bhSaveState({ wizard: { location: locationInput.value } });
+    bhSaveState({ wizard: { location: locationInput.value, sectorCode: null } });
     setWizardFieldError(locationInput, locationError, '');
   });
 
@@ -194,39 +248,98 @@ WIZARD_SCRIPT = (
       locationInput.focus();
       return;
     }
-    setWizardFieldError(locationInput, locationError, '');
-
-    // Se guarda el valor final tal cual quedó en el campo al confirmar (no el
-    // de cada tecla, ver el listener 'input' de más arriba): así el
-    // formulario final y una futura recarga muestran exactamente lo mismo
-    // que la persona vio y seleccionó acá, incluido el formato en mayúscula
-    // que aplica page_script.py y las sugerencias elegidas con el mouse (que
-    // no disparan 'input').
-    bhSaveState({ wizard: { location: value } });
-    confirmField('location_display', value);
-
-    // Si ya se había validado la matrícula (llegó acá corrigiendo la
-    // ubicación con el botón "Corregir" del formulario final, no la primera
-    // vez), no hace falta volver a consultarla en Xposure — es una
-    // validación aparte que no cambió. Directo de vuelta al formulario.
-    var registrationInput = document.getElementById('field-registration_number');
-    if (registrationInput && registrationInput.readOnly && registrationInput.value) {
-      bhSaveState({ wizard: { step: 'done' } });
-      showFullForm();
+    // Sin esto, el botón "Continuar" del paso nunca verificaba que se
+    // hubiera elegido una sugerencia real de la lista (solo lo hacía el
+    // submit final, ver validateLocationSelection en page_script_inputs.py)
+    // — ahora es obligatorio, porque sin sector_code no hay nada que
+    // consultar en el paso siguiente.
+    var sectorCode = locationSectorCodeInput ? locationSectorCodeInput.value : '';
+    if (!sectorCode) {
+      setWizardFieldError(locationInput, locationError, 'Selecciona una ubicación de la lista de sugerencias.');
+      locationInput.focus();
       return;
     }
+    setWizardFieldError(locationInput, locationError, '');
 
-    // Matrícula/Xposure se pregunta siempre después de la ubicación — es una
-    // validación distinta (¿el inmueble ya está publicado en el MLS?), no
-    // depende de si la ubicación tiene cobertura (`app/forms/coverage.py`,
-    // hoy un placeholder sin usar, reservado para un chequeo aparte a futuro).
-    bhSaveState({ wizard: { step: 'matricula' } });
-    hide(stepLocation);
-    show(stepMatricula);
-    matriculaInput.focus();
+    locationContinueButton.disabled = true;
+    var originalButtonText = locationContinueButton.textContent;
+    locationContinueButton.textContent = 'Verificando...';
+
+    var form = document.getElementById('authorization-form');
+    var dealIdInput = form.elements.deal_id;
+    var tokenInput = form.elements.token;
+
+    fetch('__VERIFY_COBERTURA_PATH__', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sector_code: sectorCode,
+        deal_id: dealIdInput ? dealIdInput.value : null,
+        token: tokenInput ? tokenInput.value : null
+      })
+    }).then(function (resp) {
+      if (resp.status === 422) {
+        setWizardFieldError(locationInput, locationError, 'Selecciona una ubicación de la lista de sugerencias.');
+        return null;
+      }
+      if (!resp.ok) {
+        return resp.json().catch(function () { return null; }).then(function (body) {
+          throw new Error(
+            (body && body.detail) ||
+            'No pudimos verificar la cobertura en este momento por un problema de nuestro lado. Intenta de nuevo en unos minutos.'
+          );
+        });
+      }
+      return resp.json();
+    }).then(function (body) {
+      locationContinueButton.disabled = false;
+      locationContinueButton.textContent = originalButtonText;
+      if (!body) return;
+
+      if (!body.covered) {
+        blockedReturnStep = 'location';
+        showBlocked(body.message, null);
+        return;
+      }
+
+      // Se guarda el valor final tal cual quedó en el campo al confirmar (no
+      // el de cada tecla, ver el listener 'input' de más arriba): así el
+      // formulario final y una futura recarga muestran exactamente lo mismo
+      // que la persona vio y seleccionó acá, incluido el formato en
+      // mayúscula que aplica page_script.py y las sugerencias elegidas con
+      // el mouse (que no disparan 'input').
+      bhSaveState({ wizard: { location: value, sectorCode: sectorCode } });
+      confirmField('location_display', value);
+
+      // Si ya se había validado la matrícula (llegó acá corrigiendo la
+      // ubicación con el botón "Corregir" del formulario final, no la
+      // primera vez), no hace falta volver a consultarla en Xposure — es una
+      // validación aparte que no cambió. Directo de vuelta al formulario.
+      var registrationInput = document.getElementById('field-registration_number');
+      if (registrationInput && registrationInput.readOnly && registrationInput.value) {
+        bhSaveState({ wizard: { step: 'done' } });
+        showFullForm();
+        return;
+      }
+
+      // Matrícula/Xposure se pregunta siempre después de la ubicación — es
+      // una validación distinta (¿el inmueble ya está publicado en el MLS?),
+      // independiente de la cobertura por zona que ya se acaba de confirmar.
+      bhSaveState({ wizard: { step: 'matricula' } });
+      hide(stepLocation);
+      show(stepMatricula);
+      refreshServiceStatus();
+      matriculaInput.focus();
+    }).catch(function (err) {
+      locationContinueButton.disabled = false;
+      locationContinueButton.textContent = originalButtonText;
+      setWizardFieldError(locationInput, locationError, err.message);
+    });
   });
 
-  // Botones "Corregir" del formulario final: reabren el paso del wizard
+"""
+    + WIZARD_MATRICULA_SCRIPT
+    + """  // Botones "Corregir" del formulario final: reabren el paso del wizard
   // correspondiente si la persona se equivocó, en vez de obligarla a pedir
   // un enlace nuevo al asesor (los pasos no tienen "atrás" una vez pasados).
   var locationCorrectButton = document.getElementById('field-location_display-correct');
@@ -257,155 +370,6 @@ WIZARD_SCRIPT = (
     });
   }
 
-  // Matrícula/ID: "código de oficina - folio", dígitos, letras (código de
-  // oficina) y guion, en mayúscula — mismo formato que `_REGISTRATION_NUMBER_RE`
-  // en app/forms/models.py: código de oficina de 3-4 caracteres, folio de
-  // 5-8 dígitos. Se recorta en vivo a esos largos (no solo se valida al
-  // continuar) para que la persona no pueda escribir de más y se entere
-  // recién al final.
-  function formatMatricula(value) {
-    value = value.toUpperCase().replace(/[^0-9A-Z-]/g, '');
-    var dashIndex = value.indexOf('-');
-    if (dashIndex === -1) return value.slice(0, 4);
-    var officeCode = value.slice(0, dashIndex).slice(0, 4);
-    var folio = value.slice(dashIndex + 1).replace(/-/g, '').slice(0, 8);
-    return officeCode + '-' + folio;
-  }
-  // Mismo formato que `_REGISTRATION_NUMBER_RE` en app/forms/models.py — se
-  // valida en el cliente antes de llamar a Xposure para avisar de una vez
-  // si el formato está mal, en vez de esperar la ida y vuelta al servidor
-  // para enterarse (el backend igual vuelve a validar esto, ver
-  // `validate_registration_number`; esto es solo para responder más rápido).
-  var MATRICULA_FORMAT_RE = /^(?:\\d{3}[A-Z]?|\\d{2}[A-Z])-\\d{5,8}$|^\\d{4,10}$/;
-
-  var matriculaInput = document.getElementById('wizard-registration-number');
-  var matriculaError = document.getElementById('error-wizard-registration-number');
-  var matriculaContinueButton = document.getElementById('wizard-matricula-continue');
-  matriculaInput.addEventListener('input', function () {
-    matriculaInput.value = formatMatricula(matriculaInput.value);
-    bhSaveState({ wizard: { matricula: matriculaInput.value } });
-    setMatriculaError('');
-  });
-
-  function setMatriculaError(message) {
-    setWizardFieldError(matriculaInput, matriculaError, message);
-  }
-
-  matriculaContinueButton.addEventListener('click', function () {
-    var value = matriculaInput.value.trim();
-    if (!value) {
-      setMatriculaError('Cuéntanos la matrícula o el ID del inmueble para continuar.');
-      matriculaInput.focus();
-      return;
-    }
-    if (!MATRICULA_FORMAT_RE.test(value)) {
-      setMatriculaError('Formato inválido. Ej: 050-123456 (código de oficina, guion, número de folio).');
-      matriculaInput.focus();
-      return;
-    }
-    setMatriculaError('');
-    matriculaContinueButton.disabled = true;
-    var originalButtonText = matriculaContinueButton.textContent;
-    matriculaContinueButton.textContent = 'Verificando...';
-
-    var form = document.getElementById('authorization-form');
-    var dealIdInput = form.elements.deal_id;
-    var tokenInput = form.elements.token;
-
-    fetch('__VERIFY_MATRICULA_PATH__', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        registration_number: value,
-        deal_id: dealIdInput ? dealIdInput.value : null,
-        token: tokenInput ? tokenInput.value : null
-      })
-    }).then(function (resp) {
-      if (resp.status === 422) {
-        setMatriculaError('Matrícula inmobiliaria inválida.');
-        return null;
-      }
-      if (!resp.ok) {
-        // No es un problema de formato (eso ya se descartó arriba, antes de
-        // llamar a la API) — es un error del servidor o de la consulta a
-        // Xposure, hay que decirlo así para que la persona no piense que
-        // escribió mal la matrícula. `detail` es el mensaje de FastAPI
-        // (ej. el 429 de rate_limit.py trae uno propio ya en español); si no
-        // viene ninguno, se usa un mensaje genérico que deja claro que el
-        // problema es nuestro, no de lo que escribió.
-        return resp.json().catch(function () { return null; }).then(function (body) {
-          throw new Error(
-            (body && body.detail) ||
-            'No pudimos verificar la matrícula en este momento por un problema de nuestro lado. Intenta de nuevo en unos minutos.'
-          );
-        });
-      }
-      return resp.json();
-    }).then(function (body) {
-      matriculaContinueButton.disabled = false;
-      matriculaContinueButton.textContent = originalButtonText;
-      if (!body) return;
-      if (body.duplicate) {
-        // El paso guardado se queda en "matricula", nunca en "done" — si la
-        // persona recarga la página a mitad de la pregunta "¿es tu
-        // inmueble?", debe volver a intentar la matrícula desde cero, no
-        // aparecer directo en el formulario completo ni en la pregunta a
-        // medias (ver showConfirmMatch/showBlocked, ninguno se restaura solo).
-        bhSaveState({ wizard: { step: 'matricula' } });
-        showConfirmMatch(value, body.message, body.url, body.exact_match);
-        return;
-      }
-      // No se vuelve a pedir: el valor ya validado pasa directo al campo
-      // real del formulario completo (sección "Datos del inmueble"), de solo
-      // lectura de ahí en adelante — ya se confirmó contra Xposure, no tiene
-      // sentido dejar que se edite sin volver a validar.
-      confirmField('registration_number', value);
-      bhSaveState({ wizard: { step: 'done', matricula: value } });
-      showFullForm();
-    }).catch(function (err) {
-      matriculaContinueButton.disabled = false;
-      matriculaContinueButton.textContent = originalButtonText;
-      setMatriculaError(err.message);
-    });
-  });
-
-  // Respuesta a "¿es este tu inmueble?" — el POST a confirm-matricula-match es
-  // best-effort: si falla la sincronización con el CRM, igual se sigue el
-  // flujo del cliente (bloquear o dejarlo corregir), que depende de lo que él
-  // mismo contestó, no de si Bitrix se pudo actualizar.
-  function sendMatchConfirmation(confirmed) {
-    var form = document.getElementById('authorization-form');
-    var dealIdInput = form.elements.deal_id;
-    var tokenInput = form.elements.token;
-    return fetch('__CONFIRM_MATRICULA_MATCH_PATH__', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        registration_number: pendingMatch.value,
-        url: pendingMatch.url,
-        confirmed: confirmed,
-        deal_id: dealIdInput ? dealIdInput.value : null,
-        token: tokenInput ? tokenInput.value : null
-      })
-    }).catch(function () { /* best-effort, ver comentario arriba */ });
-  }
-
-  document.getElementById('wizard-confirm-match-yes').addEventListener('click', function () {
-    var match = pendingMatch;
-    sendMatchConfirmation(true).then(function () {
-      showBlocked(match.message, match.url);
-    });
-  });
-  document.getElementById('wizard-confirm-match-no').addEventListener('click', function () {
-    sendMatchConfirmation(false).then(function () {
-      hide(stepConfirmMatch);
-      show(stepMatricula);
-      setMatriculaError('Verifica que el código de oficina y el número de folio estén bien escritos, y vuelve a intentarlo.');
-      matriculaInput.focus();
-      matriculaInput.select();
-    });
-  });
-
   // Botón "Empezar de nuevo": solo visible si hay progreso guardado (se
   // decide en bhRestoreWizard, más abajo, que ya carga el estado). Borra
   // todo el localStorage del formulario y recarga — no intenta resetear el
@@ -425,6 +389,11 @@ WIZARD_SCRIPT = (
     if (Object.keys(state).length > 0) startOverButton.classList.remove('start-over-btn--hidden');
     if (w.consentAccepted) dataConsentCheckbox.checked = true;
     if (w.location) locationInput.value = w.location;
+    // Se restaura junto con `location` (no solo en el paso 'location'):
+    // sin esto, un cliente que recarga después de pasar el chequeo de
+    // cobertura y luego usa "Corregir" se encontraría el sector_code vacío
+    // aunque la ubicación ya esté confirmada.
+    if (w.sectorCode && locationSectorCodeInput) locationSectorCodeInput.value = w.sectorCode;
     if (w.matricula) matriculaInput.value = w.matricula;
     if (w.step === 'done') {
       if (w.location) confirmField('location_display', w.location);
@@ -435,9 +404,11 @@ WIZARD_SCRIPT = (
       if (w.location) confirmField('location_display', w.location);
       hide(stepAuthorization);
       show(stepMatricula);
+      refreshServiceStatus();
     } else if (w.step === 'location') {
       hide(stepAuthorization);
       show(stepLocation);
+      refreshServiceStatus();
     }
   })();
 })();

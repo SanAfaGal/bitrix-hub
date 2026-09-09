@@ -69,13 +69,17 @@ _WIZARD_HTML = """<div class="card" id="wizard-step-authorization">
     </div>
     <div class="card card--hidden" id="wizard-step-location">
       <div class="card__header">
-        <h2 class="card__title">Ubicación del inmueble</h2>
+        <h2 class="card__title">
+          Ubicación del inmueble
+          <span class="wizard-status-dot" id="wizard-status-location" title="Verificando disponibilidad..."></span>
+        </h2>
         <p class="card__subtitle">
           Cuéntanos dónde está el inmueble: es necesario validar si tenemos cobertura en esa
           ubicación.
         </p>
       </div>
 __LOCATION_FIELD_HTML__
+      <input type="hidden" id="field-location_sector_code" name="location_sector_code" form="authorization-form" value="">
       <div class="wizard-actions">
         <button type="button" class="btn btn--back" id="wizard-back-location">
           <svg class="wizard-back-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -88,7 +92,10 @@ __LOCATION_FIELD_HTML__
     </div>
     <div class="card card--hidden" id="wizard-step-matricula">
       <div class="card__header">
-        <h2 class="card__title">Matrícula del inmueble</h2>
+        <h2 class="card__title">
+          Matrícula del inmueble
+          <span class="wizard-status-dot" id="wizard-status-matricula" title="Verificando disponibilidad..."></span>
+        </h2>
         <p class="card__subtitle">
           Antes de continuar, verificamos que este inmueble no esté ya publicado en Xposure MLS.
         </p>
@@ -278,6 +285,21 @@ WIZARD_STYLE = """<style>
 }
 .start-over-btn--hidden {
   display: none;
+}
+.wizard-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-border);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.wizard-status-dot--ok {
+  background: #1f8a4c;
+}
+.wizard-status-dot--down {
+  background: var(--color-error);
 }
 </style>"""
 

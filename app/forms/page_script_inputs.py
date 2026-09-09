@@ -147,6 +147,12 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
       // dispararía el listener de abajo que invalida `locationSelected`.
       locationInput.value = collapseSpacesAndUppercase(location.display_label);
       locationSelected = true;
+      // sector_code viaja en un input oculto propio (ver page_wizard.py) en
+      // vez de una variable JS: así page_wizard_script.py (otra IIFE
+      // independiente, ver su docstring) lo puede leer sin acoplarse a este
+      // archivo, y ya queda listo para viajar tal cual en el submit final.
+      var sectorCodeInput = document.getElementById('field-location_sector_code');
+      if (sectorCodeInput) sectorCodeInput.value = location.sector_code || '';
       clearFieldError(locationInput);
       hideSuggestions();
     }
@@ -200,6 +206,8 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
       // Cualquier edición manual invalida la selección anterior — solo
       // vuelve a quedar válida si la persona elige de nuevo una sugerencia.
       locationSelected = false;
+      var sectorCodeInput = document.getElementById('field-location_sector_code');
+      if (sectorCodeInput) sectorCodeInput.value = '';
       showSuggestions();
     });
     locationInput.addEventListener('focus', showSuggestions);

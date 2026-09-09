@@ -94,6 +94,17 @@ def validate_registration_number(value: str) -> str:
     return cleaned
 
 
+def validate_sector_code(value: str) -> str:
+    """Compartido entre `BrokerageAuthorizationPayload` y `VerifyLocationCoveragePayload`
+    (chequeo en vivo de cobertura, ver app/forms/router.py) — validación deliberadamente
+    laxa (no vacío): no hay certeza del formato real de sector_code en producción para
+    imponer un patrón más estricto sin arriesgar rechazar códigos válidos."""
+    blank_checked = blank_to_none(value)
+    if blank_checked is None:
+        raise ValueError("Ubicación inválida.")
+    return blank_checked
+
+
 def _clean_optional_amount(
     value: object, *, field_label: str, minimum: int, maximum: int | None = None
 ) -> int | None:
@@ -133,6 +144,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     property_type: PropertyType
     address: str
     location: str
+    location_sector_code: str
     registration_number: str
     sale_price: int = 0
     mortgage_loan: YesNo
@@ -179,6 +191,11 @@ class BrokerageAuthorizationPayload(BaseModel):
             raise ValueError("Ubicación inválida.")
         return cleaned
 
+    @field_validator("location_sector_code", mode="before")
+    @classmethod
+    def _validate_location_sector_code(cls, value: str) -> str:
+        return validate_sector_code(value)
+
     @field_validator("registration_number", mode="before")
     @classmethod
     def _validate_registration_number(cls, value: str) -> str:
@@ -212,6 +229,19 @@ class VerifyRegistrationNumberPayload(BaseModel):
     @classmethod
     def _validate_registration_number(cls, value: str) -> str:
         return validate_registration_number(value)
+
+
+class VerifyLocationCoveragePayload(BaseModel):
+    """Body del chequeo en vivo de cobertura (paso del wizard, ver app/forms/router.py)."""
+
+    sector_code: str
+    deal_id: str | None = None
+    token: str | None = None
+
+    @field_validator("sector_code", mode="before")
+    @classmethod
+    def _validate_sector_code(cls, value: str) -> str:
+        return validate_sector_code(value)
 
 
 class ConfirmMatriculaMatchPayload(BaseModel):

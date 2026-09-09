@@ -109,6 +109,7 @@ def _valid_form_payload() -> dict:
         "property_type": "Apartamento",
         "address": "Calle 10 #20-30",
         "location": "El Poblado, Medellín, Antioquia",
+        "location_sector_code": "41001",
         "registration_number": "001-12345",
         "sale_price": "500000000",
         "mortgage_loan": "no",
@@ -304,7 +305,16 @@ def test_post_form_cleans_dirty_input():
 
 @pytest.mark.parametrize(
     "field",
-    ["interested_party", "id_number", "email", "address", "location", "registration_number", "signer_id_number"],
+    [
+        "interested_party",
+        "id_number",
+        "email",
+        "address",
+        "location",
+        "location_sector_code",
+        "registration_number",
+        "signer_id_number",
+    ],
 )
 def test_post_form_rejects_missing_required_field(field):
     payload = _valid_form_payload()
@@ -835,4 +845,109 @@ def test_confirm_matricula_match_is_rate_limited(monkeypatch):
     ]
 
     assert responses[-1].status_code == 429
+
+
+_VERIFY_COBERTURA_PATH = "/formularios/autorizacion-de-corretaje/verify-cobertura"
+
+
+def test_verify_cobertura_allows_when_sector_is_covered(monkeypatch):
+    monkeypatch.setattr("app.forms.router.is_location_covered", lambda sector_code: True)
+
+    response = client.post(_VERIFY_COBERTURA_PATH, json={"sector_code": "41001"})
+
+    assert response.status_code == 200
+    assert response.json() == {"covered": True}
+
+
+def test_verify_cobertura_blocks_when_sector_is_not_covered(monkeypatch):
+    monkeypatch.setattr("app.forms.router.is_location_covered", lambda sector_code: False)
+
+    response = client.post(_VERIFY_COBERTURA_PATH, json={"sector_code": "00081"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["covered"] is False
+    assert body["message"] != ""
+
+
+def test_verify_cobertura_allows_when_check_cannot_be_determined(monkeypatch):
+    # Contrato: is_location_covered ya resuelve el caso ambiguo (DWH caído,
+    # sector_code no reconocido) dejando pasar al cliente — este endpoint
+    # solo refleja lo que esa función devuelva.
+    monkeypatch.setattr("app.forms.router.is_location_covered", lambda sector_code: True)
+
+    response = client.post(_VERIFY_COBERTURA_PATH, json={"sector_code": "no-reconocido"})
+
+    assert response.status_code == 200
+    assert response.json() == {"covered": True}
+
+
+def test_verify_cobertura_rejects_missing_sector_code():
+    response = client.post(_VERIFY_COBERTURA_PATH, json={"sector_code": ""})
+
+    assert response.status_code == 422
+
+
+def test_verify_cobertura_does_not_touch_crm(monkeypatch):
+    def fail_if_called():
+        raise AssertionError("verify-cobertura no debería construir un cliente de CRM")
+
+    monkeypatch.setattr("app.forms.router.get_crm_client", fail_if_called)
+    monkeypatch.setattr("app.forms.router.is_location_covered", lambda sector_code: False)
+
+    response = client.post(_VERIFY_COBERTURA_PATH, json={"sector_code": "00081"})
+
+    assert response.status_code == 200
+
+
+def test_verify_cobertura_is_rate_limited(monkeypatch):
+    monkeypatch.setattr("app.forms.router.is_location_covered", lambda sector_code: True)
+
+    responses = [client.post(_VERIFY_COBERTURA_PATH, json={"sector_code": "41001"}) for _ in range(16)]
+
+    assert responses[-1].status_code == 429
+    assert any(r.status_code == 200 for r in responses)
+
+
+_ESTADO_SERVICIOS_PATH = "/formularios/autorizacion-de-corretaje/estado-servicios"
+
+
+def test_estado_servicios_reports_both_services_up(monkeypatch):
+    monkeypatch.setattr("app.forms.router.location_catalog_client.is_reachable", lambda: True)
+    monkeypatch.setattr("app.forms.router._is_xposure_reachable", lambda: True)
+
+    response = client.get(_ESTADO_SERVICIOS_PATH)
+
+    assert response.status_code == 200
+    assert response.json() == {"mobilia_dwh": True, "xposure": True}
+
+
+def test_estado_servicios_reports_mobilia_dwh_down(monkeypatch):
+    monkeypatch.setattr("app.forms.router.location_catalog_client.is_reachable", lambda: False)
+    monkeypatch.setattr("app.forms.router._is_xposure_reachable", lambda: True)
+
+    response = client.get(_ESTADO_SERVICIOS_PATH)
+
+    assert response.status_code == 200
+    assert response.json() == {"mobilia_dwh": False, "xposure": True}
+
+
+def test_estado_servicios_reports_xposure_down(monkeypatch):
+    monkeypatch.setattr("app.forms.router.location_catalog_client.is_reachable", lambda: True)
+    monkeypatch.setattr("app.forms.router._is_xposure_reachable", lambda: False)
+
+    response = client.get(_ESTADO_SERVICIOS_PATH)
+
+    assert response.status_code == 200
+    assert response.json() == {"mobilia_dwh": True, "xposure": False}
+
+
+def test_estado_servicios_is_rate_limited(monkeypatch):
+    monkeypatch.setattr("app.forms.router.location_catalog_client.is_reachable", lambda: True)
+    monkeypatch.setattr("app.forms.router._is_xposure_reachable", lambda: True)
+
+    responses = [client.get(_ESTADO_SERVICIOS_PATH) for _ in range(31)]
+
+    assert responses[-1].status_code == 429
+    assert any(r.status_code == 200 for r in responses)
     assert any(r.status_code == 200 for r in responses)

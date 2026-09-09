@@ -14,6 +14,7 @@ from app.crm.deps import get_crm_client
 from app.crm.protocol import PropertyListing
 from app.flows.brokerage_authorization_signed import process_authorization_signed
 from app.flows.registry_live_check import check_registration_number_live, confirm_registration_number_match
+from app.forms.coverage import is_location_covered
 from app.forms.cleaning import slugify_filename
 from app.forms.filler import build_blank_template, decode_signature_png, fill_and_sign
 from app.forms.link_token import verify_deal_id_token
@@ -21,23 +22,29 @@ from app.forms.models import (
     BrokerageAuthorizationPayload,
     CleanSignaturePhotoPayload,
     ConfirmMatriculaMatchPayload,
+    VerifyLocationCoveragePayload,
     VerifyRegistrationNumberPayload,
 )
 from app.forms.page import (
     CLEAN_SIGNATURE_PATH,
     CONFIRM_MATRICULA_MATCH_PATH,
+    ESTADO_SERVICIOS_PATH,
     FORM_PATH,
     TEMPLATE_PATH_URL,
+    VERIFY_COBERTURA_PATH,
     VERIFY_MATRICULA_PATH,
     render_already_signed_html,
     render_form_html,
     render_link_invalid_html,
 )
+from app.location_catalog import client as location_catalog_client
 from app.shared.rate_limit import rate_limit
 from app.forms.settings import load_form_link_secret
 from app.forms.signature_cleaner import clean_signature_photo
 from app.waha.deps import get_waha_client
+from app.xposure.client import XposureClient
 from app.xposure.deps import get_xposure_client
+from app.xposure.settings import load_xposure_settings
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +56,10 @@ _CLEAN_SIGNATURE_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
 _SUBMIT_FORM_RATE_LIMIT = {"max_requests": 6, "window_seconds": 60}
 _VERIFY_MATRICULA_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
 _CONFIRM_MATRICULA_MATCH_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
+_VERIFY_COBERTURA_RATE_LIMIT = {"max_requests": 15, "window_seconds": 60}
+# Más permisivo que los demás: es solo lectura de estado, sin efecto en nada,
+# se puede llamar varias veces por sesión (cada vez que se muestra un paso).
+_ESTADO_SERVICIOS_RATE_LIMIT = {"max_requests": 30, "window_seconds": 60}
 
 
 def _limit_clean_signature(request: Request) -> None:
@@ -61,6 +72,14 @@ def _limit_submit_form(request: Request) -> None:
 
 def _limit_verify_matricula(request: Request) -> None:
     rate_limit(request, "verify-matricula", **_VERIFY_MATRICULA_RATE_LIMIT)
+
+
+def _limit_verify_cobertura(request: Request) -> None:
+    rate_limit(request, "verify-cobertura", **_VERIFY_COBERTURA_RATE_LIMIT)
+
+
+def _limit_estado_servicios(request: Request) -> None:
+    rate_limit(request, "estado-servicios", **_ESTADO_SERVICIOS_RATE_LIMIT)
 
 
 def _limit_confirm_matricula_match(request: Request) -> None:
@@ -221,6 +240,45 @@ def post_confirm_matricula_match(
         crm_client=crm_client,
         deal_id=payload.deal_id,
     )
+
+
+@router.post(
+    VERIFY_COBERTURA_PATH,
+    summary="Chequeo en vivo (paso del wizard): cobertura de ventas por ubicación",
+)
+def post_verify_location_coverage(
+    payload: VerifyLocationCoveragePayload, _: None = Depends(_limit_verify_cobertura)
+) -> dict[str, Any]:
+    """Paso del wizard justo después de que el cliente elige una ubicación de la lista de
+    sugerencias: consulta cobertura_ventas para ese sector_code en vivo (nunca cacheada, ver
+    app/location_catalog/client.py::get_sector_coverage) antes de dejarlo avanzar a matrícula.
+    Sin efecto en Bitrix/CRM a propósito (a diferencia de verify-matricula): bloquear por
+    falta de cobertura es una decisión del lado del cliente, no se deja constancia en el deal."""
+    if is_location_covered(payload.sector_code):
+        return {"covered": True}
+    return {
+        "covered": False,
+        "message": "Por ahora no tenemos cobertura de ventas en esta zona. Contacta a tu asesor si crees que esto es un error.",
+    }
+
+
+def _is_xposure_reachable() -> bool:
+    try:
+        base_url, username, password = load_xposure_settings()
+    except RuntimeError:
+        return False
+    return XposureClient(base_url, username, password).is_reachable()
+
+
+@router.get(
+    ESTADO_SERVICIOS_PATH,
+    summary="Estado en vivo de los servicios externos que usa el wizard (indicador visual)",
+)
+def get_estado_servicios(_: None = Depends(_limit_estado_servicios)) -> dict[str, bool]:
+    """Solo informativo: alimenta el puntico de estado del wizard, no bloquea nada por sí
+    mismo — la decisión real de bloquear o dejar pasar la toma is_location_covered/
+    check_registration_number_live, que ya fallan abiertos cuando no pueden determinar algo."""
+    return {"mobilia_dwh": location_catalog_client.is_reachable(), "xposure": _is_xposure_reachable()}
 
 
 @router.get(
