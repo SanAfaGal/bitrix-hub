@@ -37,6 +37,14 @@ def _get_or_create(session: Session, chat_id: str) -> Conversation:
     return row
 
 
+def chat_exists(session: Session, chat_id: str) -> bool:
+    """True si ya existe una fila de `leads` para este chat (sin crearla, a diferencia de
+    `_get_or_create`). Usado por `_process()` en whatsapp_bot.py para detectar "primera vez que
+    se ve este chat_id" ANTES de crear el lead — dispara ahí el chequeo de historial previo en
+    Waha que decide el `bot_enabled` inicial (Tarea 5)."""
+    return _get_by_chat_id(session, chat_id) is not None
+
+
 def get_history(session: Session, chat_id: str, limit: int) -> list[dict[str, str]]:
     """Últimos `limit` turnos del chat, en orden cronológico."""
     lead = _get_by_chat_id(session, chat_id)

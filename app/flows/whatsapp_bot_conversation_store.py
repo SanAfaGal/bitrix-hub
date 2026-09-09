@@ -156,6 +156,10 @@ class ConversationStore:
         with self._SessionLocal() as session:
             store_db.set_authorization_link_sent(session, chat_id)
 
+    def chat_exists(self, chat_id: str) -> bool:
+        with self._SessionLocal() as session:
+            return store_db.chat_exists(session, chat_id)
+
     def get_bot_enabled(self, chat_id: str) -> bool:
         with self._SessionLocal() as session:
             return store_db.get_bot_enabled(session, chat_id)

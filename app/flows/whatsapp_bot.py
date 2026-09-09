@@ -79,6 +79,7 @@ from app.flows.whatsapp_bot_llm import (
     _build_system_prompt,
     _parse_llm_output,
 )
+from app.flows.whatsapp_bot_new_chat_check import is_chat_new_in_waha
 from app.flows.whatsapp_bot_welcome import maybe_send_first_contact_welcome
 from app.forms.settings import load_form_link_secret
 from app.llm.client import LlmClient
@@ -267,6 +268,25 @@ def _process(
     if store.already_processed(inbound.message_id):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "duplicate_message"}
     store.mark_processed(inbound.message_id)
+
+    if not store.chat_exists(inbound.chat_id):
+        # Primera vez que se ve este chat_id (todavía no hay lead local) — antes de crear el
+        # lead y de que el gate de abajo lea `bot_enabled` (que para un chat sin fila da False,
+        # el default), se consulta Waha UNA sola vez para decidir la activación inicial: si el
+        # cliente/asesor ya venían hablando ahí desde antes (Waha con historial previo, o la
+        # consulta falla) el chat queda apagado como hoy, esperando activación manual; si es
+        # una conversación genuinamente nueva, se auto-activa y este mismo mensaje ya se
+        # responde normal, sin que un admin tenga que hacer nada. En mensajes siguientes de este
+        # mismo chat `chat_exists` ya da True y esto no se vuelve a ejecutar. Ver
+        # `whatsapp_bot_new_chat_check.is_chat_new_in_waha`.
+        is_new_chat = is_chat_new_in_waha(inbound, waha_client)
+        store.set_bot_enabled(inbound.chat_id, is_new_chat)
+        logger.info(
+            "Chat %s visto por primera vez, %s en Waha -> bot_enabled=%s",
+            inbound.chat_id,
+            "sin historial previo" if is_new_chat else "con historial previo (o falló la consulta)",
+            is_new_chat,
+        )
 
     if not store.get_bot_enabled(inbound.chat_id):
         # Activación por chat (opt-in, prendida a mano desde el panel admin, ver
