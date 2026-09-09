@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.flows import whatsapp_bot
 from app.flows.whatsapp_bot import BotConfig
 from app.main import app
 from app.waha.deps import get_waha_client
@@ -181,6 +182,24 @@ def test_webhook_waha_message_skips_when_bot_disabled(monkeypatch) -> None:
     assert response.json() == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled"}
 
 
+def test_webhook_waha_message_skips_when_bot_disabled_for_chat(monkeypatch) -> None:
+    """Activación por chat (opt-in, default apagado — Task 2): con el interruptor global
+    prendido pero sin activar este chat en particular, el bot se queda callado (nada de
+    bienvenida ni LLM) aunque el mensaje entrante sí quede guardado localmente."""
+    _disable_waha_webhook_secret(monkeypatch)
+    monkeypatch.setattr(
+        "app.waha.router.load_bot_config",
+        lambda: BotConfig(enabled=True, max_history_turns=6),
+    )
+    chat_id = "573005556677@c.us"
+
+    response = client.post("/webhook/waha-message", json=_waha_message_event("msg-disabled-chat", chat_id=chat_id))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "chat_id": chat_id, "skipped": "bot_disabled_for_chat"}
+    assert whatsapp_bot.conversation_store.get_history(chat_id) == [{"role": "user", "content": "hola"}]
+
+
 def test_webhook_waha_message_replies_via_llm_when_enabled(monkeypatch) -> None:
     class FakeWahaClient:
         def __init__(self) -> None:
@@ -204,6 +223,9 @@ def test_webhook_waha_message_replies_via_llm_when_enabled(monkeypatch) -> None:
     monkeypatch.setattr("app.waha.router.get_crm_client", lambda: FakeCrmClient())
     monkeypatch.setattr("app.waha.router.get_transcription_client", lambda: object())
     monkeypatch.setattr("app.flows.whatsapp_bot.maybe_send_first_contact_welcome", lambda *a, **k: False)
+    # Activación por chat (opt-in, default apagado desde Task 2) — este test ejercita el flujo
+    # normal del bot, no el gate en sí, así que se activa a mano para el chat de prueba.
+    whatsapp_bot.conversation_store.set_bot_enabled("573001112233@c.us", True)
     app.dependency_overrides[get_waha_client] = lambda: fake_waha
     try:
         response = client.post("/webhook/waha-message", json=_waha_message_event("msg-enabled"))
@@ -246,6 +268,7 @@ def test_webhook_waha_message_creates_deal_and_updates_property_listing(monkeypa
     monkeypatch.setattr("app.waha.router.get_crm_client", lambda: fake_crm)
     monkeypatch.setattr("app.waha.router.get_transcription_client", lambda: object())
     monkeypatch.setattr("app.flows.whatsapp_bot.maybe_send_first_contact_welcome", lambda *a, **k: False)
+    whatsapp_bot.conversation_store.set_bot_enabled("573009998877@c.us", True)
     app.dependency_overrides[get_waha_client] = lambda: FakeWahaClient()
     try:
         response = client.post(

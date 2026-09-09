@@ -31,6 +31,22 @@ def _skip_first_contact_welcome(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.flows.whatsapp_bot.maybe_send_first_contact_welcome", lambda *a, **k: False)
 
 
+# `get_bot_enabled` real (sin parchear) — para restaurarlo en los tests puntuales de más abajo
+# que sí quieren probar el comportamiento real (activación por chat, default apagado).
+_REAL_GET_BOT_ENABLED = ConversationStore.get_bot_enabled
+
+
+@pytest.fixture(autouse=True)
+def _bot_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Casi todos estos tests fueron escritos antes de la activación por chat (opt-in, default
+    apagado — ver ConversationStore.get_bot_enabled/set_bot_enabled) y asumen que el bot
+    responde a cualquier chat. Se fuerza `get_bot_enabled` a True acá para no repetir
+    `store.set_bot_enabled(chat_id, True)` en cada uno de ellos; el comportamiento real (default
+    apagado, activación explícita) se prueba en la sección "Activación del bot por chat" más
+    abajo, restaurando `_REAL_GET_BOT_ENABLED` puntualmente en esos tests."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", lambda self, chat_id: True)
+
+
 class FakeWahaClient:
     def __init__(
         self,
@@ -1346,6 +1362,61 @@ def test_process_does_not_pause_when_handoff_not_requested() -> None:
     assert crm.comments == []
 
 
+# ── Activación del bot por chat (opt-in, default apagado) ──────────────
+
+
+def test_process_skips_when_bot_disabled_for_chat_but_still_saves_the_message(monkeypatch) -> None:
+    """`bot_enabled` default False (Task 1) para un chat nuevo: silencio total (nada de
+    bienvenida ni LLM), pero el mensaje entrante queda guardado — el admin necesita verlo en
+    /admin/prospects para poder activarlo (ver whatsapp_bot_store._list_whatsapp_chats, que
+    solo lista leads con al menos un mensaje)."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(_inbound(text="hola, alguien ahi?"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled_for_chat"}
+    assert waha.calls == []
+    assert llm.calls == []
+    assert store.get_history("573001112233@c.us") == [{"role": "user", "content": "hola, alguien ahi?"}]
+    assert [c["chat_id"] for c in store.list_chats()] == ["573001112233@c.us"]
+
+
+def test_process_does_not_resend_or_reprocess_when_disabled_chat_gets_retried_message_id(monkeypatch) -> None:
+    """El dedup de arriba sigue evitando que un reintento de Waha para el mismo message_id
+    vuelva a escribir el mensaje dos veces, incluso con el bot apagado para el chat."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(_inbound(message_id="m1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+    result = process(_inbound(message_id="m1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "duplicate_message"}
+    assert store.get_history("573001112233@c.us") == [{"role": "user", "content": "hola"}]
+
+
+def test_process_replies_normally_once_bot_enabled_for_chat(monkeypatch) -> None:
+    """Con `bot_enabled=True` explícito, sigue el flujo normal (bienvenida/rate-limit/LLM) tal
+    cual funcionaba antes de la activación por chat."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("hola! como te ayudo?"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_bot_enabled("573001112233@c.us", True)
+
+    result = process(_inbound(text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
+    assert waha.calls == [("573001112233@c.us", "hola! como te ayudo?", "default")]
+
+
 # ── Persistencia de historial (sobrevive a un "restart") ────────────────
 
 
@@ -1435,7 +1506,8 @@ def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(
 # ── Activación del bot por chat (opt-in, prendido a mano desde el panel admin) ─
 
 
-def test_conversation_store_bot_enabled_defaults_to_false() -> None:
+def test_conversation_store_bot_enabled_defaults_to_false(monkeypatch: "pytest.MonkeyPatch") -> None:
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
     store = ConversationStore()
 
     assert store.get_bot_enabled("573001112233@c.us") is False
@@ -1449,7 +1521,8 @@ def test_conversation_store_set_bot_enabled_true() -> None:
     assert store.get_bot_enabled("573001112233@c.us") is True
 
 
-def test_conversation_store_set_bot_enabled_false_again() -> None:
+def test_conversation_store_set_bot_enabled_false_again(monkeypatch: "pytest.MonkeyPatch") -> None:
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
     store = ConversationStore()
 
     store.set_bot_enabled("573001112233@c.us", True)

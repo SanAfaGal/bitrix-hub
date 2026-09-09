@@ -23,10 +23,21 @@ antes de que cualquiera termine de crearlo, y cada uno crea su propio deal
 duplicado en Bitrix (visto en producción: dos "Deal de consignación
 creado..." para el mismo contacto, 400ms aparte).
 
+Además del interruptor global, cada chat tiene su propia activación opt-in
+(`ConversationStore.get_bot_enabled`/`set_bot_enabled`, columna `bot_enabled`
+de `leads`) — apagada por default para todo chat, nuevo o viejo; un admin la
+prende a mano desde el panel admin. Mientras esté apagada, `_process()` no
+manda bienvenida, no transcribe audio ni llama al LLM (silencio total, para
+que un asesor pueda seguir atendiendo el chat a mano por WhatsApp Web), pero
+sí guarda el mensaje entrante tal cual llegó — así el chat aparece en
+`/admin/prospects` para que el admin sepa que hay que activarlo.
+
 Si un asesor pausa el bot para un deal puntual (checkbox en Bitrix,
 `fields.FIELD_BOT_ACTIVE`), o el bot mismo lo pausa al detectar que la
 persona pidió hablar con un humano, el webhook deja de responder para ese
-chat hasta que el campo se reactive manualmente.
+chat hasta que el campo se reactive manualmente — esto es un gate adicional,
+independiente del `bot_enabled` por chat, y solo aplica una vez existe un
+deal.
 
 La explicación del proceso (texto + nota de voz) se manda de una sola vez,
 sin preguntar antes si la persona la quiere, apenas se conoce su identidad
@@ -249,6 +260,23 @@ def _process(
     if store.already_processed(inbound.message_id):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "duplicate_message"}
     store.mark_processed(inbound.message_id)
+
+    if not store.get_bot_enabled(inbound.chat_id):
+        # Activación por chat (opt-in, prendida a mano desde el panel admin, ver
+        # ConversationStore.get_bot_enabled/set_bot_enabled) — apagado por default para TODO
+        # chat, nuevo o viejo. Mientras esté apagado: silencio total (nada de bienvenida, rate
+        # limit, transcripción de audio ni LLM) para que un asesor pueda seguir atendiendo ese
+        # chat a mano por WhatsApp Web sin que el bot interfiera. El mensaje entrante SÍ se
+        # guarda tal cual llegó (sin transcribir; para audio/media no soportada queda vacío) —
+        # `add_turn` crea la fila de lead si todavía no existe (`_get_or_create` en
+        # whatsapp_bot_store.py) — si no se guardara nada, el chat nunca aparecería en
+        # `/admin/prospects` (INNER JOIN contra `messages`) y el admin no tendría forma de
+        # enterarse de que hay que activarlo. El dedup de arriba ya evita que un reintento de
+        # Waha para el mismo message_id vuelva a escribir esto dos veces. Cuando se active, el
+        # flujo normal de más abajo sigue guardando cada turno exactamente como antes (esto no
+        # lo duplica: mientras está apagado nunca se llega a esa parte del código).
+        store.add_turn(inbound.chat_id, "user", inbound.text)
+        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_disabled_for_chat"}
 
     if maybe_send_first_contact_welcome(inbound.chat_id, inbound.session, waha_client, crm_client, store):
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "first_contact_welcome"}
