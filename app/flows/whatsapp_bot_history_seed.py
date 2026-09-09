@@ -37,6 +37,9 @@ def _map_to_turns(messages: list[dict[str, Any]], *, max_turns: int) -> list[tup
     no hay nada que darle al LLM de contexto ahí. Se recorta a los últimos
     `max_turns` ya en orden cronológico (los más viejos se pierden primero),
     igual que el tope de lectura de `ConversationStore.get_history`.
+    `max_turns <= 0` (config de cero turnos) no importa nada, en vez de
+    interpretarse como "sin tope" — un slice `turns[-0:]` sería `turns`
+    completo, lo contrario de lo que pide un tope de cero.
     """
     ordered = sorted(messages, key=lambda m: m.get("timestamp") or 0)
     turns: list[tuple[str, str]] = []
@@ -46,7 +49,7 @@ def _map_to_turns(messages: list[dict[str, Any]], *, max_turns: int) -> list[tup
             continue
         role = "assistant" if message.get("fromMe") else "user"
         turns.append((role, body.strip()))
-    return turns[-max_turns:] if max_turns > 0 else turns
+    return turns[-max_turns:] if max_turns > 0 else []
 
 
 def seed_history_from_waha(

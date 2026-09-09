@@ -142,3 +142,19 @@ def test_seed_history_truncates_imported_turns_to_max_history_turns_times_two(mo
         "claro, soy Andrea, le explico el proceso",
         "listo, gracias",
     ]
+
+
+def test_seed_history_imports_zero_turns_when_max_history_turns_is_zero(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.flows.whatsapp_bot_history_seed.load_bot_config", lambda: _config(max_history_turns=0)
+    )
+    store = ConversationStore(max_history_turns=6)
+    waha = FakeWahaClient(_PRIOR_MESSAGES)
+    llm = FakeLlmClient(_ANALYSIS_JSON)
+
+    result = seed_history_from_waha(store, waha, llm, "573001112233@c.us")
+
+    # Un tope de cero turnos no debe interpretarse como "sin tope": no se
+    # importa ningún turno, aunque Waha sí tenía mensajes.
+    assert result["messages_imported"] == 0
+    assert store.get_full_history("573001112233@c.us") == []
