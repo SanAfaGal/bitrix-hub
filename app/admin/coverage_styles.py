@@ -1,0 +1,68 @@
+"""CSS de la vista de cobertura de ventas por sector — separado de page_styles.py
+porque ese archivo ya está en el tope de las 500 líneas por archivo (CLAUDE.md)."""
+from __future__ import annotations
+
+COVERAGE_STYLE = """<style>
+  .coverage-layout { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--space-6) 32px; gap: var(--space-4); }
+
+  /* El <form> envuelve toolbar + tabla — sin display:flex acá, el table-wrap
+     de adentro (flex:1 1 auto; min-height:0) no tiene una altura acotada
+     contra la cual hacer scroll y termina empujando el alto de toda la
+     página en vez de scrollear internamente. */
+  .coverage-form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+
+  .coverage-toolbar {
+    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+    background: var(--color-card); border: 1px solid #e7e9ee; border-radius: var(--radius-lg);
+    padding: var(--space-3) var(--space-4); flex: 0 0 auto; margin-bottom: var(--space-4);
+  }
+  .coverage-toolbar__cascade { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .coverage-toolbar__search { flex: 1 1 240px; min-width: 180px; }
+  .coverage-toolbar__select { flex: 0 0 auto; }
+  .coverage-toolbar__counts { display: flex; align-items: center; gap: var(--space-3); flex: 0 0 auto; }
+  .coverage-toolbar__count { font-size: 12.5px; color: var(--color-text-muted); white-space: nowrap; }
+  .coverage-toolbar__actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex-wrap: wrap; }
+
+  .coverage-select {
+    font-family: var(--font-family); font-size: 13px; font-weight: 600; color: var(--color-navy);
+    padding: 9px 12px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md);
+    background: var(--color-card);
+  }
+
+  .btn--sm { padding: 7px 14px; font-size: 13px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn--clear { background: var(--color-error-bg); border-color: var(--color-error-bg); color: var(--color-error); }
+  .btn--clear:hover { background: #f6dad7; border-color: #f6dad7; }
+
+  .coverage-table-wrap {
+    flex: 1 1 auto; min-height: 0; overflow: auto; background: var(--color-card);
+    border: 1px solid #e7e9ee; border-radius: var(--radius-lg);
+  }
+  .coverage-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .coverage-table thead th {
+    position: sticky; top: 0; background: var(--color-card); text-align: left; font-size: 11px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-label);
+    padding: 10px 14px; border-bottom: 1px solid #e7e9ee; z-index: 1;
+  }
+  .coverage-table tbody td { padding: 9px 14px; border-bottom: 1px solid #eef0f3; color: var(--color-navy); }
+  .coverage-table tbody tr { cursor: pointer; }
+  .coverage-table tbody tr:hover { background: #f7f9fb; }
+  .coverage-table tbody tr[hidden] { display: none; }
+  .coverage-table__checkbox-col, .coverage-table th:first-child { cursor: default; }
+  .coverage-table__checkbox-col { width: 36px; }
+  .coverage-table__muted { color: var(--color-text-faint); }
+
+  .coverage-badge {
+    display: inline-flex; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 3px 10px; border-radius: var(--radius-pill); white-space: nowrap;
+  }
+  .coverage-badge--on { background: #dcf1e3; color: #1f8a4c; }
+  .coverage-badge--off { background: #f1f1f6; color: var(--color-text-faint); }
+
+  .coverage-empty { padding: var(--space-7); text-align: center; color: var(--color-text-muted); font-size: 14px; }
+
+  @media (max-width: 900px) {
+    .coverage-layout { padding: var(--space-5) var(--space-4); }
+    .coverage-toolbar__actions { margin-left: 0; width: 100%; }
+  }
+</style>"""

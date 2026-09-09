@@ -23,6 +23,7 @@ LOGOUT_PATH = "/admin/logout"
 TEMPLATES_PATH = "/admin/templates"
 CONFIG_PATH = "/admin/config"
 PROSPECTS_PATH = "/admin/prospects"
+COVERAGE_PATH = "/admin/cobertura"
 
 _FIRST_TEMPLATE_KEY = TEMPLATE_SECTIONS[0]["keys"][0]  # type: ignore[index]
 
@@ -52,7 +53,7 @@ def render_login_html(*, error: str | None = None) -> str:
       <img class="brand__logo" src="{LOGO_URL}" alt="Alberto Álvarez">
       <div class="brand__identity">
         <span class="brand__name">Alberto Álvarez</span>
-        <span class="brand__tagline">Panel del bot de WhatsApp</span>
+        <span class="brand__tagline">Panel administrativo</span>
       </div>
     </div>
     <div class="card">
@@ -103,6 +104,11 @@ _NAVPILL_ICONS = {
         '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'
         '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
     ),
+    "cobertura": (
+        '<svg class="navpill__icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+    ),
 }
 
 
@@ -122,7 +128,7 @@ def _topbar(*, username: str, active_view: str) -> str:
         <img class="topbar__mark" src="{LOGO_URL}" alt="Alberto Álvarez">
         <div class="topbar__identity">
           <span class="topbar__name">Alberto Álvarez</span>
-          <span class="topbar__tagline">Panel del bot de WhatsApp</span>
+          <span class="topbar__tagline">Panel administrativo</span>
         </div>
       </div>
       <div class="topbar__divider"></div>
@@ -130,6 +136,7 @@ def _topbar(*, username: str, active_view: str) -> str:
         {pill("templates", "Plantillas", f"{TEMPLATES_PATH}/{_FIRST_TEMPLATE_KEY}", has_unsaved_indicator=True)}
         {pill("config", "Configuración del bot", CONFIG_PATH, has_unsaved_indicator=True)}
         {pill("prospects", "Prospectos", PROSPECTS_PATH)}
+        {pill("cobertura", "Cobertura", COVERAGE_PATH)}
       </div>
       <div class="topbar__user">
         <div class="userchip">

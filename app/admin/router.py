@@ -8,10 +8,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 
 from app.admin.auth import log_in, log_out, verify_credentials
+from app.admin.coverage_page import filter_by_estado, render_coverage_html
 from app.admin.deps import require_login
 from app.admin.models import LoginPayload, TemplateUpdatePayload
 from app.admin.page import (
     CONFIG_PATH,
+    COVERAGE_PATH,
     LOGIN_PATH,
     PROSPECTS_PATH,
     TEMPLATES_PATH,
@@ -21,6 +23,7 @@ from app.admin.page import (
 )
 from app.admin.prospects_page import render_prospects_html
 from app.flows.whatsapp_bot import conversation_store
+from app.location_catalog import client as location_catalog_client
 from app.message_templates import store as templates_store
 from app.shared.rate_limit import rate_limit
 
@@ -217,4 +220,41 @@ def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTM
             selected_meta=selected_meta,
             selected_messages=selected_messages,
         )
+    )
+
+
+@router.get(COVERAGE_PATH, response_class=HTMLResponse, summary="Lista sectores y su cobertura de ventas")
+def get_coverage(estado: str = "todos", username: str = Depends(require_login)) -> HTMLResponse:
+    sectors = filter_by_estado(location_catalog_client.fetch_all_sectores(), estado)
+    return HTMLResponse(render_coverage_html(username=username, sectors=sectors, estado=estado))
+
+
+@router.post(
+    f"{COVERAGE_PATH}/batch",
+    response_class=HTMLResponse,
+    summary="Activa o desactiva cobertura de ventas para los sectores seleccionados",
+    response_model=None,
+)
+def post_coverage_batch(
+    accion: str = Form(...),
+    estado: str = Form("todos"),
+    sector_code: list[str] = Form(default=[]),
+    username: str = Depends(require_login),
+) -> HTMLResponse:
+    flash: str
+    flash_error = False
+
+    if accion not in ("activar", "desactivar"):
+        flash, flash_error = "Acción inválida.", True
+    elif not sector_code:
+        flash, flash_error = "No seleccionaste ningún sector.", True
+    elif location_catalog_client.set_cobertura(sector_code, covered=accion == "activar"):
+        verbo = "Activada" if accion == "activar" else "Desactivada"
+        flash = f"{verbo} la cobertura de {len(sector_code)} sector(es)."
+    else:
+        flash, flash_error = "No se pudo actualizar la cobertura en el DWH — intenta de nuevo.", True
+
+    sectors = filter_by_estado(location_catalog_client.fetch_all_sectores(), estado)
+    return HTMLResponse(
+        render_coverage_html(username=username, sectors=sectors, estado=estado, flash=flash, flash_error=flash_error)
     )
