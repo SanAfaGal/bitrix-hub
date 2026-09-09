@@ -156,6 +156,25 @@ DEFAULT_TEMPLATES: dict[str, str] = {
         "Todavía no nos ha llegado tu Autorización de Corretaje firmada. Te comparto de nuevo "
         "el enlace para que la completes:"
     ),
+    "whatsapp_history_analysis_prompt": (
+        "Usted analiza una transcripción de una conversación previa de WhatsApp entre un "
+        "asesor humano de Inmobiliaria Alberto Álvarez y un cliente interesado en vender su "
+        "inmueble, ocurrida ANTES de que el bot automático empezara a atender este chat. Su "
+        "única tarea es leer la transcripción y extraer, si aparece con certeza, la "
+        "información pedida — nunca inventar ni asumir nada que no esté explícito.\n\n"
+        "Responda ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con esta "
+        'forma exacta:\n{"client_full_name": <nombre y apellido del cliente si lo dijo con '
+        'claridad, string o null>, "client_phone": <teléfono del cliente si lo dijo con '
+        'claridad, string o null>, "process_explained": <true si el asesor ya le explicó al '
+        "cliente cómo funciona el proceso de venta/consignación, false en caso contrario o si "
+        'no hay certeza>, "authorization_mentioned": <true si el asesor ya mencionó o envió '
+        'la Autorización de Corretaje, false en caso contrario o si no hay certeza>, "summary": '
+        "<un resumen breve, de dos o tres frases, de qué se habló en la conversación, en "
+        "español>}\n\n"
+        '"client_full_name" y "client_phone" van en null si no aparecen explícitos y claros '
+        'en la transcripción — no adivine a partir de contexto ambiguo. "process_explained" y '
+        '"authorization_mentioned" son conservadores: ante la duda, responda false.'
+    ),
 }
 
 # Metadatos para el panel admin (etiqueta amigable + variables disponibles). No
@@ -173,6 +192,7 @@ TEMPLATE_LABELS: dict[str, str] = {
     "bitrix_authorization_link_message": "Link de firma",
     "whatsapp_authorization_signed_message": "Confirmación de firma recibida",
     "whatsapp_authorization_not_received_yet": "Aviso cuando el cliente dice haber firmado pero no ha llegado",
+    "whatsapp_history_analysis_prompt": "Análisis de historial previo (activación de chat)",
 }
 
 TEMPLATE_VARIABLES: dict[str, list[str]] = {
@@ -201,6 +221,7 @@ TEMPLATE_HINTS: dict[str, str] = {
     "bitrix_authorization_link_message": "Manual · lo dispara un asesor en Bitrix",
     "whatsapp_authorization_signed_message": "Automático · al firmar el formulario público",
     "whatsapp_authorization_not_received_yet": "Automático · bot de WhatsApp",
+    "whatsapp_history_analysis_prompt": "Automático · al activar un chat con historial previo",
 }
 
 TEMPLATE_WHEN_USED: dict[str, str] = {
@@ -253,6 +274,12 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
         "Corretaje pero en Bitrix todavía no está marcada como firmada — antes de reenviarle "
         "el enlace de firma."
     ),
+    "whatsapp_history_analysis_prompt": (
+        "Se usa cuando un admin activa el bot para un chat que ya tiene mensajes previos en "
+        "WhatsApp que el bot nunca vio (ej. un asesor ya habló con la persona por WhatsApp "
+        "Web) — el LLM lee esa conversación con este prompt para no repetir preguntas ni "
+        "plantillas que ya se hablaron a mano."
+    ),
 }
 
 # Agrupación de las plantillas (mensajes reales) en el panel admin — el
@@ -281,6 +308,7 @@ TEMPLATE_SECTIONS: list[dict[str, object]] = [
             "whatsapp_authorization_not_received_yet",
         ],
     },
+    {"name": "Activación de chat", "keys": ["whatsapp_history_analysis_prompt"]},
 ]
 
 CONFIG_KEY = "whatsapp_system_prompt"

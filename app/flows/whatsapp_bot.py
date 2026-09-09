@@ -96,6 +96,11 @@ class BotConfig:
     enabled: bool
     max_history_turns: int
     allowed_numbers: frozenset[str] = frozenset()
+    # Tope de mensajes previos de WhatsApp (traídos de Waha, no del store
+    # local) que se le pasan al LLM al analizar el historial de un chat
+    # antes de activarlo — ver `whatsapp_bot_history_seed.py`. Contexto
+    # suficiente sin costo/tiempo excesivo.
+    history_analysis_limit: int = 40
 
 
 def load_bot_config() -> BotConfig:
@@ -109,10 +114,12 @@ def load_bot_config() -> BotConfig:
     allowed_numbers = frozenset(
         n.strip() for n in (os.getenv("WHATSAPP_BOT_ALLOWED_NUMBERS") or "").split(",") if n.strip()
     )
+    history_analysis_limit = int((os.getenv("WHATSAPP_BOT_HISTORY_ANALYSIS_LIMIT") or "40").strip())
     return BotConfig(
         enabled=enabled,
         max_history_turns=max_history_turns,
         allowed_numbers=allowed_numbers,
+        history_analysis_limit=history_analysis_limit,
     )
 
 

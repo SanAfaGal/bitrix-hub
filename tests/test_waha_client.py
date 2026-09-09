@@ -242,3 +242,66 @@ def test_download_media_returns_none_on_http_error(monkeypatch) -> None:
     client = WahaClient(settings)
 
     assert client.download_media("/api/files/msg1.oga") is None
+
+
+def test_get_chat_messages_returns_list_with_expected_url_and_params(monkeypatch) -> None:
+    captured = {}
+    messages = [
+        {"id": "1", "fromMe": False, "body": "hola", "timestamp": 100},
+        {"id": "2", "fromMe": True, "body": "hola, en qué te ayudo", "timestamp": 101},
+    ]
+
+    def fake_get(url: str, params: dict, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        captured["params"] = params
+        return FakeResponse(json_data=messages)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
+    client = WahaClient(settings)
+
+    result = client.get_chat_messages("573001112233@c.us", limit=40)
+
+    assert result == messages
+    assert captured["url"] == "http://localhost:3000/api/default/chats/573001112233@c.us/messages"
+    assert captured["params"] == {"limit": 40}
+
+
+def test_get_chat_messages_uses_given_session_over_default(monkeypatch) -> None:
+    captured = {}
+
+    def fake_get(url: str, params: dict, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse(json_data=[])
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+    client.get_chat_messages("573001112233@c.us", session="linea-ventas")
+
+    assert captured["url"] == "http://localhost:3000/api/linea-ventas/chats/573001112233@c.us/messages"
+
+
+def test_get_chat_messages_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_get(url: str, params: dict, headers: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.get_chat_messages("573001112233@c.us") is None
+
+
+def test_get_chat_messages_returns_none_when_response_is_not_a_list(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.waha.client.requests.get", lambda url, params, headers, timeout: FakeResponse(json_data={"error": "x"})
+    )
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.get_chat_messages("573001112233@c.us") is None

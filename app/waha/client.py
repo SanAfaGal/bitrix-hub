@@ -110,6 +110,34 @@ class WahaClient:
             logger.error("Error resolviendo lid %s vía Waha: %s", lid, exc)
             return None
 
+    def get_chat_messages(
+        self, chat_id: str, *, limit: int = 50, session: str | None = None
+    ) -> list[dict] | None:
+        """Trae los últimos `limit` mensajes de un chat vía `GET /api/{session}/chats/{chatId}/messages`.
+
+        Pensado para leer historial real de WhatsApp que el bot nunca vio
+        (ej. un asesor humano ya habló con la persona por WhatsApp Web antes
+        de que el bot existiera para ese chat, ver
+        `app.flows.whatsapp_bot_history_seed.seed_history_from_waha`). Cada
+        mensaje trae, entre otros campos, `fromMe` (bool) y `body` (texto) —
+        mismo shape que el payload del webhook (`app.waha.inbound`). No
+        lanza si falla ni si la respuesta no tiene la forma esperada,
+        retorna `None` en ambos casos.
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/{session or self.session}/chats/{chat_id}/messages",
+                params={"limit": limit},
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return payload if isinstance(payload, list) else None
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error obteniendo mensajes del chat %s vía Waha: %s", chat_id, exc)
+            return None
+
     def download_media(self, media_path: str) -> bytes | None:
         """Descarga un archivo multimedia (ej. audio de una nota de voz) ya resuelto por Waha.
 

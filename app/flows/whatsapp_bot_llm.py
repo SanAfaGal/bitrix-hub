@@ -8,12 +8,16 @@ importan directo (`_parse_llm_output`, `LlmTurn`) para no romper esos paths.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
 
 from app.crm.protocol import PropertyListing
 from app.forms.models import PROPERTY_TYPES
+from app.message_templates import store as templates_store
+
+logger = logging.getLogger(__name__)
 
 AFFIRMATION_RE = re.compile(
     r"^(s[ií]|correcto|exacto|as[ií] es|as[ií] mismo|eso es|confirmo|claro(?: que s[ií])?|"
@@ -194,3 +198,90 @@ def _parse_llm_output(raw: str) -> LlmTurn:
         client_full_name=_as_text(data.get("client_full_name")),
         client_phone=_as_text(data.get("client_phone")),
     )
+
+
+_SAFE_HISTORY_ANALYSIS: dict[str, Any] = {
+    "client_full_name": None,
+    "client_phone": None,
+    "process_explained": False,
+    "authorization_mentioned": False,
+    "summary": "",
+}
+
+
+def _format_prior_history_transcript(messages: list[dict[str, Any]]) -> str:
+    """Arma una transcripción legible en orden cronológico a partir de mensajes crudos de Waha.
+
+    Cada mensaje de Waha trae `fromMe` (bool) y `body` (texto), mismo shape
+    que el payload del webhook (ver `app.waha.inbound`) — `fromMe: true` es
+    un mensaje del asesor humano, `fromMe: false` es del cliente. Se ordena
+    por `timestamp` (si viene) para no depender de en qué orden Waha haya
+    devuelto la lista. Los mensajes sin texto (media no soportada, notas de
+    voz nunca transcritas en su momento, etc.) se omiten — no hay nada que
+    analizar en ellos.
+    """
+    ordered = sorted(messages, key=lambda m: m.get("timestamp") or 0)
+    lines = []
+    for message in ordered:
+        body = message.get("body")
+        if not isinstance(body, str) or not body.strip():
+            continue
+        speaker = "Asesor" if message.get("fromMe") else "Cliente"
+        lines.append(f"{speaker}: {body.strip()}")
+    return "\n".join(lines)
+
+
+def analyze_prior_history(llm_client: Any, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Analiza con el LLM una conversación previa de WhatsApp (traída de Waha, no del store local).
+
+    Pensado para cuando un admin activa el bot en un chat donde un asesor
+    humano ya habló con la persona por WhatsApp Web antes de que el bot
+    existiera para ese chat (ver `app.flows.whatsapp_bot_history_seed`) —
+    así el bot no vuelve a pedir nombre/teléfono ni reenvía plantillas
+    (explicación del proceso, Autorización de Corretaje) ya habladas a
+    mano. Reusa `LlmClient.reply` (mismo mecanismo que la conversación
+    normal) con `history=[]` y toda la transcripción como `user_text` —
+    es un análisis de una sola pasada, no una conversación turno a turno,
+    así que no hace falta un método nuevo en `LlmClient`.
+
+    Ante cualquier falla (LLM caído, JSON inválido o con campos con tipo
+    incorrecto, o transcripción vacía) retorna un default seguro sin
+    lanzar — nunca debe bloquear la activación de un chat.
+    """
+    transcript = _format_prior_history_transcript(messages)
+    if not transcript:
+        return dict(_SAFE_HISTORY_ANALYSIS)
+
+    system_prompt = templates_store.get_template("whatsapp_history_analysis_prompt")
+    raw_output = llm_client.reply(system_prompt, [], transcript)
+    if raw_output is None:
+        logger.warning("LLM no devolvió análisis de historial previo, se usa el default seguro")
+        return dict(_SAFE_HISTORY_ANALYSIS)
+
+    return _parse_history_analysis(raw_output)
+
+
+def _parse_history_analysis(raw: str) -> dict[str, Any]:
+    data: Any = None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                data = json.loads(raw[start : end + 1])
+            except ValueError:
+                data = None
+
+    if not isinstance(data, dict):
+        logger.warning("Análisis de historial previo no es JSON válido, se usa el default seguro")
+        return dict(_SAFE_HISTORY_ANALYSIS)
+
+    summary = data.get("summary")
+    return {
+        "client_full_name": _as_text(data.get("client_full_name")),
+        "client_phone": _as_text(data.get("client_phone")),
+        "process_explained": data.get("process_explained") is True,
+        "authorization_mentioned": data.get("authorization_mentioned") is True,
+        "summary": summary.strip() if isinstance(summary, str) else "",
+    }
