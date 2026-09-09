@@ -1430,3 +1430,40 @@ def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(
     second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_explanation_sent("573001112233@c.us") is True
+
+
+# ── Activación del bot por chat (opt-in, prendido a mano desde el panel admin) ─
+
+
+def test_conversation_store_bot_enabled_defaults_to_false() -> None:
+    store = ConversationStore()
+
+    assert store.get_bot_enabled("573001112233@c.us") is False
+
+
+def test_conversation_store_set_bot_enabled_true() -> None:
+    store = ConversationStore()
+
+    store.set_bot_enabled("573001112233@c.us", True)
+
+    assert store.get_bot_enabled("573001112233@c.us") is True
+
+
+def test_conversation_store_set_bot_enabled_false_again() -> None:
+    store = ConversationStore()
+
+    store.set_bot_enabled("573001112233@c.us", True)
+    store.set_bot_enabled("573001112233@c.us", False)
+
+    assert store.get_bot_enabled("573001112233@c.us") is False
+
+
+def test_conversation_store_bot_enabled_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
+    first.set_bot_enabled("573001112233@c.us", True)
+
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
+
+    assert second.get_bot_enabled("573001112233@c.us") is True

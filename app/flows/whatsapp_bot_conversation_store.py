@@ -156,6 +156,14 @@ class ConversationStore:
         with self._SessionLocal() as session:
             store_db.set_authorization_link_sent(session, chat_id)
 
+    def get_bot_enabled(self, chat_id: str) -> bool:
+        with self._SessionLocal() as session:
+            return store_db.get_bot_enabled(session, chat_id)
+
+    def set_bot_enabled(self, chat_id: str, enabled: bool) -> None:
+        with self._SessionLocal() as session:
+            store_db.set_bot_enabled(session, chat_id, enabled)
+
     def get_full_history(self, chat_id: str) -> list[dict[str, str]]:
         with self._SessionLocal() as session:
             return store_db.get_full_history(session, chat_id)

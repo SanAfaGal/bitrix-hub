@@ -60,6 +60,11 @@ class Conversation(Base):
     # link en cada turno sin mandarlo nunca). Ver `maybe_handle_acceptance`.
     authorization_link_sent: bool = Column(Boolean, nullable=False, default=False)
 
+    # Activación explícita del bot por chat (opt-in) — arranca en False para
+    # todo lead nuevo; un admin lo prende a mano desde el panel admin (ver
+    # tareas siguientes del plan). Sin significado para un lead de correo.
+    bot_enabled: bool = Column(Boolean, nullable=False, default=False)
+
     # Resultado de procesar un correo del formulario web (solo canal "email").
     status: str | None = Column(String(16), nullable=True)
     detail: str | None = Column(Text, nullable=True)

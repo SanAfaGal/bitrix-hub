@@ -224,3 +224,14 @@ def set_authorization_link_sent(session: Session, chat_id: str) -> None:
     row = _get_or_create(session, chat_id)
     row.authorization_link_sent = True
     session.commit()
+
+
+def get_bot_enabled(session: Session, chat_id: str) -> bool:
+    row = _get_by_chat_id(session, chat_id)
+    return bool(row.bot_enabled) if row else False
+
+
+def set_bot_enabled(session: Session, chat_id: str, enabled: bool) -> None:
+    row = _get_or_create(session, chat_id)
+    row.bot_enabled = enabled
+    session.commit()
