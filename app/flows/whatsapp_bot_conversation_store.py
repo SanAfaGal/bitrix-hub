@@ -112,9 +112,9 @@ class ConversationStore:
         with self._SessionLocal() as session:
             return store_db.get_history(session, chat_id, self.max_history_turns * 2)
 
-    def add_turn(self, chat_id: str, role: str, content: str) -> None:
+    def add_turn(self, chat_id: str, role: str, content: str, created_at: float | None = None) -> None:
         with self._SessionLocal() as session:
-            store_db.add_turn(session, chat_id, role, content)
+            store_db.add_turn(session, chat_id, role, content, created_at)
 
     def delete_chat(self, chat_id: str) -> None:
         with self._SessionLocal() as session:

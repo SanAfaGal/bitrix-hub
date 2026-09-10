@@ -10,6 +10,7 @@ def _event(**payload_overrides: object) -> dict:
         "fromMe": False,
         "hasMedia": False,
         "body": "hola",
+        "timestamp": 1700000000,
     }
     payload.update(payload_overrides)
     return {"event": "message", "session": "default", "payload": payload}
@@ -23,7 +24,18 @@ def test_parse_inbound_message_returns_message_for_valid_text_event() -> None:
         text="hola",
         message_id="msg1",
         session="default",
+        timestamp=1700000000,
     )
+
+
+def test_parse_inbound_message_timestamp_is_none_when_not_present() -> None:
+    event = _event()
+    del event["payload"]["timestamp"]
+
+    result = parse_inbound_message(event)
+
+    assert result is not None
+    assert result.timestamp is None
 
 
 def test_parse_inbound_message_ignores_non_message_events() -> None:
@@ -56,6 +68,7 @@ def test_parse_inbound_message_marks_non_audio_media_unsupported() -> None:
         message_id="msg1",
         session="default",
         is_unsupported=True,
+        timestamp=1700000000,
     )
 
 
@@ -75,6 +88,7 @@ def test_parse_inbound_message_lets_through_audio_message() -> None:
         session="default",
         is_audio=True,
         audio_media_path="/api/files/msg1.oga",
+        timestamp=1700000000,
     )
 
 

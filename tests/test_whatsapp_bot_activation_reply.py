@@ -130,6 +130,25 @@ def test_reply_after_activation_does_nothing_for_an_empty_pending_message() -> N
     assert llm.calls == []
 
 
+def test_reply_after_activation_does_nothing_for_a_placeholder_pending_message() -> None:
+    """Regresión: `_process` ya no guarda `""` para nota de voz/media no soportada mientras el
+    chat está apagado, guarda un placeholder (`"[Nota de voz]"`/`"[Media no soportada]"`, ver
+    `_placeholder_for_untranscribed_inbound`) — sigue sin ser texto real que el LLM deba
+    contestar, aunque ya no esté vacío."""
+    chat_id = "573001112233@c.us"
+    store = ConversationStore()
+    store.set_bot_enabled(chat_id, True)
+    store.add_turn(chat_id, "user", "[Nota de voz]")
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+
+    result = reply_after_activation(chat_id, waha, llm, FakeCrmClient(), config=_enabled_config(), store=store)
+
+    assert result is None
+    assert waha.calls == []
+    assert llm.calls == []
+
+
 def test_reply_after_activation_skipped_when_bot_disabled_globally() -> None:
     chat_id = "573001112233@c.us"
     store = ConversationStore()

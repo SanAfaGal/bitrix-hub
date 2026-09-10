@@ -75,6 +75,24 @@ def test_seed_history_imports_turns_and_sets_lead_fields_from_analysis(monkeypat
     assert waha.calls == [("573001112233@c.us", 40, "default")]
 
 
+def test_seed_history_uses_waha_timestamp_as_created_at_not_import_time(monkeypatch) -> None:
+    """Bug real: `add_turn` siempre grababa `time.time()` al insertar, así que un backfill
+    corrido en loop rápido dejaba todos los mensajes con casi el mismo `created_at`, sin
+    relación con cuándo se mandaron de verdad en WhatsApp. Debe usar el `timestamp` real que
+    ya trae cada mensaje de Waha (y que además ya se usa para ordenar, ver `_map_to_turns`)."""
+    monkeypatch.setattr(
+        "app.flows.whatsapp_bot_history_seed.load_bot_config", lambda: _config(max_history_turns=6)
+    )
+    store = ConversationStore(max_history_turns=6)
+    waha = FakeWahaClient(_PRIOR_MESSAGES)
+    llm = FakeLlmClient(_ANALYSIS_JSON)
+
+    seed_history_from_waha(store, waha, llm, "573001112233@c.us")
+
+    history = store.get_full_history("573001112233@c.us")
+    assert [m["created_at"] for m in history] == [100, 101, 102]
+
+
 def test_seed_history_uses_the_session_passed_in(monkeypatch) -> None:
     """Sin esto, siempre consultaba la sesión default de Waha aunque el deployment tenga
     configurada otra (`WAHA_SESSION`) — a diferencia de `is_chat_new_in_waha`, que ya

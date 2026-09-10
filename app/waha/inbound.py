@@ -2,8 +2,12 @@
 
 Waha manda el mismo shape de payload sin importar el engine (GOWS, etc.):
 `{"event": "message", "session": "...", "payload": {"id": ..., "from": ...,
-"fromMe": ..., "body": ..., "hasMedia": ...}}`. Este módulo solo extrae lo
-que el bot necesita — no valida más allá de eso.
+"fromMe": ..., "body": ..., "hasMedia": ..., "timestamp": ...}}`. Este
+módulo solo extrae lo que el bot necesita — no valida más allá de eso.
+`timestamp` (unix seconds, mismo campo que trae `WahaClient.get_chat_messages`)
+se propaga tal cual a `InboundMessage.timestamp` para que `store.add_turn`
+grabe el `created_at` real del mensaje en vez de la hora de procesamiento
+(ver `app.flows.whatsapp_bot._process`).
 """
 from __future__ import annotations
 
@@ -85,6 +89,7 @@ class InboundMessage:
     is_audio: bool = False
     audio_media_path: str | None = None
     is_unsupported: bool = False
+    timestamp: float | None = None
 
 
 def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
@@ -121,6 +126,7 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
     text = payload.get("body")
     message_id = payload.get("id")
     session = event.get("session")
+    timestamp = payload.get("timestamp")
 
     if not chat_id or not message_id or not session:
         logger.warning("Evento de Waha incompleto, ignorado: %s", event)
@@ -135,6 +141,7 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
             sender_name=_extract_sender_name(payload),
             is_audio=True,
             audio_media_path=_media_path(media),
+            timestamp=timestamp,
         )
 
     if is_unsupported:
@@ -146,6 +153,7 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
             session=session,
             sender_name=_extract_sender_name(payload),
             is_unsupported=True,
+            timestamp=timestamp,
         )
 
     if not text:
@@ -160,5 +168,6 @@ def parse_inbound_message(event: dict[str, Any]) -> InboundMessage | None:
         text=text.strip(),
         message_id=str(message_id),
         session=session,
+        timestamp=timestamp,
         sender_name=_extract_sender_name(payload),
     )

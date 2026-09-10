@@ -29,7 +29,8 @@ de `leads`) — apagada por default para todo chat, nuevo o viejo; un admin la
 prende a mano desde el panel admin. Mientras esté apagada, `_process()` no
 manda bienvenida, no transcribe audio ni llama al LLM (silencio total, para
 que un asesor pueda seguir atendiendo el chat a mano por WhatsApp Web), pero
-sí guarda el mensaje entrante tal cual llegó — así el chat aparece en
+sí guarda el mensaje entrante (placeholder para audio/media no soportada,
+ver `_placeholder_for_untranscribed_inbound`) — así el chat aparece en
 `/admin/prospects` para que el admin sepa que hay que activarlo.
 
 El bot también se autopausa a través del mismo `bot_enabled` cuando detecta
@@ -229,6 +230,23 @@ def _resolve_text(
     return transcription_client.transcribe(audio_bytes)
 
 
+# Placeholders de `_placeholder_for_untranscribed_inbound` — no son texto real del cliente,
+# `reply_after_activation` los trata igual que un turno vacío (nada que contestar).
+_UNANSWERABLE_PLACEHOLDERS = frozenset({"[Nota de voz]", "[Media no soportada]"})
+
+
+def _placeholder_for_untranscribed_inbound(inbound: InboundMessage) -> str:
+    """Texto a guardar en `messages` para audio/media no soportada mientras el bot está
+    apagado para el chat (ver `process()`) — ahí `inbound.text` llega vacío porque la
+    transcripción/el manejo de media no soportada están más abajo del return temprano de ese
+    caso. Sin esto quedaba una fila con `content=""` en la tabla."""
+    if inbound.is_audio:
+        return "[Nota de voz]"
+    if inbound.is_unsupported:
+        return "[Media no soportada]"
+    return inbound.text
+
+
 def process(
     inbound: InboundMessage,
     waha_client: WahaClient,
@@ -308,7 +326,8 @@ def _process(
         # chat, nuevo o viejo. Mientras esté apagado: silencio total (nada de bienvenida, rate
         # limit, transcripción de audio ni LLM) para que un asesor pueda seguir atendiendo ese
         # chat a mano por WhatsApp Web sin que el bot interfiera. El mensaje entrante SÍ se
-        # guarda tal cual llegó (sin transcribir; para audio/media no soportada queda vacío) —
+        # guarda (sin transcribir; para audio/media no soportada un placeholder, ver
+        # `_placeholder_for_untranscribed_inbound` — nunca body vacío) —
         # `add_turn` crea la fila de lead si todavía no existe (`_get_or_create` en
         # whatsapp_bot_store.py) — si no se guardara nada, el chat nunca aparecería en
         # `/admin/prospects` (INNER JOIN contra `messages`) y el admin no tendría forma de
@@ -316,7 +335,9 @@ def _process(
         # Waha para el mismo message_id vuelva a escribir esto dos veces. Cuando se active, el
         # flujo normal de más abajo sigue guardando cada turno exactamente como antes (esto no
         # lo duplica: mientras está apagado nunca se llega a esa parte del código).
-        store.add_turn(inbound.chat_id, "user", inbound.text)
+        store.add_turn(
+            inbound.chat_id, "user", _placeholder_for_untranscribed_inbound(inbound), inbound.timestamp
+        )
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_disabled_for_chat"}
 
     if maybe_send_first_contact_welcome(inbound.chat_id, inbound.session, waha_client, crm_client, store):
@@ -345,7 +366,7 @@ def _process(
         # catch-up de abajo, ese turno queda sin respuesta para siempre si el cliente no vuelve
         # a escribir — antes pasaba justo eso (visto en producción).
         logger.info("Chat %s rate limited, se guarda el mensaje sin responder todavía", inbound.chat_id)
-        store.add_turn(inbound.chat_id, "user", inbound.text)
+        store.add_turn(inbound.chat_id, "user", inbound.text, inbound.timestamp)
         _schedule_rate_limit_catchup(
             inbound.chat_id, inbound.session, waha_client, llm_client, crm_client, store, config, public_base_url, link_secret
         )
@@ -354,7 +375,7 @@ def _process(
 
     return _generate_and_send_reply(
         inbound.chat_id, inbound.session, inbound.text, waha_client, llm_client, crm_client, store,
-        public_base_url, link_secret,
+        public_base_url, link_secret, user_turn_created_at=inbound.timestamp,
     )
 
 
@@ -372,6 +393,7 @@ def _generate_and_send_reply(
     sender_name: str | None = None,
     persist_user_turn: bool = True,
     history_override: list[dict[str, str]] | None = None,
+    user_turn_created_at: float | None = None,
 ) -> dict[str, Any]:
     """Resuelve el deal, arma el prompt, llama al LLM y manda la respuesta — el resto de `_process`
     después de las validaciones de entrada (dedup, rate limit, bienvenida, etc.), que no aplican
@@ -384,6 +406,11 @@ def _generate_and_send_reply(
     mensaje como un turno nuevo — solo se agrega el turno del `assistant`. `sender_name` es el
     nombre de perfil de WhatsApp (candidato de identidad, ver más abajo) — `reply_after_activation`
     no lo tiene disponible (no hay `InboundMessage` en ese camino) y queda en `None`.
+
+    `user_turn_created_at` es el `timestamp` real de Waha (`InboundMessage.timestamp`) para el
+    turno del cliente que se está por guardar — `None` (default `time.time()` en `add_turn`) en
+    `reply_after_activation`, que de todas formas no vuelve a guardar ese turno
+    (`persist_user_turn=False`, ya se guardó con su timestamp real cuando llegó de verdad).
     """
     deal_id = store.get_deal_id(chat_id)
     if deal_id is not None and not crm_client.deal_exists(deal_id):
@@ -474,14 +501,14 @@ def _generate_and_send_reply(
                     deal_id, crm_client, waha_client, resolved_base_url, resolved_secret, session=session
                 )
                 if persist_user_turn:
-                    store.add_turn(chat_id, "user", text)
+                    store.add_turn(chat_id, "user", text, user_turn_created_at)
                 store.add_turn(chat_id, "assistant", clarification)
                 return {"ok": True, "chat_id": chat_id, "skipped": "signed_claim_not_yet_received"}
 
     sent = waha_client.send_text(chat_id, turn.reply, session=session)
     if sent:
         if persist_user_turn:
-            store.add_turn(chat_id, "user", text)
+            store.add_turn(chat_id, "user", text, user_turn_created_at)
         store.add_turn(chat_id, "assistant", turn.reply)
 
         deal_id = _apply_confirmed_identity(chat_id, turn, deal_id, crm_client, store)
@@ -620,9 +647,9 @@ def reply_after_activation(
     esta función) podía mandar una respuesta igual si un admin desactivaba el chat en la ventana
     entre que se programó el timer y que disparó.
 
-    Un turno pendiente con contenido vacío (nota de voz recibida mientras el chat estaba apagado —
-    no se transcribe en ese estado, ver `_process`) tampoco se responde: no hay nada real que
-    contestar, y mandaría una respuesta del LLM generada de texto en blanco.
+    Un turno pendiente vacío o con un placeholder de `_placeholder_for_untranscribed_inbound`
+    (nota de voz/media no soportada recibida mientras el chat estaba apagado — no se transcribe
+    en ese estado, ver `_process`) tampoco se responde: no hay nada real que contestar.
     """
     store = store or conversation_store
     config = config or load_bot_config()
@@ -636,7 +663,7 @@ def reply_after_activation(
         if not history or history[-1]["role"] != "user":
             return None
         pending_text = history[-1]["content"]
-        if not pending_text.strip():
+        if not pending_text.strip() or pending_text in _UNANSWERABLE_PLACEHOLDERS:
             return None
 
         return _generate_and_send_reply(

@@ -32,6 +32,17 @@ def test_get_full_history_returns_all_turns_in_order() -> None:
     assert all("created_at" in m for m in history)
 
 
+def test_add_turn_uses_given_created_at_instead_of_current_time() -> None:
+    """Permite pasar el `timestamp` real de Waha (ej. en el backfill de historial,
+    `whatsapp_bot_history_seed.py`) en vez de siempre grabar el momento del insert."""
+    store = ConversationStore()
+    store.add_turn("573001112233@c.us", "user", "hola", created_at=12345.0)
+
+    history = store.get_full_history("573001112233@c.us")
+
+    assert history[0]["created_at"] == 12345.0
+
+
 def test_get_full_history_is_never_trimmed_while_get_history_caps_to_llm_context() -> None:
     """`add_turn` ya no borra nada de la base — `get_full_history` (auditoría, panel admin)
     siempre muestra todo. El recorte a `max_history_turns*2` es solo de lectura, para lo que

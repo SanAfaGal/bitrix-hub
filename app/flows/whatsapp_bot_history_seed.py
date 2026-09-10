@@ -27,8 +27,8 @@ from app.waha.client import WahaClient
 logger = logging.getLogger(__name__)
 
 
-def _map_to_turns(messages: list[dict[str, Any]], *, max_turns: int) -> list[tuple[str, str]]:
-    """Convierte mensajes crudos de Waha en turnos `(role, content)`, en orden cronológico.
+def _map_to_turns(messages: list[dict[str, Any]], *, max_turns: int) -> list[tuple[str, str, float | None]]:
+    """Convierte mensajes crudos de Waha en turnos `(role, content, created_at)`, en orden cronológico.
 
     `fromMe: true` -> "assistant" (lo mandó la línea, sea el asesor a mano o
     el bot), `fromMe: false` -> "user" (lo mandó el cliente) — mismo mapeo
@@ -40,15 +40,20 @@ def _map_to_turns(messages: list[dict[str, Any]], *, max_turns: int) -> list[tup
     `max_turns <= 0` (config de cero turnos) no importa nada, en vez de
     interpretarse como "sin tope" — un slice `turns[-0:]` sería `turns`
     completo, lo contrario de lo que pide un tope de cero.
+
+    `created_at` va el `timestamp` real de Waha de cada mensaje (mismo que
+    ya se usa acá para ordenar), no el momento en que corre este backfill —
+    si no, todos los turnos de una misma importación quedan con casi el
+    mismo `created_at` (bug real, ver `store.add_turn`).
     """
     ordered = sorted(messages, key=lambda m: m.get("timestamp") or 0)
-    turns: list[tuple[str, str]] = []
+    turns: list[tuple[str, str, float | None]] = []
     for message in ordered:
         body = message.get("body")
         if not isinstance(body, str) or not body.strip():
             continue
         role = "assistant" if message.get("fromMe") else "user"
-        turns.append((role, body.strip()))
+        turns.append((role, body.strip(), message.get("timestamp")))
     return turns[-max_turns:] if max_turns > 0 else []
 
 
@@ -124,8 +129,8 @@ def seed_history_from_waha(
         # Reemplaza (no duplica) los turnos locales del período desactivado —
         # ver docstring de arriba.
         store.clear_messages(chat_id)
-        for role, content in turns:
-            store.add_turn(chat_id, role, content)
+        for role, content, created_at in turns:
+            store.add_turn(chat_id, role, content, created_at)
 
     confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
     if confirmed_name is None and confirmed_phone is None:

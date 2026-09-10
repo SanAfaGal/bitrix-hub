@@ -163,12 +163,21 @@ def _email_lead_preview(row: Conversation) -> str:
     return f"Lead de formulario web — error ({row.detail})"
 
 
-def add_turn(session: Session, chat_id: str, role: str, content: str) -> None:
+def add_turn(session: Session, chat_id: str, role: str, content: str, created_at: float | None = None) -> None:
     """Guarda un turno. No recorta nada — `messages` guarda la conversación completa
     para siempre (auditoría, panel admin); el recorte a cuántos turnos recientes se le
-    mandan al LLM como contexto vive en la lectura (`get_history(limit)`), no acá."""
+    mandan al LLM como contexto vive en la lectura (`get_history(limit)`), no acá.
+
+    `created_at`, si se pasa, reemplaza el `time.time()` de default — usado por
+    `whatsapp_bot_history_seed.py` para grabar el `timestamp` real de Waha en vez del
+    momento en que corre el backfill (si no, todos los mensajes de un mismo backfill
+    quedan con casi el mismo `created_at`, sin relación con cuándo se mandaron de verdad)."""
     lead = _get_or_create(session, chat_id)
-    session.add(ConversationMessage(lead_id=lead.id, role=role, content=content, created_at=time.time()))
+    session.add(
+        ConversationMessage(
+            lead_id=lead.id, role=role, content=content, created_at=created_at if created_at is not None else time.time()
+        )
+    )
     session.commit()
 
 

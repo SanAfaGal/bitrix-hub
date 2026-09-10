@@ -131,6 +131,7 @@ def _inbound(
     is_audio: bool = False,
     audio_media_path: str | None | object = _UNSET,
     is_unsupported: bool = False,
+    timestamp: float | None = None,
 ) -> InboundMessage:
     if audio_media_path is _UNSET:
         audio_media_path = "/api/files/msg1.oga" if is_audio else None
@@ -142,6 +143,7 @@ def _inbound(
         is_audio=is_audio,
         audio_media_path=audio_media_path,
         is_unsupported=is_unsupported,
+        timestamp=timestamp,
     )
 
 
@@ -185,6 +187,23 @@ def test_process_sends_llm_reply_and_updates_history() -> None:
     ]
 
 
+def test_process_saves_user_turn_with_waha_timestamp_as_created_at() -> None:
+    """Bug real: el turno del cliente se guardaba con `time.time()` al momento de procesar el
+    webhook, no con el `timestamp` real que Waha manda en el payload — en el panel admin la
+    fecha mostrada no correspondía a cuándo se mandó el mensaje de verdad en WhatsApp."""
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("hola! como te ayudo?"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    process(
+        _inbound(text="hola", timestamp=1700000000), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    history = store.get_full_history("573001112233@c.us")
+    assert history[0]["created_at"] == 1700000000
+
+
 def test_process_saves_message_but_does_not_reply_when_rate_limited() -> None:
     """El mensaje no se descarta: si llega dentro del cooldown, se guarda en el historial (para
     que el LLM lo vea en el próximo turno) aunque no se le responda todavía."""
@@ -195,7 +214,7 @@ def test_process_saves_message_but_does_not_reply_when_rate_limited() -> None:
     store.mark_message_received("573001112233@c.us")
 
     result = process(
-        _inbound(message_id="msg2", text="y tambien quiero preguntar algo mas"),
+        _inbound(message_id="msg2", text="y tambien quiero preguntar algo mas", timestamp=1700000005),
         waha,
         llm,
         crm,
@@ -210,6 +229,7 @@ def test_process_saves_message_but_does_not_reply_when_rate_limited() -> None:
     assert store.get_history("573001112233@c.us") == [
         {"role": "user", "content": "y tambien quiero preguntar algo mas"},
     ]
+    assert store.get_full_history("573001112233@c.us")[0]["created_at"] == 1700000005
 
 
 def test_process_transcribes_audio_and_replies_as_if_it_were_text() -> None:
@@ -1524,13 +1544,52 @@ def test_process_skips_when_bot_disabled_for_chat_but_still_saves_the_message(mo
     crm = FakeCrmClient()
     store = ConversationStore()
 
-    result = process(_inbound(text="hola, alguien ahi?"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+    result = process(
+        _inbound(text="hola, alguien ahi?", timestamp=1700000010),
+        waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store,
+    )
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled_for_chat"}
     assert waha.calls == []
     assert llm.calls == []
     assert store.get_history("573001112233@c.us") == [{"role": "user", "content": "hola, alguien ahi?"}]
     assert [c["chat_id"] for c in store.list_chats()] == ["573001112233@c.us"]
+    assert store.get_full_history("573001112233@c.us")[0]["created_at"] == 1700000010
+
+
+def test_process_saves_placeholder_instead_of_empty_body_for_audio_when_bot_disabled(monkeypatch) -> None:
+    """Bug real: con el bot apagado, una nota de voz nunca se transcribe (ese código está más
+    abajo del return temprano) — `inbound.text` queda `""` y se guardaba tal cual, dejando una
+    fila con `content=""` en `messages`."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(text="", is_audio=True), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled_for_chat"}
+    assert store.get_history("573001112233@c.us") == [{"role": "user", "content": "[Nota de voz]"}]
+
+
+def test_process_saves_placeholder_instead_of_empty_body_for_unsupported_media_when_bot_disabled(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(text="", is_unsupported=True), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled_for_chat"}
+    assert store.get_history("573001112233@c.us") == [{"role": "user", "content": "[Media no soportada]"}]
 
 
 def test_process_does_not_resend_or_reprocess_when_disabled_chat_gets_retried_message_id(monkeypatch) -> None:
