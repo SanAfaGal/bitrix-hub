@@ -60,6 +60,7 @@ def seed_history_from_waha(
     *,
     limit: int | None = None,
     max_history_turns: int | None = None,
+    session: str = "default",
 ) -> dict[str, Any]:
     """Si el chat todavía no tiene el historial de Waha importado, lo trae, lo analiza con IA e importa.
 
@@ -91,6 +92,13 @@ def seed_history_from_waha(
     admin que active el chat, Tarea 4), esta función solo prepara el
     contexto para que esa activación no arranque en blanco.
 
+    `session` default `"default"` solo cubre el caso de un único Waha
+    session en el deployment — a diferencia de `is_chat_new_in_waha`
+    (que recibe `inbound.session` real del webhook), acá no hay un
+    `InboundMessage` de dónde sacarlo (se dispara desde el panel admin);
+    el caller debe pasar la sesión configurada (`WahaSettings.session`) si
+    el deployment usa más de una.
+
     Retorna un resumen: `{"seeded": bool, "messages_imported": int,
     "analysis": dict | None}` para que la ruta de admin le muestre algo útil
     a quien activó el chat.
@@ -103,7 +111,7 @@ def seed_history_from_waha(
     resolved_limit = limit if limit is not None else config.history_analysis_limit
     resolved_max_turns = max_history_turns if max_history_turns is not None else config.max_history_turns
 
-    messages = waha_client.get_chat_messages(chat_id, limit=resolved_limit)
+    messages = waha_client.get_chat_messages(chat_id, limit=resolved_limit, session=session)
     if not messages:
         logger.info("Sin historial previo en Waha para %s, no hay nada que importar", chat_id)
         store.set_history_seeded(chat_id)

@@ -7,10 +7,10 @@ from app.flows.whatsapp_bot_history_seed import seed_history_from_waha
 class FakeWahaClient:
     def __init__(self, messages: list[dict] | None) -> None:
         self._messages = messages
-        self.calls: list[tuple[str, int]] = []
+        self.calls: list[tuple[str, int, str | None]] = []
 
     def get_chat_messages(self, chat_id: str, *, limit: int = 50, session: str | None = None) -> list[dict] | None:
-        self.calls.append((chat_id, limit))
+        self.calls.append((chat_id, limit, session))
         return self._messages
 
 
@@ -72,7 +72,21 @@ def test_seed_history_imports_turns_and_sets_lead_fields_from_analysis(monkeypat
     assert store.get_authorization_link_sent("573001112233@c.us") is False
     assert store.get_history_seeded("573001112233@c.us") is True
 
-    assert waha.calls == [("573001112233@c.us", 40)]
+    assert waha.calls == [("573001112233@c.us", 40, "default")]
+
+
+def test_seed_history_uses_the_session_passed_in(monkeypatch) -> None:
+    """Sin esto, siempre consultaba la sesión default de Waha aunque el deployment tenga
+    configurada otra (`WAHA_SESSION`) — a diferencia de `is_chat_new_in_waha`, que ya
+    threadea `inbound.session`."""
+    monkeypatch.setattr("app.flows.whatsapp_bot_history_seed.load_bot_config", lambda: _config())
+    store = ConversationStore()
+    waha = FakeWahaClient(_PRIOR_MESSAGES)
+    llm = FakeLlmClient(_ANALYSIS_JSON)
+
+    seed_history_from_waha(store, waha, llm, "573001112233@c.us", session="otra-sesion")
+
+    assert waha.calls == [("573001112233@c.us", 40, "otra-sesion")]
 
 
 def test_seed_history_does_not_overwrite_already_confirmed_identity(monkeypatch) -> None:
@@ -158,7 +172,7 @@ def test_seed_history_imports_from_waha_and_replaces_local_disabled_period_messa
 
     assert result["seeded"] is True
     assert result["messages_imported"] == 3
-    assert waha.calls == [("573001112233@c.us", 40)]
+    assert waha.calls == [("573001112233@c.us", 40, "default")]
     assert len(llm.calls) == 1
 
     history = store.get_full_history("573001112233@c.us")
