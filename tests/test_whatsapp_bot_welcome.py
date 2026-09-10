@@ -40,7 +40,7 @@ def test_sends_unknown_welcome_when_bitrix_has_no_contact_for_phone() -> None:
     assert store.get_history("573001112233@c.us") == [{"role": "assistant", "content": text}]
 
 
-def test_sends_known_welcome_with_name_then_full_explanation_when_bitrix_has_contact_for_phone() -> None:
+def test_sends_known_welcome_with_name_then_zone_question_when_bitrix_has_contact_for_phone() -> None:
     waha = FakeWahaClient()
     crm = FakeCrmClient(contacts={"7": {"NAME": "Juan", "LAST_NAME": "Pérez"}})
     crm.contact_by_phone["573001112233"] = "7"
@@ -51,11 +51,13 @@ def test_sends_known_welcome_with_name_then_full_explanation_when_bitrix_has_con
     assert handled is True
     assert [c[1] for c in waha.calls] == [
         templates_store.render_template("whatsapp_welcome_known", nombre="Juan Pérez"),
-        templates_store.DEFAULT_TEMPLATES["whatsapp_process_explanation"],
-        templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"],
+        templates_store.DEFAULT_TEMPLATES["whatsapp_ask_zone"],
     ]
-    assert len(waha.voice_calls) == 1  # ya no se pregunta antes: texto + audio + aceptación de una vez
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    # La explicación (texto + audio + aceptación) todavía no se manda — primero hay que
+    # confirmar que el inmueble está en zona de cobertura.
+    assert waha.voice_calls == []
+    assert store.get_zone_asked("573001112233@c.us") is True
+    assert store.get_explanation_sent("573001112233@c.us") is False
 
     # Bitrix ya conocía este teléfono (por eso saludó con el nombre) — la
     # identidad y el deal quedan resueltos en este mismo paso, sin esperar a

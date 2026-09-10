@@ -156,6 +156,22 @@ class ConversationStore:
         with self._SessionLocal() as session:
             store_db.set_authorization_link_sent(session, chat_id)
 
+    def get_zone_asked(self, chat_id: str) -> bool:
+        with self._SessionLocal() as session:
+            return store_db.get_zone_asked(session, chat_id)
+
+    def set_zone_asked(self, chat_id: str) -> None:
+        with self._SessionLocal() as session:
+            store_db.set_zone_asked(session, chat_id)
+
+    def get_zone_in_coverage(self, chat_id: str) -> bool | None:
+        with self._SessionLocal() as session:
+            return store_db.get_zone_in_coverage(session, chat_id)
+
+    def set_zone_in_coverage(self, chat_id: str, in_coverage: bool) -> None:
+        with self._SessionLocal() as session:
+            store_db.set_zone_in_coverage(session, chat_id, in_coverage)
+
     def chat_exists(self, chat_id: str) -> bool:
         with self._SessionLocal() as session:
             return store_db.chat_exists(session, chat_id)

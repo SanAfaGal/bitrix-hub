@@ -6,9 +6,10 @@ el chat no tiene historial todavía, se resuelve si Bitrix ya conoce al
 cliente por su teléfono (`CrmClient.find_contact_by_phone`) y se envía la
 plantilla correspondiente (`whatsapp_welcome_known`/`whatsapp_welcome_unknown`,
 ver `app/message_templates/store.py`) tal cual, sin generarla con el LLM. Si
-el cliente es conocido, además se le manda de una vez la explicación del
-proceso (`whatsapp_bot_explanation.maybe_send_explanation`) — sin preguntar
-antes si la quiere.
+el cliente es conocido, además se le pregunta de una vez si su inmueble
+está en zona de cobertura (`whatsapp_bot_zone.maybe_ask_zone`) — sin
+preguntar antes si la quiere; la explicación solo se manda después de que
+confirme la zona.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.crm.protocol import CrmClient
-from app.flows.whatsapp_bot_explanation import maybe_send_explanation
+from app.flows.whatsapp_bot_zone import maybe_ask_zone
 from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 
@@ -86,6 +87,6 @@ def maybe_send_first_contact_welcome(
 
             _create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
-        maybe_send_explanation(chat_id, session, waha_client, store)
+        maybe_ask_zone(chat_id, session, waha_client, store)
 
     return True

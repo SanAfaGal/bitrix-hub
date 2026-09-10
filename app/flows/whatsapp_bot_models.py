@@ -79,6 +79,14 @@ class Conversation(Base):
     # ejecutara. Sin significado para un lead de correo.
     history_seeded: bool = Column(Boolean, nullable=False, default=False)
 
+    # Pregunta de cobertura de zona (Medellín / Oriente antioqueño) que el bot le hace al
+    # cliente antes de la explicación del proceso — `zone_asked` marca que ya se mandó la
+    # pregunta; `zone_in_coverage` queda en `None` hasta que la persona responda con
+    # claridad (`True`/`False`). Ver `app/flows/whatsapp_bot_zone.py`. Sin significado para
+    # un lead de correo.
+    zone_asked: bool = Column(Boolean, nullable=False, default=False)
+    zone_in_coverage: bool | None = Column(Boolean, nullable=True, default=None)
+
     # Resultado de procesar un correo del formulario web (solo canal "email").
     status: str | None = Column(String(16), nullable=True)
     detail: str | None = Column(Text, nullable=True)

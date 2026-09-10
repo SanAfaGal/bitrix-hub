@@ -54,6 +54,28 @@ def test_history_seeded_defaults_to_false_and_can_be_set() -> None:
     assert store.get_history_seeded("573001112233@c.us") is True
 
 
+def test_zone_asked_defaults_to_false_and_can_be_set() -> None:
+    store = ConversationStore()
+
+    assert store.get_zone_asked("573001112233@c.us") is False
+
+    store.set_zone_asked("573001112233@c.us")
+
+    assert store.get_zone_asked("573001112233@c.us") is True
+
+
+def test_zone_in_coverage_defaults_to_none_and_can_be_set_true_or_false() -> None:
+    store = ConversationStore()
+
+    assert store.get_zone_in_coverage("573001112233@c.us") is None
+
+    store.set_zone_in_coverage("573001112233@c.us", True)
+    assert store.get_zone_in_coverage("573001112233@c.us") is True
+
+    store.set_zone_in_coverage("573001112233@c.us", False)
+    assert store.get_zone_in_coverage("573001112233@c.us") is False
+
+
 def test_has_assistant_turn_false_for_user_only_history() -> None:
     store = ConversationStore()
     store.add_turn("573001112233@c.us", "user", "hola")

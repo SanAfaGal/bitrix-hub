@@ -40,8 +40,13 @@ chat vía `store.set_bot_enabled(chat_id, False)`, igual que si un admin lo
 pausara desde el panel; para reactivarlo hay que volver a prenderlo desde
 ahí, no hay reactivación automática.
 
-La explicación del proceso (texto + nota de voz) se manda de una sola vez,
-sin preguntar antes si la persona la quiere, apenas se conoce su identidad
+Antes de la explicación, se le pregunta a la persona si su inmueble está en
+Medellín o el Oriente antioqueño — única zona donde se gestiona este
+proceso por ahora (`whatsapp_bot_zone.py`). Si responde que no, se le avisa
+que un asesor aparte lo va a contactar y el bot se desactiva para ese chat
+(`bot_enabled=False`). Solo si confirma la zona se sigue con la explicación
+del proceso (texto + nota de voz), que se manda de una sola vez sin
+preguntar antes si la quiere, apenas se conoce su identidad
 (`whatsapp_bot_welcome.py`/`whatsapp_bot_explanation.py::maybe_send_explanation`).
 Si la persona la pide explícitamente antes de que le llegue por ese camino
 (ej. identidad todavía sin confirmar), se le manda igual
@@ -78,11 +83,13 @@ from app.flows.whatsapp_bot_llm import (
     AFFIRMATION_RE as _AFFIRMATION_RE,
     LlmTurn,
     _awaiting_acceptance_note,
+    _awaiting_zone_note,
     _build_system_prompt,
     _parse_llm_output,
 )
 from app.flows.whatsapp_bot_new_chat_check import is_chat_new_in_waha
 from app.flows.whatsapp_bot_welcome import maybe_send_first_contact_welcome
+from app.flows.whatsapp_bot_zone import maybe_ask_zone, maybe_handle_zone_response
 from app.forms.settings import load_form_link_secret
 from app.llm.client import LlmClient
 from app.message_templates import store as templates_store
@@ -383,8 +390,14 @@ def _generate_and_send_reply(
     if deal_id is None:
         deal_id = _create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
+    awaiting_zone_response = False
+    if deal_id is not None and store.get_zone_asked(chat_id) and store.get_zone_in_coverage(chat_id) is None:
+        if maybe_handle_zone_response(chat_id, text, waha_client, session, store):
+            return {"ok": True, "chat_id": chat_id, "skipped": "zone_resolved"}
+        awaiting_zone_response = True
+
     awaiting_acceptance = False
-    if deal_id is not None and store.get_explanation_sent(chat_id):
+    if not awaiting_zone_response and deal_id is not None and store.get_explanation_sent(chat_id):
         if not store.get_authorization_link_sent(chat_id):
             resolved_base_url, resolved_secret = _resolve_authorization_link_config(public_base_url, link_secret)
 
@@ -424,7 +437,9 @@ def _generate_and_send_reply(
         candidate_name,
         candidate_phone,
     )
-    if awaiting_acceptance:
+    if awaiting_zone_response:
+        system_prompt += _awaiting_zone_note()
+    elif awaiting_acceptance:
         system_prompt += _awaiting_acceptance_note()
     raw_output = llm_client.reply(system_prompt, history, text)
     if raw_output is None:
@@ -463,20 +478,29 @@ def _generate_and_send_reply(
             crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
         if deal_id_before_identity_resolution is None and deal_id is not None:
-            if not maybe_send_explanation(chat_id, session, waha_client, store):
-                # Cliente conocido: la explicación ya se había mandado antes de confirmar
-                # identidad (`whatsapp_bot_welcome.py`), así que la afirmación original a
-                # `whatsapp_ask_acceptance` se perdió respondiendo nombre/teléfono en su
-                # lugar. El deal recién se crea acá — hay que volver a pedirla, si no
-                # la conversación queda esperando sin que el bot pida nada.
-                if store.get_explanation_sent(chat_id) and not store.get_authorization_link_sent(chat_id):
-                    resolved_base_url, resolved_secret = _resolve_authorization_link_config(
-                        public_base_url, link_secret
-                    )
-                    if resolved_base_url and resolved_secret:
-                        ask_text = templates_store.get_template("whatsapp_ask_acceptance")
-                        if waha_client.send_text(chat_id, ask_text, session=session):
-                            store.add_turn(chat_id, "assistant", ask_text)
+            if not maybe_ask_zone(chat_id, session, waha_client, store):
+                # Cliente conocido: la pregunta de zona ya se había mandado antes de
+                # confirmar identidad (`whatsapp_bot_welcome.py`), así que la respuesta
+                # original se perdió respondiendo nombre/teléfono en su lugar. El deal
+                # recién se crea acá — hay que volver a pedirla, si no la conversación
+                # queda esperando sin que el bot pida nada.
+                zone_in_coverage = store.get_zone_in_coverage(chat_id)
+                if zone_in_coverage is None:
+                    zone_text = templates_store.get_template("whatsapp_ask_zone")
+                    if waha_client.send_text(chat_id, zone_text, session=session):
+                        store.add_turn(chat_id, "assistant", zone_text)
+                elif zone_in_coverage and not maybe_send_explanation(chat_id, session, waha_client, store):
+                    # Misma situación, un paso más adelante: la zona ya estaba confirmada y
+                    # la explicación ya se había mandado también, así que la afirmación
+                    # original a `whatsapp_ask_acceptance` es la que se perdió acá.
+                    if store.get_explanation_sent(chat_id) and not store.get_authorization_link_sent(chat_id):
+                        resolved_base_url, resolved_secret = _resolve_authorization_link_config(
+                            public_base_url, link_secret
+                        )
+                        if resolved_base_url and resolved_secret:
+                            ask_text = templates_store.get_template("whatsapp_ask_acceptance")
+                            if waha_client.send_text(chat_id, ask_text, session=session):
+                                store.add_turn(chat_id, "assistant", ask_text)
 
         maybe_handle_delayed_explanation_request(chat_id, turn.explanation_requested, waha_client, session, store)
 

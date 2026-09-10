@@ -132,6 +132,15 @@ DEFAULT_TEMPLATES: dict[str, str] = {
     ),
     "whatsapp_transcription_failed": "No pude escuchar tu audio, ¿me lo puedes escribir? 🙏",
     "whatsapp_unsupported_message": "Por ahora solo puedo leer texto o notas de voz, ¿me lo puedes escribir? 🙏",
+    "whatsapp_ask_zone": (
+        "Antes de continuar, cuéntame: ¿tu inmueble está ubicado en Medellín o en el "
+        "Oriente antioqueño?"
+    ),
+    "whatsapp_zone_out_of_coverage": (
+        "Por ahora estamos gestionando este proceso solo en Medellín y el Oriente "
+        "antioqueño. Un asesor de nuestro equipo se pondrá en contacto contigo para "
+        "continuar con tu caso. ¡Gracias por tu interés!"
+    ),
     "whatsapp_process_explanation": (
         "¡Perfecto! Ahora te voy a explicar cómo funciona todo el proceso para vender tu "
         "inmueble con nosotros 🏡"
@@ -185,6 +194,8 @@ TEMPLATE_LABELS: dict[str, str] = {
     "whatsapp_system_prompt": "Comportamiento del bot",
     "whatsapp_transcription_failed": "No se pudo transcribir el audio",
     "whatsapp_unsupported_message": "Mensaje con contenido no soportado",
+    "whatsapp_ask_zone": "Pregunta de cobertura de zona (antes de la explicación)",
+    "whatsapp_zone_out_of_coverage": "Aviso de zona fuera de cobertura",
     "whatsapp_process_explanation": "Explicación del proceso (antes del audio)",
     "whatsapp_offer_explanation": "Oferta del audio explicativo",
     "whatsapp_explanation_declined_ack": "Confirmación cuando rechaza el audio",
@@ -214,6 +225,8 @@ TEMPLATE_HINTS: dict[str, str] = {
     "whatsapp_welcome_known": "Automático · bot de WhatsApp",
     "whatsapp_transcription_failed": "Automático · bot de WhatsApp",
     "whatsapp_unsupported_message": "Automático · bot de WhatsApp",
+    "whatsapp_ask_zone": "Automático · bot de WhatsApp",
+    "whatsapp_zone_out_of_coverage": "Automático · bot de WhatsApp",
     "whatsapp_process_explanation": "Automático · bot de WhatsApp",
     "whatsapp_offer_explanation": "Automático · bot de WhatsApp",
     "whatsapp_explanation_declined_ack": "Automático · bot de WhatsApp",
@@ -242,6 +255,16 @@ TEMPLATE_WHEN_USED: dict[str, str] = {
         "Se dispara si el cliente manda algo que el bot no puede leer (imagen, video, "
         "documento, sticker, ubicación, contacto, etc.) — cualquier tipo de mensaje distinto "
         "de texto o nota de voz."
+    ),
+    "whatsapp_ask_zone": (
+        "Se envía apenas se confirma la identidad del cliente (o al saludar a un cliente ya "
+        "conocido en Bitrix), antes de explicarle el proceso — solo se sigue con la "
+        "explicación si confirma que su inmueble está en Medellín o el Oriente antioqueño."
+    ),
+    "whatsapp_zone_out_of_coverage": (
+        "Se envía cuando el cliente responde que su inmueble NO está en Medellín ni en el "
+        "Oriente antioqueño — el bot se desactiva para ese chat y un asesor lo contacta "
+        "aparte."
     ),
     "whatsapp_process_explanation": (
         "Se envía apenas se crea el negocio y el contacto en Bitrix (nombre y teléfono ya "
@@ -290,6 +313,10 @@ TEMPLATE_SECTIONS: list[dict[str, object]] = [
     {
         "name": "Durante la conversación",
         "keys": ["whatsapp_transcription_failed", "whatsapp_unsupported_message"],
+    },
+    {
+        "name": "Cobertura de zona",
+        "keys": ["whatsapp_ask_zone", "whatsapp_zone_out_of_coverage"],
     },
     {
         "name": "Explicación del proceso",

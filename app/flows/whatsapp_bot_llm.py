@@ -108,6 +108,21 @@ def _build_system_prompt(
     )
 
 
+def _awaiting_zone_note() -> str:
+    return (
+        "\n\nYa se le preguntó a la persona si su inmueble está en Medellín o en el "
+        "Oriente antioqueño (única zona donde gestionamos este proceso por ahora). Su "
+        'única tarea en este turno es conseguir un "sí" o un "no" claro a esa pregunta: '
+        "si el mensaje de la persona es una duda u objeción, respóndala brevemente y "
+        'termine reafirmando la misma pregunta ("¿tu inmueble está en Medellín o en el '
+        'Oriente antioqueño?"); si es un comentario vago, evasivo o que no responde la '
+        'pregunta (ej. "no sé", "por qué preguntan eso"), no lo interprete como '
+        "respuesta ni cambie de tema — repita la pregunta de forma directa. Bajo "
+        "ninguna circunstancia pase a otro tema ni avance con la explicación del "
+        "proceso mientras siga en este estado."
+    )
+
+
 def _awaiting_acceptance_note() -> str:
     return (
         "\n\nYa se le explicó el proceso a la persona (mensaje + nota de voz) y se le "

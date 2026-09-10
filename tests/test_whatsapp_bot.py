@@ -1046,13 +1046,74 @@ def test_process_skips_unresolved_lid_when_allowed_numbers_configured() -> None:
     assert llm.calls == []
 
 
-# ── Explicación del proceso + link de Autorización ──────────────────────
+# ── Cobertura de zona ─────────────────────────────────────────────────
 
 _LINK_SECRET = "test-secret"
 _PUBLIC_BASE_URL = "https://hub.example.com"
 
 
-def test_process_sends_full_explanation_right_after_creating_deal_from_confirmed_identity() -> None:
+def test_process_sends_explanation_after_zone_confirmed_by_affirmation() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_zone_asked("573001112233@c.us")
+
+    result = process(_inbound(text="si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "zone_resolved"}
+    assert store.get_zone_in_coverage("573001112233@c.us") is True
+    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert llm.calls == []
+
+
+def test_process_disables_bot_when_zone_declined(monkeypatch: "pytest.MonkeyPatch") -> None:
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient()
+    llm = FakeLlmClient()
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_zone_asked("573001112233@c.us")
+    store.set_bot_enabled("573001112233@c.us", True)
+
+    result = process(_inbound(text="no"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "zone_resolved"}
+    assert store.get_zone_in_coverage("573001112233@c.us") is False
+    assert store.get_bot_enabled("573001112233@c.us") is False
+    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_zone_out_of_coverage"]]
+
+
+def test_process_falls_back_to_llm_with_zone_context_when_reply_is_ambiguous() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("¿tu inmueble está en Medellín o el Oriente antioqueño?"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_zone_asked("573001112233@c.us")
+
+    result = process(
+        _inbound(text="no sé bien la zona"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {
+        "ok": True,
+        "chat_id": "573001112233@c.us",
+        "reply": "¿tu inmueble está en Medellín o el Oriente antioqueño?",
+    }
+    assert len(llm.calls) == 1
+    system_prompt = llm.calls[0][0]
+    assert "Medellín o en el Oriente antioqueño" in system_prompt
+    assert store.get_zone_in_coverage("573001112233@c.us") is None
+
+
+# ── Explicación del proceso + link de Autorización ──────────────────────
+
+
+def test_process_asks_zone_right_after_creating_deal_from_confirmed_identity() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps(
@@ -1066,19 +1127,24 @@ def test_process_sends_full_explanation_right_after_creating_deal_from_confirmed
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
     assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert store.get_explanation_sent("573001112233@c.us") is True
-    assert len(waha.voice_calls) == 1  # ya no se pregunta antes: texto + audio + aceptación de una vez
-    # El "gracias!" del LLM se manda primero, la explicación (texto+audio+pregunta) después.
+    assert store.get_zone_asked("573001112233@c.us") is True
+    # La explicación (texto + audio + aceptación) todavía no se manda — primero hay que
+    # confirmar que el inmueble está en zona de cobertura.
+    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert waha.voice_calls == []
+    # El "gracias!" del LLM se manda primero, la pregunta de zona después.
     assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
-    assert len(waha.calls) == 3
+    assert waha.calls[1] == ("573001112233@c.us", templates_store.DEFAULT_TEMPLATES["whatsapp_ask_zone"], "default")
+    assert len(waha.calls) == 2
 
 
 def test_process_reasks_acceptance_when_deal_created_after_explanation_already_sent() -> None:
-    # Regresión de producción: cliente conocido (`whatsapp_bot_welcome.py` ya ofreció y mandó
-    # la explicación + pregunta de aceptación ANTES de que la identidad estuviera confirmada).
-    # La afirmación original se perdió respondiendo nombre/teléfono en su lugar; el deal recién
-    # se crea en este turno. Como `maybe_send_explanation` no hace nada (ya se había ofrecido),
-    # el bot no debe quedarse callado esperando: debe volver a pedir la aceptación.
+    # Regresión de producción: cliente conocido (`whatsapp_bot_welcome.py` ya confirmó la zona
+    # y mandó la explicación + pregunta de aceptación ANTES de que la identidad estuviera
+    # confirmada). La afirmación original se perdió respondiendo nombre/teléfono en su lugar;
+    # el deal recién se crea en este turno. Como `maybe_send_explanation` no hace nada (ya se
+    # había mandado), el bot no debe quedarse callado esperando: debe volver a pedir la
+    # aceptación.
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps(
@@ -1087,6 +1153,8 @@ def test_process_reasks_acceptance_when_deal_created_after_explanation_already_s
     )
     crm = FakeCrmClient()
     store = ConversationStore()
+    store.set_zone_asked("573001112233@c.us")
+    store.set_zone_in_coverage("573001112233@c.us", True)
     store.set_explanation_sent("573001112233@c.us")
 
     result = process(
@@ -1106,6 +1174,35 @@ def test_process_reasks_acceptance_when_deal_created_after_explanation_already_s
     assert store.get_authorization_link_sent("573001112233@c.us") is False
     # "gracias!" primero, la re-pregunta de aceptación después — no se queda parado.
     assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
+    assert len(waha.calls) == 2
+
+
+def test_process_reasks_zone_question_when_deal_created_after_zone_already_asked() -> None:
+    # Análogo al caso de arriba pero un paso antes: `whatsapp_bot_welcome.py` ya mandó la
+    # pregunta de zona (cliente conocido por nombre, teléfono todavía sin resolver) ANTES de
+    # que la identidad estuviera confirmada. La respuesta original se perdió respondiendo
+    # nombre/teléfono en su lugar; el deal recién se crea en este turno. Como `maybe_ask_zone`
+    # no hace nada (ya se había preguntado), el bot debe reenviar la pregunta de zona.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(
+        reply_text=json.dumps(
+            {"reply": "gracias!", "fields": {}, "client_full_name": "Juan Pérez", "client_phone": "3001112233"}
+        )
+    )
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_zone_asked("573001112233@c.us")
+
+    result = process(
+        _inbound(chat_id="573001112233@c.us"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
+    assert store.get_deal_id("573001112233@c.us") == "6000"
+    assert store.get_zone_in_coverage("573001112233@c.us") is None
+    # "gracias!" primero, la re-pregunta de zona después — no se queda parado.
+    assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
+    assert waha.calls[1] == ("573001112233@c.us", templates_store.DEFAULT_TEMPLATES["whatsapp_ask_zone"], "default")
     assert len(waha.calls) == 2
 
 
