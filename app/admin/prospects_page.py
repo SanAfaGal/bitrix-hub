@@ -9,18 +9,22 @@ frontend.
 """
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime
 from html import escape
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.admin.page import PROSPECTS_PATH, render_app_shell
+
+_BOGOTA_TZ = ZoneInfo(os.environ.get("TZ", "America/Bogota"))
 
 
 def _format_datetime(ts: float | None) -> str:
     if ts is None:
         return ""
-    return datetime.fromtimestamp(ts).strftime("%d/%m/%Y %I:%M %p")
+    return datetime.fromtimestamp(ts, tz=_BOGOTA_TZ).strftime("%d/%m/%Y %I:%M %p")
 
 
 def _format_relative(ts: float | None) -> str:
@@ -33,7 +37,7 @@ def _format_relative(ts: float | None) -> str:
         return f"Hace {int(delta // 60)} min"
     if delta < 86400:
         return f"Hace {int(delta // 3600)} h"
-    return datetime.fromtimestamp(ts).strftime("%d/%m/%Y")
+    return datetime.fromtimestamp(ts, tz=_BOGOTA_TZ).strftime("%d/%m/%Y")
 
 
 def _display_phone(phone: str | None) -> str | None:
