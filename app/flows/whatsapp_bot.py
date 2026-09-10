@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -66,7 +67,7 @@ from app.crm.protocol import CrmClient, PropertyListing
 from app.flows import whatsapp_bot_db as store_engine
 from app.flows.settings import load_public_base_url
 from app.flows.welcome_authorization import process_welcome_and_authorization
-from app.flows.whatsapp_bot_conversation_store import ConversationStore
+from app.flows.whatsapp_bot_conversation_store import RATE_LIMIT_COOLDOWN_SECONDS, ConversationStore
 from app.flows.whatsapp_bot_explanation import (
     maybe_handle_acceptance,
     maybe_handle_delayed_explanation_request,
@@ -327,47 +328,85 @@ def _process(
     if store.is_rate_limited(inbound.chat_id):
         # No se descarta el mensaje: quien manda varias burbujas seguidas (uso normal de
         # WhatsApp) no debe perder lo que escribió — se guarda en el historial para que el
-        # LLM lo vea en el próximo turno, aunque este no se responda individualmente.
+        # LLM lo vea en el próximo turno, aunque este no se responda individualmente. Sin el
+        # catch-up de abajo, ese turno queda sin respuesta para siempre si el cliente no vuelve
+        # a escribir — antes pasaba justo eso (visto en producción).
         logger.info("Chat %s rate limited, se guarda el mensaje sin responder todavía", inbound.chat_id)
         store.add_turn(inbound.chat_id, "user", inbound.text)
+        _schedule_rate_limit_catchup(
+            inbound.chat_id, inbound.session, waha_client, llm_client, crm_client, store, config, public_base_url, link_secret
+        )
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "rate_limited"}
     store.mark_message_received(inbound.chat_id)
 
-    deal_id = store.get_deal_id(inbound.chat_id)
+    return _generate_and_send_reply(
+        inbound.chat_id, inbound.session, inbound.text, waha_client, llm_client, crm_client, store,
+        public_base_url, link_secret,
+    )
+
+
+def _generate_and_send_reply(
+    chat_id: str,
+    session: str,
+    text: str,
+    waha_client: WahaClient,
+    llm_client: LlmClient,
+    crm_client: CrmClient,
+    store: ConversationStore,
+    public_base_url: str | None,
+    link_secret: str | None,
+    *,
+    sender_name: str | None = None,
+    persist_user_turn: bool = True,
+    history_override: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Resuelve el deal, arma el prompt, llama al LLM y manda la respuesta — el resto de `_process`
+    después de las validaciones de entrada (dedup, rate limit, bienvenida, etc.), que no aplican
+    cuando se dispara una respuesta sin un mensaje entrante nuevo (`reply_after_activation`).
+
+    `history_override` reemplaza a `store.get_history(chat_id)` como contexto para el LLM — lo usa
+    `reply_after_activation` para excluir de ahí el mensaje que se está por responder (que ya está
+    guardado en `messages`, a diferencia del flujo normal donde el mensaje entrante todavía no se
+    guardó para cuando se arma el prompt). `persist_user_turn=False` evita re-guardar ese mismo
+    mensaje como un turno nuevo — solo se agrega el turno del `assistant`. `sender_name` es el
+    nombre de perfil de WhatsApp (candidato de identidad, ver más abajo) — `reply_after_activation`
+    no lo tiene disponible (no hay `InboundMessage` en ese camino) y queda en `None`.
+    """
+    deal_id = store.get_deal_id(chat_id)
     if deal_id is not None and not crm_client.deal_exists(deal_id):
-        logger.info("Deal cacheado %s (chat %s) ya no existe en el CRM, se resuelve uno nuevo", deal_id, inbound.chat_id)
-        store.clear_deal_id(inbound.chat_id)
+        logger.info("Deal cacheado %s (chat %s) ya no existe en el CRM, se resuelve uno nuevo", deal_id, chat_id)
+        store.clear_deal_id(chat_id)
         deal_id = None
 
     if deal_id is not None and not crm_client.get_bot_active(deal_id):
-        logger.info("Bot pausado para el deal %s (chat %s), no se responde", deal_id, inbound.chat_id)
-        return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_paused"}
+        logger.info("Bot pausado para el deal %s (chat %s), no se responde", deal_id, chat_id)
+        return {"ok": True, "chat_id": chat_id, "skipped": "bot_paused"}
 
     deal_id_before_identity_resolution = deal_id
     if deal_id is None:
-        deal_id = _create_deal_from_confirmed_identity(inbound.chat_id, crm_client, store)
+        deal_id = _create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
     awaiting_acceptance = False
-    if deal_id is not None and store.get_explanation_sent(inbound.chat_id):
-        if not store.get_authorization_link_sent(inbound.chat_id):
+    if deal_id is not None and store.get_explanation_sent(chat_id):
+        if not store.get_authorization_link_sent(chat_id):
             resolved_base_url, resolved_secret = _resolve_authorization_link_config(public_base_url, link_secret)
 
             if resolved_base_url and resolved_secret and maybe_handle_acceptance(
-                inbound.chat_id,
-                inbound.text,
+                chat_id,
+                text,
                 deal_id,
                 crm_client,
                 waha_client,
-                inbound.session,
+                session,
                 resolved_base_url,
                 resolved_secret,
                 store,
             ):
-                return {"ok": True, "chat_id": inbound.chat_id, "skipped": "authorization_link_sent"}
+                return {"ok": True, "chat_id": chat_id, "skipped": "authorization_link_sent"}
 
             awaiting_acceptance = True
 
-    confirmed_name, confirmed_phone = store.get_confirmed_identity(inbound.chat_id)
+    confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
 
     # Sin deal todavía (identidad sin confirmar): se le muestran al LLM
     # candidatos de nombre/teléfono "fáciles de conseguir" (perfil de
@@ -377,10 +416,10 @@ def _process(
     candidate_name: str | None = None
     candidate_phone: str | None = None
     if deal_id is None:
-        candidate_name = inbound.sender_name
-        candidate_phone, _ = _resolve_phone(inbound.chat_id, waha_client, inbound.session)
+        candidate_name = sender_name
+        candidate_phone, _ = _resolve_phone(chat_id, waha_client, session)
 
-    history = store.get_history(inbound.chat_id)
+    history = history_override if history_override is not None else store.get_history(chat_id)
     system_prompt = _build_system_prompt(
         templates_store.get_template("whatsapp_system_prompt"),
         confirmed_name,
@@ -390,10 +429,10 @@ def _process(
     )
     if awaiting_acceptance:
         system_prompt += _awaiting_acceptance_note()
-    raw_output = llm_client.reply(system_prompt, history, inbound.text)
+    raw_output = llm_client.reply(system_prompt, history, text)
     if raw_output is None:
-        logger.error("LLM no devolvió respuesta para %s, no se envía nada", inbound.chat_id)
-        return {"ok": False, "chat_id": inbound.chat_id, "error": "llm_failed"}
+        logger.error("LLM no devolvió respuesta para %s, no se envía nada", chat_id)
+        return {"ok": False, "chat_id": chat_id, "error": "llm_failed"}
 
     turn = _parse_llm_output(raw_output)
 
@@ -403,20 +442,22 @@ def _process(
             resolved_base_url, resolved_secret = _resolve_authorization_link_config(public_base_url, link_secret)
             if resolved_base_url and resolved_secret:
                 clarification = templates_store.get_template("whatsapp_authorization_not_received_yet")
-                waha_client.send_text(inbound.chat_id, clarification, session=inbound.session)
+                waha_client.send_text(chat_id, clarification, session=session)
                 process_welcome_and_authorization(
-                    deal_id, crm_client, waha_client, resolved_base_url, resolved_secret, session=inbound.session
+                    deal_id, crm_client, waha_client, resolved_base_url, resolved_secret, session=session
                 )
-                store.add_turn(inbound.chat_id, "user", inbound.text)
-                store.add_turn(inbound.chat_id, "assistant", clarification)
-                return {"ok": True, "chat_id": inbound.chat_id, "skipped": "signed_claim_not_yet_received"}
+                if persist_user_turn:
+                    store.add_turn(chat_id, "user", text)
+                store.add_turn(chat_id, "assistant", clarification)
+                return {"ok": True, "chat_id": chat_id, "skipped": "signed_claim_not_yet_received"}
 
-    sent = waha_client.send_text(inbound.chat_id, turn.reply, session=inbound.session)
+    sent = waha_client.send_text(chat_id, turn.reply, session=session)
     if sent:
-        store.add_turn(inbound.chat_id, "user", inbound.text)
-        store.add_turn(inbound.chat_id, "assistant", turn.reply)
+        if persist_user_turn:
+            store.add_turn(chat_id, "user", text)
+        store.add_turn(chat_id, "assistant", turn.reply)
 
-        deal_id = _apply_confirmed_identity(inbound.chat_id, turn, deal_id, crm_client, store)
+        deal_id = _apply_confirmed_identity(chat_id, turn, deal_id, crm_client, store)
 
         if deal_id is not None and turn.listing != PropertyListing():
             crm_client.update_property_listing(deal_id, turn.listing)
@@ -425,28 +466,156 @@ def _process(
             crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
         if deal_id_before_identity_resolution is None and deal_id is not None:
-            if not maybe_send_explanation(inbound.chat_id, inbound.session, waha_client, store):
+            if not maybe_send_explanation(chat_id, session, waha_client, store):
                 # Cliente conocido: la explicación ya se había mandado antes de confirmar
                 # identidad (`whatsapp_bot_welcome.py`), así que la afirmación original a
                 # `whatsapp_ask_acceptance` se perdió respondiendo nombre/teléfono en su
                 # lugar. El deal recién se crea acá — hay que volver a pedirla, si no
                 # la conversación queda esperando sin que el bot pida nada.
-                if store.get_explanation_sent(inbound.chat_id) and not store.get_authorization_link_sent(
-                    inbound.chat_id
-                ):
+                if store.get_explanation_sent(chat_id) and not store.get_authorization_link_sent(chat_id):
                     resolved_base_url, resolved_secret = _resolve_authorization_link_config(
                         public_base_url, link_secret
                     )
                     if resolved_base_url and resolved_secret:
                         ask_text = templates_store.get_template("whatsapp_ask_acceptance")
-                        if waha_client.send_text(inbound.chat_id, ask_text, session=inbound.session):
-                            store.add_turn(inbound.chat_id, "assistant", ask_text)
+                        if waha_client.send_text(chat_id, ask_text, session=session):
+                            store.add_turn(chat_id, "assistant", ask_text)
 
-        maybe_handle_delayed_explanation_request(
-            inbound.chat_id, turn.explanation_requested, waha_client, inbound.session, store
+        maybe_handle_delayed_explanation_request(chat_id, turn.explanation_requested, waha_client, session, store)
+
+    return {"ok": sent, "chat_id": chat_id, "reply": turn.reply}
+
+
+# Margen sobre `RATE_LIMIT_COOLDOWN_SECONDS` antes de reintentar el mensaje atrapado por el rate
+# limit — evita competir por el mismo instante en que el cooldown recién termina de expirar.
+_RATE_LIMIT_CATCHUP_BUFFER_SECONDS = 1
+
+
+def _schedule_rate_limit_catchup(
+    chat_id: str,
+    session: str,
+    waha_client: WahaClient,
+    llm_client: LlmClient,
+    crm_client: CrmClient,
+    store: ConversationStore,
+    config: BotConfig,
+    public_base_url: str | None,
+    link_secret: str | None,
+) -> None:
+    """Programa un reintento, pasado el cooldown, para el mensaje que el rate limit dejó sin responder.
+
+    `threading.Timer` en un thread daemon — no bloquea la respuesta HTTP del webhook actual, y no
+    impide que el proceso termine si el hub se reinicia antes de que dispare (se pierde ese
+    reintento puntual, sin problema: es el mismo tipo de pérdida aceptada para el dedup de
+    mensajes, ver docstring del módulo). Reusa `reply_after_activation` como callback: esa función
+    ya hace exactamente lo que hace falta acá — "si el último turno guardado es del cliente,
+    respondelo; si no, no hagas nada" — sin importar si la razón de que quedara sin responder fue
+    `bot_enabled=False` o el rate limit. Si para cuando dispara el timer ya se respondió (otro
+    mensaje salió del cooldown con normalidad, o alguien más contestó a mano), `reply_after_activation`
+    ve el último turno como `assistant` y no hace nada — así que aunque una ráfaga de mensajes
+    encolados dentro del cooldown programe varios timers, como mucho uno de ellos termina mandando
+    algo.
+    """
+    timer = threading.Timer(
+        RATE_LIMIT_COOLDOWN_SECONDS + _RATE_LIMIT_CATCHUP_BUFFER_SECONDS,
+        _rate_limit_catchup,
+        args=(chat_id, session, waha_client, llm_client, crm_client, store, config, public_base_url, link_secret),
+    )
+    timer.daemon = True
+    timer.start()
+
+
+def _rate_limit_catchup(
+    chat_id: str,
+    session: str,
+    waha_client: WahaClient,
+    llm_client: LlmClient,
+    crm_client: CrmClient,
+    store: ConversationStore,
+    config: BotConfig,
+    public_base_url: str | None,
+    link_secret: str | None,
+) -> None:
+    try:
+        reply_after_activation(
+            chat_id,
+            waha_client,
+            llm_client,
+            crm_client,
+            session=session,
+            config=config,
+            store=store,
+            public_base_url=public_base_url,
+            link_secret=link_secret,
         )
+    except Exception:  # noqa: BLE001 — corre en un thread aparte, sin nadie que capture la excepción
+        logger.exception("Fallo el catch-up de rate limit para %s", chat_id)
 
-    return {"ok": sent, "chat_id": inbound.chat_id, "reply": turn.reply}
+
+def reply_after_activation(
+    chat_id: str,
+    waha_client: WahaClient,
+    llm_client: LlmClient,
+    crm_client: CrmClient,
+    *,
+    session: str = "default",
+    config: BotConfig | None = None,
+    store: ConversationStore | None = None,
+    public_base_url: str | None = None,
+    link_secret: str | None = None,
+) -> dict[str, Any] | None:
+    """Responde de una vez el último mensaje del cliente que quedó pendiente, justo al activar el bot.
+
+    Se llama desde la ruta de admin (`post_activate_bot`) DESPUÉS de `set_bot_enabled(chat_id, True)`
+    — mientras el chat estaba apagado, `_process` ya guardaba cada mensaje entrante tal cual llegaba
+    (ver docstring del módulo) pero nunca lo respondía; sin esto, el cliente se queda sin respuesta
+    hasta que manda un mensaje nuevo después de la activación, aunque el admin ya haya prendido el
+    bot mirando ese mismo mensaje pendiente.
+
+    Solo responde si el último turno guardado es del cliente (`role="user"`) — si ya es del
+    `assistant` (alguien ya contestó, a mano o el propio bot) o no hay historial todavía, no hay
+    nada pendiente y no se manda nada (`None`). El texto del turno pendiente ya está en `messages`
+    desde que llegó, así que se pasa como contexto vía `history_override` (excluyéndolo del
+    historial que ve el LLM, igual que en el flujo normal donde el mensaje entrante todavía no
+    está guardado) y `persist_user_turn=False` evita duplicarlo.
+
+    Además de `config.enabled` (switch global), respeta `store.get_bot_enabled(chat_id)` (switch
+    por chat) — sin esto, el catch-up de rate limit (`_rate_limit_catchup`, que también llama a
+    esta función) podía mandar una respuesta igual si un admin desactivaba el chat en la ventana
+    entre que se programó el timer y que disparó.
+
+    Un turno pendiente con contenido vacío (nota de voz recibida mientras el chat estaba apagado —
+    no se transcribe en ese estado, ver `_process`) tampoco se responde: no hay nada real que
+    contestar, y mandaría una respuesta del LLM generada de texto en blanco.
+    """
+    store = store or conversation_store
+    config = config or load_bot_config()
+    if not config.enabled:
+        return None
+
+    with store.chat_lock(chat_id):
+        if not store.get_bot_enabled(chat_id):
+            return None
+        history = store.get_history(chat_id)
+        if not history or history[-1]["role"] != "user":
+            return None
+        pending_text = history[-1]["content"]
+        if not pending_text.strip():
+            return None
+
+        return _generate_and_send_reply(
+            chat_id,
+            session,
+            pending_text,
+            waha_client,
+            llm_client,
+            crm_client,
+            store,
+            public_base_url,
+            link_secret,
+            persist_user_turn=False,
+            history_override=history[:-1],
+        )
 
 
 def _normalize_phone(raw: str | None) -> str | None:

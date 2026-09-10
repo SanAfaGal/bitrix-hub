@@ -345,6 +345,58 @@ def test_activate_bot_seeds_history_and_enables_bot(client: TestClient, monkeypa
     assert seed_calls[0][3] == chat_id
 
 
+def test_activate_bot_holds_chat_lock_while_seeding_history(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sin el lock, un mensaje real llegando por el webhook al mismo tiempo que un admin activa el
+    chat podía pisarse con `seed_history_from_waha` (`clear_messages`/`add_turn` de ambos lados)."""
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: object())
+    monkeypatch.setattr(admin_router, "get_llm_client", lambda: object())
+    monkeypatch.setattr(admin_router, "reply_after_activation", lambda *a, **k: None)
+    lock_was_held: list[bool] = []
+
+    def _fake_seed(s, w, l, cid):
+        lock_was_held.append(store.chat_lock(chat_id).locked())
+        return {"seeded": True, "messages_imported": 0, "analysis": None}
+
+    monkeypatch.setattr(admin_router, "seed_history_from_waha", _fake_seed)
+
+    _log_in(client)
+    response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert lock_was_held == [True]
+
+
+def test_activate_bot_replies_to_the_pending_message(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Al activar, si el cliente tenía un mensaje sin responder, el bot lo contesta de una vez —
+    no hace falta esperar a que el cliente escriba de nuevo."""
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: object())
+    monkeypatch.setattr(admin_router, "get_llm_client", lambda: object())
+    monkeypatch.setattr(admin_router, "get_crm_client", lambda: object())
+    monkeypatch.setattr(
+        admin_router, "seed_history_from_waha", lambda s, w, l, cid: {"seeded": False, "messages_imported": 0, "analysis": None}
+    )
+    reply_calls: list[tuple] = []
+    monkeypatch.setattr(
+        admin_router,
+        "reply_after_activation",
+        lambda cid, w, l, c, *, store: reply_calls.append((cid, w, l, c, store)) or {"ok": True},
+    )
+
+    _log_in(client)
+    response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert len(reply_calls) == 1
+    assert reply_calls[0][0] == chat_id
+    assert reply_calls[0][4] is store
+
+
 def test_activate_bot_is_a_noop_when_already_enabled(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Guarda contra el doble clic en "Activar" — si ya estaba prendido, no reimporta el historial."""
     store = ConversationStore()
