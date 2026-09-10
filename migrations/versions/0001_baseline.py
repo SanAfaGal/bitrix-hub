@@ -15,6 +15,13 @@ reimportada a mano al aplicar esto. Crea el esquema final completo:
   `tracking_id` (formulario web vía correo, `channel="email"`) — nunca por
   los dos; PK sintética `id` porque ninguna de las dos claves de negocio
   aplica a todas las filas (`app.flows.whatsapp_bot_models.Conversation`).
+  Incluye `bot_enabled` — activación explícita del bot por chat (opt-in),
+  arranca en False; un admin lo prende a mano desde el panel admin, o el
+  chat se auto-activa solo si es genuinamente nuevo en Waha (ver
+  `whatsapp_bot_new_chat_check.py`) — y `history_seeded`, que marca si ya
+  se intentó importar el historial previo de WhatsApp desde Waha para ese
+  chat (`app.flows.whatsapp_bot_history_seed.seed_history_from_waha`),
+  también arranca en False. Sin significado para un lead de correo.
 - `messages`: historial de turnos de un lead de WhatsApp, 1:N vía
   `lead_id` -> `leads.id` (`app.flows.whatsapp_bot_models.ConversationMessage`).
 """
@@ -52,6 +59,8 @@ def upgrade() -> None:
         sa.Column("phone", sa.String(length=32), nullable=True),
         sa.Column("explanation_sent", sa.Boolean(), nullable=False),
         sa.Column("authorization_link_sent", sa.Boolean(), nullable=False),
+        sa.Column("bot_enabled", sa.Boolean(), nullable=False),
+        sa.Column("history_seeded", sa.Boolean(), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=True),
         sa.Column("detail", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=True),
