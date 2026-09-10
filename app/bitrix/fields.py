@@ -49,10 +49,14 @@ CONSIGNACION_CATEGORY_ID = 34
 # valores que este hub sabe asignar hoy (WhatsApp, formulario web); el resto
 # del picklist ("Aviso", "Referido", etc.) se asigna a mano en Bitrix.
 FIELD_SOURCE = "UF_CRM_1787836749518"
-VALUE_SOURCE_WHATSAPP = 93060
+# El picklist de Bitrix no tiene una opción "WhatsApp" — "Servicio al
+# cliente" es la aproximación usada a propósito para leads que llegan
+# directo por WhatsApp. No renombrar a *_WHATSAPP: el VALUE real en
+# Bitrix es "Servicio al cliente", y ese nombre generaba confusión.
+VALUE_SOURCE_SERVICIO_AL_CLIENTE = 93060
 VALUE_SOURCE_PAGINA_WEB = 93026
 SOURCE_VALUE_BY_NAME: dict[str, int] = {
-    "whatsapp": VALUE_SOURCE_WHATSAPP,
+    "whatsapp": VALUE_SOURCE_SERVICIO_AL_CLIENTE,
     "pagina_web": VALUE_SOURCE_PAGINA_WEB,
 }
 
