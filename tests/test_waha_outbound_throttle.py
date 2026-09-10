@@ -6,9 +6,21 @@ from app.waha.outbound_throttle import has_contact_replied, should_throttle_proa
 class FakeWahaClient:
     def __init__(self, messages: list[dict] | None) -> None:
         self._messages = messages
+        self.get_chat_messages_calls: list[tuple[str, int, bool | None]] = []
 
-    def get_chat_messages(self, chat_id: str, *, limit: int = 50, session: str | None = None) -> list[dict] | None:
-        return self._messages
+    def get_chat_messages(
+        self, chat_id: str, *, limit: int = 50, from_me: bool | None = None, session: str | None = None
+    ) -> list[dict] | None:
+        self.get_chat_messages_calls.append((chat_id, limit, from_me))
+        if self._messages is None or from_me is None:
+            return self._messages
+        return [m for m in self._messages if bool(m.get("fromMe")) == from_me]
+
+
+def test_has_contact_replied_filters_by_from_me_false_on_waha_side() -> None:
+    client = FakeWahaClient([])
+    has_contact_replied("573001112233@c.us", client)
+    assert client.get_chat_messages_calls == [("573001112233@c.us", 50, False)]
 
 
 def test_has_contact_replied_true_when_history_has_incoming_message() -> None:

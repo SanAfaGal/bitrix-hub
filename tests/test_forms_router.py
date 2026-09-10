@@ -67,7 +67,7 @@ class FakeWahaClient:
         self.calls.append((chat_id, text, session))
         return True
 
-    def get_chat_messages(self, chat_id, *, limit=50, session=None):
+    def get_chat_messages(self, chat_id, *, limit=50, from_me=None, session=None):
         return []
 
 

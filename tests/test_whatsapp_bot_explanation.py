@@ -27,7 +27,9 @@ class FakeWahaClient:
         self.voice_calls.append((chat_id, audio_base64, session))
         return True
 
-    def get_chat_messages(self, chat_id: str, *, limit: int = 50, session: str | None = None) -> list[dict]:
+    def get_chat_messages(
+        self, chat_id: str, *, limit: int = 50, from_me: bool | None = None, session: str | None = None
+    ) -> list[dict]:
         # Todos los tests de este archivo simulan una conversación ya activa (el cliente
         # acaba de escribir "si"/etc.) — con historial real de por medio, el cap anti-baneo de
         # `app.waha.outbound_throttle` (solo aplica a contactos que nunca respondieron) no debe

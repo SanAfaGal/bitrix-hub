@@ -48,10 +48,12 @@ def has_contact_replied(chat_id: str, waha_client: WahaClient, session: str | No
     respondido todavía — más seguro aplicar el cap de más que arriesgar un
     envío sin límite por no poder verificarlo.
     """
-    messages = waha_client.get_chat_messages(chat_id, limit=_REPLY_CHECK_HISTORY_LIMIT, session=session)
+    messages = waha_client.get_chat_messages(
+        chat_id, limit=_REPLY_CHECK_HISTORY_LIMIT, from_me=False, session=session
+    )
     if messages is None:
         return False
-    return any(not m.get("fromMe") and m.get("body") for m in messages)
+    return any(m.get("body") for m in messages)
 
 
 def should_throttle_proactive_send(chat_id: str, waha_client: WahaClient, session: str | None = None) -> bool:

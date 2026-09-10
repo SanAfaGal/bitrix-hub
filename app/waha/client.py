@@ -189,7 +189,7 @@ class WahaClient:
             return None
 
     def get_chat_messages(
-        self, chat_id: str, *, limit: int = 50, session: str | None = None
+        self, chat_id: str, *, limit: int = 50, from_me: bool | None = None, session: str | None = None
     ) -> list[dict] | None:
         """Trae los últimos `limit` mensajes de un chat vía `GET /api/{session}/chats/{chatId}/messages`.
 
@@ -201,11 +201,19 @@ class WahaClient:
         mismo shape que el payload del webhook (`app.waha.inbound`). No
         lanza si falla ni si la respuesta no tiene la forma esperada,
         retorna `None` en ambos casos.
+
+        `from_me`, si se pasa, filtra del lado de Waha (`filter.fromMe`) en
+        vez de traer mensajes mezclados y filtrar acá — evita que mensajes
+        consecutivos del otro lado empujen fuera de la ventana de `limit`
+        al único mensaje del lado que en realidad se está buscando.
         """
+        params: dict[str, int | str] = {"limit": limit}
+        if from_me is not None:
+            params["filter.fromMe"] = "true" if from_me else "false"
         try:
             response = requests.get(
                 f"{self.base_url}/api/{session or self.session}/chats/{chat_id}/messages",
-                params={"limit": limit},
+                params=params,
                 headers=self._headers,
                 timeout=REQUEST_TIMEOUT,
             )

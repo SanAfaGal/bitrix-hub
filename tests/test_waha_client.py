@@ -274,6 +274,41 @@ def test_get_chat_messages_returns_list_with_expected_url_and_params(monkeypatch
     assert captured["params"] == {"limit": 40}
 
 
+def test_get_chat_messages_sends_from_me_filter_when_given(monkeypatch) -> None:
+    captured = {}
+
+    def fake_get(url: str, params: dict, headers: dict, timeout: int) -> FakeResponse:
+        captured["params"] = params
+        return FakeResponse(json_data=[])
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    client.get_chat_messages("573001112233@c.us", limit=3, from_me=True)
+    assert captured["params"] == {"limit": 3, "filter.fromMe": "true"}
+
+    client.get_chat_messages("573001112233@c.us", limit=3, from_me=False)
+    assert captured["params"] == {"limit": 3, "filter.fromMe": "false"}
+
+
+def test_get_chat_messages_omits_from_me_filter_when_not_given(monkeypatch) -> None:
+    captured = {}
+
+    def fake_get(url: str, params: dict, headers: dict, timeout: int) -> FakeResponse:
+        captured["params"] = params
+        return FakeResponse(json_data=[])
+
+    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    client.get_chat_messages("573001112233@c.us", limit=3)
+    assert captured["params"] == {"limit": 3}
+
+
 def test_get_chat_messages_uses_given_session_over_default(monkeypatch) -> None:
     captured = {}
 

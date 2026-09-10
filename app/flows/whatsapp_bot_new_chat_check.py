@@ -13,13 +13,13 @@ from __future__ import annotations
 from app.waha.client import WahaClient
 from app.waha.inbound import InboundMessage
 
-# No alcanza con 2: además del mensaje que acaba de disparar el webhook y
-# el placeholder de cifrado que casi siempre lo precede (ver docstring de
-# `is_chat_new_in_waha`), hace falta margen para encontrar mensajes reales
-# de AMBOS lados si los hay — no se necesita traer el historial completo
-# acá (eso lo hace, si corresponde, `seed_history_from_waha` cuando un
-# admin activa el chat a mano), solo una ventana razonable.
-_NEW_CHAT_HISTORY_CHECK_LIMIT = 10
+# Cada lado se consulta por separado (ver `is_chat_new_in_waha`), así que no
+# hace falta una ventana grande por llamada: alcanza con encontrar UN
+# mensaje real (no placeholder) de ese lado. 3 da margen para el placeholder
+# de cifrado que casi siempre precede al mensaje real sin traer de más — no
+# se necesita traer el historial completo acá (eso lo hace, si corresponde,
+# `seed_history_from_waha` cuando un admin activa el chat a mano).
+_NEW_CHAT_HISTORY_CHECK_LIMIT = 3
 
 
 def is_chat_new_in_waha(inbound: InboundMessage, waha_client: WahaClient) -> bool:
@@ -43,10 +43,10 @@ def is_chat_new_in_waha(inbound: InboundMessage, waha_client: WahaClient) -> boo
     timestamp: Waha ya incluye el mensaje entrante actual en su propio
     historial para cuando este webhook se procesa.
 
-    Si la consulta a Waha falla (`None`) se falla cerrado: se trata como si
-    hubiera conversación previa (`bot_enabled` queda apagado) — más seguro
-    no interrumpir una conversación existente que arriesgar una
-    auto-activación sin poder verificarlo de verdad.
+    Si la consulta a Waha falla (`None`, cualquiera de las dos) se falla
+    cerrado: se trata como si hubiera conversación previa (`bot_enabled`
+    queda apagado) — más seguro no interrumpir una conversación existente
+    que arriesgar una auto-activación sin poder verificarlo de verdad.
 
     Antes del mensaje de texto real, WhatsApp manda un evento
     `e2e_notification`/`encrypt` (placeholder de intercambio de claves) que
@@ -57,17 +57,24 @@ def is_chat_new_in_waha(inbound: InboundMessage, waha_client: WahaClient) -> boo
     vacío, no solo comparando por `id` — si no, contaría como mensaje real
     de un lado y podría disparar el "ambos lados escribieron" con solo un
     mensaje genuino.
+
+    Se consulta cada lado por separado (`filter.fromMe` de Waha, ver
+    `WahaClient.get_chat_messages`) en vez de traer los últimos N mensajes
+    mezclados: si el cliente mandó varios mensajes seguidos justo antes de
+    este chequeo, esos mensajes desplazarían fuera de una ventana mezclada
+    al único mensaje del asesor humano, y el chat se trataría como
+    genuinamente nuevo aunque no lo sea (bug real).
     """
-    messages = waha_client.get_chat_messages(
-        inbound.chat_id, limit=_NEW_CHAT_HISTORY_CHECK_LIMIT, session=inbound.session
+    outgoing = waha_client.get_chat_messages(
+        inbound.chat_id, limit=_NEW_CHAT_HISTORY_CHECK_LIMIT, from_me=True, session=inbound.session
     )
-    if messages is None:
+    incoming = waha_client.get_chat_messages(
+        inbound.chat_id, limit=_NEW_CHAT_HISTORY_CHECK_LIMIT, from_me=False, session=inbound.session
+    )
+    if outgoing is None or incoming is None:
         return False
-    prior_messages = [
-        m
-        for m in messages
-        if str(m.get("id")) != inbound.message_id and m.get("body")
-    ]
-    has_incoming = any(not m.get("fromMe") for m in prior_messages)
-    has_outgoing = any(m.get("fromMe") for m in prior_messages)
-    return not (has_incoming and has_outgoing)
+
+    def _has_real_prior_message(messages: list[dict]) -> bool:
+        return any(str(m.get("id")) != inbound.message_id and m.get("body") for m in messages)
+
+    return not (_has_real_prior_message(incoming) and _has_real_prior_message(outgoing))

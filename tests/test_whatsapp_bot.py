@@ -64,7 +64,7 @@ class FakeWahaClient:
         self._media_bytes = media_bytes
         self.download_media_calls: list[str] = []
         self._chat_messages = chat_messages
-        self.get_chat_messages_calls: list[tuple[str, int]] = []
+        self.get_chat_messages_calls: list[tuple[str, int, bool | None]] = []
 
     def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
         self.calls.append((chat_id, text, session))
@@ -82,12 +82,18 @@ class FakeWahaClient:
         self.download_media_calls.append(media_path)
         return self._media_bytes
 
-    def get_chat_messages(self, chat_id: str, *, limit: int = 50, session: str | None = None) -> list[dict] | None:
-        """Usado solo por `seed_history_from_waha` — ver la sección de activación del bot
-        por chat más abajo. Sin mensajes configurados por default (la mayoría de los tests
-        de este archivo no llaman a `seed_history_from_waha`)."""
-        self.get_chat_messages_calls.append((chat_id, limit))
-        return self._chat_messages
+    def get_chat_messages(
+        self, chat_id: str, *, limit: int = 50, from_me: bool | None = None, session: str | None = None
+    ) -> list[dict] | None:
+        """Usado por `seed_history_from_waha` y por `is_chat_new_in_waha` — ver la sección de
+        activación del bot por chat más abajo. Sin mensajes configurados por default (la
+        mayoría de los tests de este archivo no llaman a estas funciones). No trunca por
+        `limit` (a diferencia de Waha real) porque ningún test de este archivo depende de eso
+        — ver `test_whatsapp_bot_new_chat_check.py` para el caso que sí lo necesita."""
+        self.get_chat_messages_calls.append((chat_id, limit, from_me))
+        if self._chat_messages is None or from_me is None:
+            return self._chat_messages
+        return [m for m in self._chat_messages if bool(m.get("fromMe")) == from_me]
 
 
 class FakeLlmClient:
@@ -1576,7 +1582,10 @@ def test_process_auto_activates_bot_for_genuinely_new_chat_with_empty_waha_histo
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
     assert store.get_bot_enabled("573001112233@c.us") is True
-    assert waha.get_chat_messages_calls == [("573001112233@c.us", 10)]
+    assert waha.get_chat_messages_calls == [
+        ("573001112233@c.us", 3, True),
+        ("573001112233@c.us", 3, False),
+    ]
 
 
 def test_process_auto_activates_bot_when_waha_only_has_the_triggering_message(monkeypatch) -> None:
@@ -1702,7 +1711,10 @@ def test_process_only_checks_waha_history_once_per_chat_not_on_every_message(mon
     process(_inbound(message_id="m1", text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
     process(_inbound(message_id="m2", text="y ahora?"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
-    assert waha.get_chat_messages_calls == [("573001112233@c.us", 10)]
+    assert waha.get_chat_messages_calls == [
+        ("573001112233@c.us", 3, True),
+        ("573001112233@c.us", 3, False),
+    ]
     assert store.get_bot_enabled("573001112233@c.us") is True
 
 
