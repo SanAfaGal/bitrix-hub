@@ -427,9 +427,12 @@ ADMIN_STYLE = """<style>
     font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
   }
   .prospect-header__avatar--muted { background: linear-gradient(135deg, #b9c2c9, #8b96a0); }
-  .prospect-header__identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+  .prospect-header__identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .prospect-header__name { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prospect-header__phone { font-size: 11.5px; line-height: 1.3; color: var(--color-text-muted); }
+  .prospect-header__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+
+  .prospect-header__actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
   .prospect-header__delete-form { flex: 0 0 auto; margin: 0; }
   .prospect-header__delete-btn {
@@ -441,12 +444,16 @@ ADMIN_STYLE = """<style>
 
   .prospect-header__bot-toggle { flex: 0 0 auto; margin: 0; }
   .prospect-header__bot-toggle-btn {
-    font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: var(--radius-pill);
-    border: 1px solid var(--color-teal); background: var(--color-card); color: var(--color-teal); cursor: pointer;
-    transition: background-color 0.15s var(--ease-standard), color 0.15s var(--ease-standard);
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 700; padding: 6px 13px 6px 11px; border-radius: var(--radius-pill);
+    border: 1px solid transparent; cursor: pointer;
+    transition: background-color 0.15s var(--ease-standard), color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
   }
-  .prospect-header__bot-toggle-btn:hover { background: var(--color-teal); color: var(--color-on-accent); }
-  .prospect-header__bot-toggle-btn:disabled { opacity: 0.6; cursor: default; }
+  .prospect-header__bot-toggle-btn--activate { background: var(--color-teal); color: var(--color-on-accent); }
+  .prospect-header__bot-toggle-btn--activate:hover { background: var(--color-teal-hover); }
+  .prospect-header__bot-toggle-btn--deactivate { background: var(--color-card); color: var(--color-error); border-color: var(--color-error); }
+  .prospect-header__bot-toggle-btn--deactivate:hover { background: var(--color-error); color: var(--color-on-accent); }
+  .prospect-header__bot-toggle-btn:disabled { opacity: 0.55; cursor: default; pointer-events: none; }
 
   .prospect-thread {
     flex: 1 1 auto; overflow-y: auto; padding: 24px 32px; display: flex; flex-direction: column; gap: 10px;

@@ -59,18 +59,44 @@ def _bot_badge(bot_enabled: bool | None) -> str:
     return '<span class="prospect-badge prospect-badge--bot-off">Bot: OFF</span>'
 
 
+_BOT_TOGGLE_ICON_ON = (
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"'
+    ' stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/>'
+    '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>'
+)
+_BOT_TOGGLE_ICON_OFF = (
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"'
+    ' stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>'
+)
+
+
 def _bot_toggle_form(chat_id: str, bot_enabled: bool, *, css_class: str) -> str:
-    """Botón para activar/desactivar el bot del chat — activa si está apagado, desactiva si está prendido."""
+    """Botón para activar/desactivar el bot del chat.
+
+    Activar es la acción "segura" (el bot arranca en modo asistido, un
+    admin siempre puede volver a apagarlo) así que se destaca en sólido;
+    desactivar es la que interrumpe algo que ya está andando, por eso queda
+    en rojo/outline como las demás acciones de "frenar algo" del panel (ver
+    `_delete_form_html`). Ambos botones se deshabilitan al enviar — la
+    llamada a `seed_history_from_waha` al activar puede tardar varios
+    segundos (trae historial de Waha + análisis con LLM) y sin esto un
+    doble clic dispara dos requests.
+    """
     action = "deactivate" if bot_enabled else "activate"
     label = "Desactivar bot" if bot_enabled else "Activar bot"
-    confirm = (
-        ""
-        if bot_enabled
-        else " onsubmit=\"this.querySelector('button').disabled=true; this.querySelector('button').textContent='Activando…';\""
+    busy_label = "Desactivando…" if bot_enabled else "Activando…"
+    icon = _BOT_TOGGLE_ICON_OFF if bot_enabled else _BOT_TOGGLE_ICON_ON
+    variant = "deactivate" if bot_enabled else "activate"
+    onsubmit = (
+        "const btn=this.querySelector('button'); btn.disabled=true; "
+        f"btn.querySelector('span').textContent='{busy_label}';"
     )
     return f"""
-        <form class="{css_class}" method="post" action="{PROSPECTS_PATH}/{escape(chat_id)}/bot/{action}"{confirm}>
-          <button type="submit" class="{css_class}-btn">{label}</button>
+        <form class="{css_class}" method="post" action="{PROSPECTS_PATH}/{escape(chat_id)}/bot/{action}"
+          onsubmit="{onsubmit}">
+          <button type="submit" class="{css_class}-btn {css_class}-btn--{variant}">
+            {icon}<span>{label}</span>
+          </button>
         </form>
     """
 
@@ -196,12 +222,16 @@ def _thread_pane(
         <div class="prospect-header__identity">
           <h1 class="prospect-header__name">{header_name}</h1>
           <span class="prospect-header__phone">{header_phone}</span>
+          <div class="prospect-header__meta">
+            {_channel_badge(channel)}
+            {_deal_badge(deal_id)}
+            {_bot_badge(bot_enabled)}
+          </div>
         </div>
-        {_channel_badge(channel)}
-        {_deal_badge(deal_id)}
-        {_bot_badge(bot_enabled)}
-        {_bot_toggle_form(chat_id, bot_enabled, css_class="prospect-header__bot-toggle") if channel == "whatsapp" else ""}
-        {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
+        <div class="prospect-header__actions">
+          {_bot_toggle_form(chat_id, bot_enabled, css_class="prospect-header__bot-toggle") if channel == "whatsapp" else ""}
+          {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
+        </div>
       </div>
       <div class="prospect-thread">{bubbles_html}</div>
     </div>
