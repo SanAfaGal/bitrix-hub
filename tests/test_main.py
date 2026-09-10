@@ -87,6 +87,9 @@ def test_webhook_deal_stage_broker_auth_sends_welcome_and_link(monkeypatch) -> N
             self.calls.append((chat_id, text, session))
             return True
 
+        def get_chat_messages(self, chat_id: str, *, limit: int = 50, session: str | None = None) -> list[dict]:
+            return []
+
     monkeypatch.setattr("app.flows.router.load_bitrix_webhook_secret", lambda: None)
     monkeypatch.setattr("app.flows.router.get_crm_client", lambda: fake_crm)
     monkeypatch.setattr("app.flows.router.get_waha_client", lambda: FakeWahaClient())

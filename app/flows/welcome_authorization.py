@@ -13,6 +13,7 @@ from app.forms.link_token import sign_deal_id
 from app.forms.page import FORM_PATH
 from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
+from app.waha.outbound_throttle import should_throttle_proactive_send
 from app.waha.phone import to_chat_id
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,10 @@ def process_welcome_and_authorization(
             "contact_id": contact_id,
             "error": f"Teléfono inválido: {raw_phone}",
         }
+
+    if should_throttle_proactive_send(chat_id, waha_client, session):
+        logger.warning("Deal %s: envío del enlace de Autorización bloqueado por cap anti-baneo", deal_id)
+        return {"ok": False, "deal_id": deal_id, "contact_id": contact_id, "error": "throttled_anti_ban_cap"}
 
     token = sign_deal_id(deal_id, link_secret)
     link = f"{public_base_url}{FORM_PATH}?deal_id={deal_id}&token={token}"

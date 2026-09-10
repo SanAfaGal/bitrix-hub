@@ -11,6 +11,7 @@ from typing import Any
 
 from app.crm.protocol import CrmClient
 from app.waha.client import WahaClient
+from app.waha.outbound_throttle import should_throttle_proactive_send
 from app.waha.phone import to_chat_id
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,10 @@ def process_notify_contact(
             "contact_id": contact_id,
             "error": f"Teléfono inválido: {raw_phone}",
         }
+
+    if should_throttle_proactive_send(chat_id, waha_client, session):
+        logger.warning("Deal %s: notificación por WhatsApp bloqueada por cap anti-baneo", deal_id)
+        return {"ok": False, "deal_id": deal_id, "contact_id": contact_id, "error": "throttled_anti_ban_cap"}
 
     sent = waha_client.send_text(chat_id, text, session=session)
     return {"ok": sent, "deal_id": deal_id, "contact_id": contact_id, "chat_id": chat_id}

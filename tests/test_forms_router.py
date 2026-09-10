@@ -67,6 +67,9 @@ class FakeWahaClient:
         self.calls.append((chat_id, text, session))
         return True
 
+    def get_chat_messages(self, chat_id, *, limit=50, session=None):
+        return []
+
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limits():

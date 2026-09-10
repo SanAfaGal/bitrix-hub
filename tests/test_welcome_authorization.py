@@ -16,6 +16,11 @@ class FakeWahaClient:
         self.calls.append((chat_id, text, session))
         return self.sent
 
+    def get_chat_messages(self, chat_id: str, *, limit: int = 50, session: str | None = None) -> list[dict]:
+        # Historial vacío: `has_contact_replied` da False, pero el cap anti-baneo
+        # (4/hora) no llega a activarse en estos tests (cada uno manda como mucho un mensaje).
+        return []
+
 
 def test_sends_authorization_link_to_deal_contact() -> None:
     crm = FakeCrmClient(

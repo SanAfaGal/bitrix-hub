@@ -4,6 +4,19 @@ import pytest
 
 from app.flows import whatsapp_bot
 from app.forms import router as forms_router
+from app.waha import outbound_throttle
+
+
+@pytest.fixture(autouse=True)
+def _isolated_waha_outbound_throttle() -> None:
+    """Limpia la ventana en memoria del cap anti-baneo (`app.waha.outbound_throttle`) entre tests.
+
+    Es estado de módulo (dict global), igual que `_isolated_whatsapp_bot_conversation_store`
+    de acá abajo — sin esto, tests distintos que reusan el mismo `chat_id` de
+    prueba (ej. "573001112233@c.us") se contaminarían entre sí y un test
+    podría empezar a fallar por haber "gastado" el cap en un test previo.
+    """
+    outbound_throttle._sent_at.clear()
 
 
 @pytest.fixture(autouse=True)

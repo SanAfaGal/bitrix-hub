@@ -17,6 +17,7 @@ from app.flows.whatsapp_bot_conversation_store import ConversationStore
 from app.forms.settings import load_signed_form_drive_folder_id
 from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
+from app.waha.outbound_throttle import should_throttle_proactive_send
 from app.waha.phone import to_chat_id
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,10 @@ def _notify_client_signed(crm_client: CrmClient, waha_client: WahaClient, deal_i
     """
     if chat_id is None:
         logger.warning("Deal %s firmado sin chat de WhatsApp resoluble, no se avisa por WhatsApp", deal_id)
+        return
+
+    if should_throttle_proactive_send(chat_id, waha_client):
+        logger.warning("Deal %s: aviso de firma por WhatsApp bloqueado por cap anti-baneo", deal_id)
         return
 
     waha_client.send_text(chat_id, templates_store.get_template("whatsapp_authorization_signed_message"))

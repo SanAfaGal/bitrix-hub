@@ -205,7 +205,9 @@ async def webhook_deal_stage_broker_auth(
     """Recibe el evento de cambio de etapa y le manda al contacto del deal, por WhatsApp, el
     enlace al formulario público de Autorización de Corretaje (con el `deal_id` incluido para
     poder amarrar la firma al deal después). Ver `app.flows.welcome_authorization` para el
-    contenido real del mensaje (una sola llamada `send_text`, sin pausa ni mensaje previo).
+    contenido real del mensaje — una sola llamada `send_text` (con su pausa/simulación de
+    "escribiendo" de rigor, ver `WahaClient._simulate_human_pacing`) sujeta al cap anti-baneo de
+    `app.waha.outbound_throttle` mientras el contacto no haya respondido antes.
 
     Apuntar acá la regla de automatización de Bitrix de la etapa que
     dispara este flujo.
