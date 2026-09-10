@@ -137,6 +137,22 @@ def _awaiting_acceptance_note() -> str:
     )
 
 
+def _awaiting_signature_note() -> str:
+    return (
+        "\n\nYa se le mandó el enlace para completar y firmar la Autorización de Corretaje, y "
+        'según el sistema todavía no la ha firmado. NO vuelva a mandar el enlace ni la '
+        "explicación del proceso. Su única tarea en este turno es recordarle, con el tono que "
+        "corresponda a lo que haya dicho, que falta completar y firmar esa Autorización para "
+        "poder avanzar — responda brevemente lo que haya preguntado (si preguntó algo) y "
+        "termine el mensaje con ese recordatorio. Una confirmación genérica de la persona (ej. "
+        '"sí", "listo", "ok") en este estado NO significa que ya firmó — no la trate como si el '
+        'proceso ya hubiera avanzado ni le agradezca como si algo se hubiera completado. Si la '
+        "persona afirma explícitamente que ya firmó, repórtelo en \"signed_claim\" como se le "
+        "indicó abajo — no lo confirme usted mismo en \"reply\", el sistema se encarga de "
+        "verificarlo."
+    )
+
+
 def _as_text(value: Any) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 

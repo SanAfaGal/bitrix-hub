@@ -54,7 +54,11 @@ Si la persona la pide explícitamente antes de que le llegue por ese camino
 Si el cliente afirma en el
 chat que ya firmó la Autorización de Corretaje (`LlmTurn.signed_claim`)
 pero el campo de Bitrix todavía no dice `"firmada"`, el bot se lo aclara y
-reenvía el link en vez de darlo por bueno.
+reenvía el link en vez de darlo por bueno. Mientras el link ya se mandó
+(`authorization_link_sent`) pero Bitrix no dice `"firmada"` todavía, cada
+turno recuerda que falta firmar (`_awaiting_signature_note`) en vez de
+volver al prompt genérico — sin esto una confirmación genérica de la
+persona ("sí") se podía contestar como si el proceso ya hubiera avanzado.
 
 Para pruebas en desarrollo, `WHATSAPP_BOT_ALLOWED_NUMBERS` (lista separada
 por comas, mismo formato que devuelve `app.waha.phone.from_chat_id` —
@@ -83,6 +87,7 @@ from app.flows.whatsapp_bot_llm import (
     AFFIRMATION_RE as _AFFIRMATION_RE,
     LlmTurn,
     _awaiting_acceptance_note,
+    _awaiting_signature_note,
     _awaiting_zone_note,
     _build_system_prompt,
     _parse_llm_output,
@@ -397,6 +402,7 @@ def _generate_and_send_reply(
         awaiting_zone_response = True
 
     awaiting_acceptance = False
+    awaiting_signature = False
     if not awaiting_zone_response and deal_id is not None and store.get_explanation_sent(chat_id):
         if not store.get_authorization_link_sent(chat_id):
             resolved_base_url, resolved_secret = _resolve_authorization_link_config(public_base_url, link_secret)
@@ -415,6 +421,13 @@ def _generate_and_send_reply(
                 return {"ok": True, "chat_id": chat_id, "skipped": "authorization_link_sent"}
 
             awaiting_acceptance = True
+        elif crm_client.get_authorization_status(crm_client.get_deal(deal_id)) != "firmada":
+            # El link ya se mandó pero Bitrix todavía no registra la firma — sin esto, una vez
+            # `authorization_link_sent` queda en True el prompt vuelve a ser el genérico de
+            # siempre, y el LLM puede responder un "sí"/confirmación de la persona como si el
+            # proceso ya hubiera avanzado (bug real: el bot contestó "¡Perfecto, gracias!" a un
+            # "sí" que no era la firma). Mientras siga pendiente, cada turno se lo recuerda.
+            awaiting_signature = True
 
     confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
 
@@ -441,6 +454,8 @@ def _generate_and_send_reply(
         system_prompt += _awaiting_zone_note()
     elif awaiting_acceptance:
         system_prompt += _awaiting_acceptance_note()
+    elif awaiting_signature:
+        system_prompt += _awaiting_signature_note()
     raw_output = llm_client.reply(system_prompt, history, text)
     if raw_output is None:
         logger.error("LLM no devolvió respuesta para %s, no se envía nada", chat_id)

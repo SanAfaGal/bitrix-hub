@@ -1331,6 +1331,53 @@ def test_process_does_not_resend_explanation_or_reask_once_link_already_sent() -
     assert len(llm.calls) == 1
 
 
+def test_process_reminds_to_sign_when_link_already_sent_but_not_signed_yet() -> None:
+    # Regresión de producción: una vez `authorization_link_sent` queda en True, el prompt volvía
+    # a ser el genérico de siempre — un "sí" cualquiera de la persona se contestaba como si el
+    # proceso ya hubiera avanzado ("¡Perfecto, gracias!") en vez de recordarle que falta firmar.
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("¡Perfecto, gracias!"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_explanation_sent("573001112233@c.us")
+    store.set_authorization_link_sent("573001112233@c.us")
+    crm._deals["6000"] = {"ID": "6000", "AUTHORIZATION_STATUS": "pendiente_firma"}
+
+    result = process(
+        _inbound(text="si"),
+        waha,
+        llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+        public_base_url=_PUBLIC_BASE_URL,
+        link_secret=_LINK_SECRET,
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "¡Perfecto, gracias!"}
+    assert len(llm.calls) == 1
+    system_prompt = llm.calls[0][0]
+    assert "falta completar y firmar" in system_prompt
+
+
+def test_process_stops_reminding_to_sign_once_bitrix_says_firmada() -> None:
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("dale, seguimos"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+    store.set_deal_id("573001112233@c.us", "6000")
+    store.set_explanation_sent("573001112233@c.us")
+    store.set_authorization_link_sent("573001112233@c.us")
+    crm._deals["6000"] = {"ID": "6000", "AUTHORIZATION_STATUS": "firmada"}
+
+    process(_inbound(text="listo"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
+
+    system_prompt = llm.calls[0][0]
+    assert "falta completar y firmar" not in system_prompt
+
+
 # ── Pedido explícito de explicación antes de que se mande por el camino normal ──
 
 
