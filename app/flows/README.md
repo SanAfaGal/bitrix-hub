@@ -54,4 +54,5 @@ resuelve el propio flow, buscando/creando contacto y deal por teléfono
 vive en `app/waha/router.py` en vez de `app/flows/router.py` porque el
 trigger es Waha, no Bitrix — pero la lógica sigue viviendo acá por
 combinar más de una integración. Ver la sección "Bot conversacional de
-WhatsApp" en el README raíz.
+WhatsApp" en el README raíz para configuración, y `docs/whatsapp-bot.md`
+para el diseño completo (flujo, decisiones y porqués).

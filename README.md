@@ -18,6 +18,15 @@ tipo de storage de sesión, log level, etc.) ahora está en el `.env` de acá,
 como cualquier otra variable — ver la sección "Waha" del bloque de
 configuración abajo. No queda nada oculto en un compose de otro repo.
 
+## Documentación
+
+Cada paquete tiene su propio `README.md` con su patrón de código (ver
+"Estructura del proyecto" abajo). Para deep-dives de una feature completa
+que cruza varios paquetes — flujo end-to-end, decisiones de diseño y el
+porqué de cada una — ver `docs/`:
+
+- [`docs/whatsapp-bot.md`](docs/whatsapp-bot.md) — bot conversacional de WhatsApp: arquitectura, flujo por mensaje, y por qué cada flag/lock/gate quedó así.
+
 ## Requisitos
 
 - Python 3.11+

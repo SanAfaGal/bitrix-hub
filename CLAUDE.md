@@ -54,3 +54,7 @@ Max 500 lines per file. Split before a file grows past that.
 ## Full details
 
 `README.md` has the complete endpoint list (with curl examples), the full `.env` variable reference (Waha engine/TZ/logging/dashboard config lives there now, not hardcoded in any compose file), and the pending MLS→bitrix-hub cutover checklist.
+
+## Documentation
+
+Per-package `README.md` files stay where they are (`app/crm/README.md`, `app/flows/README.md`, ...) — short, code-adjacent, describe that package's own pattern. A full design deep-dive for a feature that crosses several packages (end-to-end flow, non-obvious decisions and why each one exists) goes in `docs/` instead, one file per feature, linked from the root `README.md`'s "Documentación" section — see `docs/whatsapp-bot.md` for the shape to follow. Keep these updated as the feature evolves, not just at creation.
