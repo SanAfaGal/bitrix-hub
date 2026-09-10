@@ -55,7 +55,7 @@ def webhook_waha_test(
     if expected_secret is not None and not hmac.compare_digest(secret or "", expected_secret):
         raise HTTPException(status_code=401, detail="secret inválido o faltante")
 
-    sent = client.send_text(chat_id, text, session=session)
+    sent = client.send_text(chat_id, text, session=session, simulate_typing=False)
     return {"ok": sent, "chat_id": chat_id, "session": session or client.session}
 
 
@@ -88,8 +88,9 @@ async def webhook_waha_message(
     cliente cuenta se guardan en el deal de consignación de Bitrix.
 
     `process_whatsapp_bot` es síncrono y puede tardar varios segundos
-    (transcripción de audio en CPU, `send_text_sequence` con pausas
-    deliberadas) — se corre en un hilo aparte (`asyncio.to_thread`) para no
+    (transcripción de audio en CPU, pausas deliberadas de "escribiendo..."
+    antes de cada envío — ver `WahaClient._simulate_human_pacing`, mitigación
+    de baneo) — se corre en un hilo aparte (`asyncio.to_thread`) para no
     bloquear el event loop de este endpoint mientras tanto.
     """
     expected_secret = load_waha_settings().webhook_secret

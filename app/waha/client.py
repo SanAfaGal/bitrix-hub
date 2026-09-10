@@ -26,7 +26,76 @@ class WahaClient:
         self.session = settings.session
         self._headers = {"X-Api-Key": settings.api_key} if settings.api_key else {}
 
-    def send_text(self, chat_id: str, text: str, session: str | None = None) -> bool:
+    def mark_seen(self, chat_id: str, session: str | None = None) -> bool:
+        """Marca como visto el último mensaje de un chat (`POST /api/sendSeen`). No lanza si falla.
+
+        Parte de la simulación de comportamiento humano antes de responder
+        (ver `send_text`/`send_voice`) — WhatsApp penaliza cuentas que
+        contestan sin nunca "ver" el mensaje. Best-effort: un fallo acá no
+        debe bloquear el envío real.
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/sendSeen",
+                json={"chatId": chat_id, "session": session or self.session},
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error marcando como visto el chat %s vía Waha: %s", chat_id, exc)
+            return False
+
+    def start_typing(self, chat_id: str, session: str | None = None) -> bool:
+        """Activa el indicador "escribiendo..." en un chat (`POST /api/startTyping`). No lanza si falla."""
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/startTyping",
+                json={"chatId": chat_id, "session": session or self.session},
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error activando 'escribiendo' en el chat %s vía Waha: %s", chat_id, exc)
+            return False
+
+    def stop_typing(self, chat_id: str, session: str | None = None) -> bool:
+        """Desactiva el indicador "escribiendo..." en un chat (`POST /api/stopTyping`). No lanza si falla."""
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/stopTyping",
+                json={"chatId": chat_id, "session": session or self.session},
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error desactivando 'escribiendo' en el chat %s vía Waha: %s", chat_id, exc)
+            return False
+
+    def _simulate_human_pacing(self, chat_id: str, session: str | None) -> None:
+        """"Visto" + "escribiendo..." + pausa aleatoria 5-15s antes de un envío real.
+
+        Mitigación de baneo de WhatsApp (ver docs/whatsapp-bot.md y el
+        README, sección "Riesgo de baneo de Waha") — contestar
+        instantáneo y sin nunca marcar visto/escribiendo es un patrón que
+        WhatsApp asocia a bots de spam. Cada llamada a `send_text`/
+        `send_voice` la corre por su cuenta, así que también sirve como
+        pausa entre mensajes consecutivos de un mismo turno sin que cada
+        flujo (`app/flows/*`) tenga que manejar el delay a mano.
+        """
+        self.mark_seen(chat_id, session)
+        self.start_typing(chat_id, session)
+        time.sleep(random.uniform(5.0, 15.0))
+        self.stop_typing(chat_id, session)
+
+    def send_text(
+        self, chat_id: str, text: str, session: str | None = None, *, simulate_typing: bool = True
+    ) -> bool:
         """Envía un mensaje de texto a un chat de WhatsApp. No lanza si falla.
 
         `chat_id` es el número en formato Waha, ej. "573001112233@c.us".
@@ -34,8 +103,13 @@ class WahaClient:
         si no se pasa, se usa la de settings (WAHA_SESSION). Necesario
         cuando hay más de una sesión activa (ej. distintas líneas por
         pipeline de Bitrix) y no todos los mensajes deben salir por la
-        misma. Retorna True si Waha aceptó el envío, False en caso de error.
+        misma. `simulate_typing=False` salta la pausa/"escribiendo" de
+        `_simulate_human_pacing` (solo para el endpoint de scaffolding
+        `/webhook/waha-test` y tests) — en producción siempre debe ir en
+        True. Retorna True si Waha aceptó el envío, False en caso de error.
         """
+        if simulate_typing:
+            self._simulate_human_pacing(chat_id, session)
         try:
             response = requests.post(
                 f"{self.base_url}/api/sendText",
@@ -58,6 +132,7 @@ class WahaClient:
         mimetype: str = "audio/ogg; codecs=opus",
         filename: str = "voice.ogg",
         session: str | None = None,
+        simulate_typing: bool = True,
     ) -> bool:
         """Envía una nota de voz a un chat de WhatsApp. No lanza si falla.
 
@@ -65,8 +140,11 @@ class WahaClient:
         contenido codificado) — Waha lo espera así en `file.data`. Pensado
         para audios fijos ya conocidos en tiempo de build (ver
         `app.flows.whatsapp_bot_welcome`), no para reenviar audio recibido
-        de un usuario. Retorna True si Waha aceptó el envío, False si falla.
+        de un usuario. `simulate_typing` ver docstring de `send_text`.
+        Retorna True si Waha aceptó el envío, False si falla.
         """
+        if simulate_typing:
+            self._simulate_human_pacing(chat_id, session)
         try:
             response = requests.post(
                 f"{self.base_url}/api/sendVoice",
@@ -159,27 +237,3 @@ class WahaClient:
             logger.error("Error descargando media (%s) vía Waha: %s", media_path, exc)
             return None
 
-    def send_text_sequence(
-        self,
-        chat_id: str,
-        messages: list[str],
-        *,
-        session: str | None = None,
-        min_delay: float = 3.0,
-        max_delay: float = 6.0,
-    ) -> bool:
-        """Envía varios mensajes al mismo chat, con pausa aleatoria entre cada uno.
-
-        Simula el ritmo de una respuesta humana en vez de mandar todo de
-        golpe. Método síncrono (bloquea con `time.sleep` durante la pausa) —
-        quien lo llame desde una ruta async debe correrlo en un hilo aparte
-        (`asyncio.to_thread`) para no congelar el event loop. Retorna True
-        solo si Waha aceptó todos los mensajes.
-        """
-        all_sent = True
-        for index, text in enumerate(messages):
-            sent = self.send_text(chat_id, text, session=session)
-            all_sent = all_sent and sent
-            if index < len(messages) - 1:
-                time.sleep(random.uniform(min_delay, max_delay))
-        return all_sent
