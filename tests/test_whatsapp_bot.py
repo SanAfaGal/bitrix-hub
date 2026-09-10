@@ -1445,7 +1445,7 @@ def test_process_auto_activates_bot_for_genuinely_new_chat_with_empty_waha_histo
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
     assert store.get_bot_enabled("573001112233@c.us") is True
-    assert waha.get_chat_messages_calls == [("573001112233@c.us", 2)]
+    assert waha.get_chat_messages_calls == [("573001112233@c.us", 10)]
 
 
 def test_process_auto_activates_bot_when_waha_only_has_the_triggering_message(monkeypatch) -> None:
@@ -1468,14 +1468,16 @@ def test_process_auto_activates_bot_when_waha_only_has_the_triggering_message(mo
     assert store.get_bot_enabled("573001112233@c.us") is True
 
 
-def test_process_keeps_bot_disabled_for_new_chat_with_prior_waha_history(monkeypatch) -> None:
-    """Waha devuelve un mensaje anterior al que acaba de llegar (otro `id`) — el chat queda
-    apagado (`bot_enabled=False`, comportamiento de hoy) para activación manual, y el mensaje
-    entrante se guarda sin respuesta."""
+def test_process_keeps_bot_disabled_for_new_chat_with_prior_waha_history_from_both_sides(monkeypatch) -> None:
+    """Waha devuelve mensajes previos de AMBOS lados (cliente y asesor, `fromMe=False`/`True`) —
+    ya hay un asesor atendiendo ese chat a mano, se queda apagado (`bot_enabled=False`,
+    comportamiento de hoy) para activación manual, y el mensaje entrante se guarda sin
+    respuesta."""
     monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
     waha = FakeWahaClient(
         chat_messages=[
-            {"id": "wa_prior", "fromMe": False, "body": "hola, ya habia escrito antes", "timestamp": 50},
+            {"id": "wa_prior_in", "fromMe": False, "body": "hola, ya habia escrito antes", "timestamp": 50},
+            {"id": "wa_prior_out", "fromMe": True, "body": "hola! como te ayudo?", "timestamp": 60},
             {"id": "msg1", "fromMe": False, "body": "hola", "timestamp": 100},
         ]
     )
@@ -1490,6 +1492,53 @@ def test_process_keeps_bot_disabled_for_new_chat_with_prior_waha_history(monkeyp
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled_for_chat"}
     assert store.get_bot_enabled("573001112233@c.us") is False
     assert llm.calls == []
+
+
+def test_process_auto_activates_bot_for_unanswered_lead_only_customer_side_ever_wrote(monkeypatch) -> None:
+    """Waha devuelve un mensaje previo, pero solo del lado del cliente (`fromMe=False`) — ningún
+    asesor le contestó nunca por WhatsApp Web, así que no hay nada humano que el bot vaya a
+    interrumpir: se auto-activa igual que un chat genuinamente nuevo."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient(
+        chat_messages=[
+            {"id": "wa_prior_in", "fromMe": False, "body": "hola, nadie me contesto", "timestamp": 50},
+            {"id": "msg1", "fromMe": False, "body": "hola", "timestamp": 100},
+        ]
+    )
+    llm = FakeLlmClient(reply_text=_plain_reply("hola! como te ayudo?"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(message_id="msg1", text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
+    assert store.get_bot_enabled("573001112233@c.us") is True
+
+
+def test_process_auto_activates_bot_ignoring_empty_body_e2e_notification_placeholder(monkeypatch) -> None:
+    """Waha guarda un mensaje `e2e_notification` (placeholder de intercambio de claves, `body`
+    vacío) previo al mensaje real de texto de un chat genuinamente nuevo — no debe contar como
+    "historial previo" (bug real: rompía la auto-activación en todo primer contacto por `@lid`,
+    ver `whatsapp_bot_new_chat_check.is_chat_new_in_waha`)."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    waha = FakeWahaClient(
+        chat_messages=[
+            {"id": "placeholder", "fromMe": False, "body": "", "timestamp": 50},
+            {"id": "msg1", "fromMe": False, "body": "hola", "timestamp": 100},
+        ]
+    )
+    llm = FakeLlmClient(reply_text=_plain_reply("hola! como te ayudo?"))
+    crm = FakeCrmClient()
+    store = ConversationStore()
+
+    result = process(
+        _inbound(message_id="msg1", text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
+    )
+
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
+    assert store.get_bot_enabled("573001112233@c.us") is True
 
 
 def test_process_fails_closed_and_keeps_bot_disabled_when_waha_history_check_fails(monkeypatch) -> None:
@@ -1522,7 +1571,7 @@ def test_process_only_checks_waha_history_once_per_chat_not_on_every_message(mon
     process(_inbound(message_id="m1", text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
     process(_inbound(message_id="m2", text="y ahora?"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
-    assert waha.get_chat_messages_calls == [("573001112233@c.us", 2)]
+    assert waha.get_chat_messages_calls == [("573001112233@c.us", 10)]
     assert store.get_bot_enabled("573001112233@c.us") is True
 
 

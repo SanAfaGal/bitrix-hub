@@ -61,8 +61,10 @@ class Conversation(Base):
     authorization_link_sent: bool = Column(Boolean, nullable=False, default=False)
 
     # Activación explícita del bot por chat (opt-in) — arranca en False para
-    # todo lead nuevo; un admin lo prende a mano desde el panel admin (ver
-    # tareas siguientes del plan). Sin significado para un lead de correo.
+    # todo lead nuevo; un admin lo prende a mano desde el panel admin, o el
+    # chat se auto-activa solo si es genuinamente nuevo en Waha (ver
+    # `whatsapp_bot_new_chat_check.py`). Sin significado para un lead de
+    # correo.
     bot_enabled: bool = Column(Boolean, nullable=False, default=False)
 
     # True una vez que ya se intentó importar el historial previo de WhatsApp
