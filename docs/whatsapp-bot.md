@@ -73,8 +73,8 @@ endpoints), `app/waha/phone.py` (conversión teléfono ↔ `chatId`).
    - Fallback si es media no soportada.
    - Resuelve texto (transcribe audio si aplica).
    - Rate limit (guarda el mensaje para el próximo turno, no lo descarta).
-   - Resuelve `deal_id` cacheado; si el deal fue pausado en Bitrix
-     (`FIELD_BOT_ACTIVE=false`), corta sin responder.
+   - Resuelve `deal_id` cacheado (o revalida que el deal siga existiendo en
+     el CRM).
    - Si no hay deal, intenta crearlo desde identidad ya confirmada.
    - Si está esperando aceptación de la explicación, intenta resolverla
      antes de llamar al LLM.
@@ -262,10 +262,11 @@ lock deja de servir** y hay que migrar a algo compartido (ej.
 
 ## Otras decisiones no obvias
 
-- **`FIELD_BOT_ACTIVE` (nivel deal) vs. `bot_enabled` (nivel chat, local)**
-  son gates independientes. El primero solo existe una vez hay deal; lo
-  puede pausar un asesor puntual o el propio bot al detectar pedido de
-  hablar con humano.
+- **Pausa manual (asesor) y autopausa (handoff, firma de Autorización)
+  comparten el mismo `bot_enabled` de chat** — no hay un gate aparte a
+  nivel deal. Antes existía un checkbox de Bitrix (`FIELD_BOT_ACTIVE`)
+  independiente del `bot_enabled` local; se eliminó porque duplicaba el
+  mismo control en dos lugares distintos sin necesidad.
 - **Explicación del proceso se manda sin preguntar antes** ("¿te gustaría
   que te explique?" se sacó — agregaba fricción y un estado
   (`explanation_offered`) que se prestaba a confusión si la respuesta no

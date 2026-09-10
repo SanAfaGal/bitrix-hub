@@ -398,19 +398,20 @@ vuelve a contestar hasta días después, al retomar el bot sigue teniendo
 el historial y no repite preguntas ya respondidas.
 
 **Pausa por conversación / handoff a un asesor**: un asesor puede pausar
-el bot para un deal puntual marcando el checkbox `fields.FIELD_BOT_ACTIVE`
-en Bitrix — mientras esté desmarcado, `POST /webhook/waha-message` deja de
-responder ese chat (`skipped: "bot_paused"`) y el asesor sigue la
-conversación manualmente por WhatsApp normal. El bot también se autopausa
-así en dos casos: (1) cuando el LLM detecta que la persona pidió
+el bot para un chat puntual desde el panel admin (`/admin/prospects`,
+`ConversationStore.set_bot_enabled`) — mientras esté apagado, `POST
+/webhook/waha-message` deja de responder ese chat
+(`skipped: "bot_disabled_for_chat"`) y el asesor sigue la conversación
+manualmente por WhatsApp normal. El bot también se autopausa así (mismo
+`bot_enabled`) en dos casos: (1) cuando el LLM detecta que la persona pidió
 expresamente hablar con un humano (`handoff_requested` en su salida JSON),
 mandando antes el mensaje de despedida; (2) apenas se firma la
 Autorización de Corretaje (`app/forms/router.py::_mark_as_signed`) — de
 ahí en adelante el trámite lo sigue un asesor, no tiene sentido que el bot
-le siga preguntando por el inmueble. En ambos casos se marca el checkbox y
-se deja un comentario en el timeline del deal. Para reactivar el bot en
-ese deal, el asesor vuelve a marcar el checkbox manualmente — no hay
-reactivación automática.
+le siga preguntando por el inmueble. En ambos casos se deja además un
+comentario en el timeline del deal en Bitrix (solo como constancia — ya no
+controla nada). Para reactivar el bot en ese chat, el asesor lo vuelve a
+prender desde el panel admin — no hay reactivación automática.
 
 Si el remitente ocultó su número (WhatsApp "username"/privacidad), Waha
 manda el chat como `"<id>@lid"` en vez de `"<teléfono>@c.us"` — no es un
@@ -511,11 +512,6 @@ Limitaciones conocidas, por ser experimental:
   condition de deals duplicados que el lock evita dentro de un mismo
   proceso. El historial de conversación y el `deal_id` por chat sí
   persisten en MySQL, compartido entre workers.
-- **`fields.FIELD_BOT_ACTIVE` necesita crearse a mano en Bitrix** —
-  checkbox en el deal; hasta que se reemplace el placeholder en
-  `app/bitrix/fields.py` con el ID real, la pausa manual/automática no
-  tiene dónde escribir (el bot sigue funcionando igual, solo sin este
-  control).
 - **Nombre de perfil del remitente (`sender_name`) es best-effort** — Waha
   no documenta un nombre de campo estable para esto (vive dentro de
   `_data`, que "puede variar según el engine" según sus propias docs).

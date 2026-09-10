@@ -480,7 +480,6 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
     assert deal_id == "42"
     assert "firm" in comment.lower()
     assert fake_crm.authorization_status_updates == [("42", "firmada")]
-    assert fake_crm.bot_active_updates == [("42", False)]
     assert len(fake_crm.property_listing_updates) == 1
     listing_deal_id, listing = fake_crm.property_listing_updates[0]
     assert listing_deal_id == "42"
@@ -493,7 +492,9 @@ def test_post_form_with_deal_id_adds_bitrix_comment_and_marks_signed(monkeypatch
 def test_post_form_with_deal_id_pauses_bot_when_signed(monkeypatch):
     """Al firmar la Autorización de Corretaje, el bot de WhatsApp se pausa — de ahí en
     adelante debe atenderlo un asesor, no seguir conversando sobre datos que ya no aplican."""
-    fake_crm = FakeCrmClient()
+    import app.forms.router as forms_router_module
+
+    fake_crm = FakeCrmClient(contact_id="7", contact_phone="573001112233")
     monkeypatch.setattr("app.forms.router.get_crm_client", lambda: fake_crm)
 
     payload = _valid_form_payload()
@@ -503,7 +504,7 @@ def test_post_form_with_deal_id_pauses_bot_when_signed(monkeypatch):
     response = client.post("/formularios/autorizacion-de-corretaje", json=payload)
 
     assert response.status_code == 200
-    assert fake_crm.bot_active_updates == [("42", False)]
+    assert forms_router_module.conversation_store.get_bot_enabled("573001112233@c.us") is False
     pause_comment = fake_crm.comments[-1][1]
     assert "pausado" in pause_comment.lower()
 

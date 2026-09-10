@@ -32,12 +32,13 @@ que un asesor pueda seguir atendiendo el chat a mano por WhatsApp Web), pero
 sí guarda el mensaje entrante tal cual llegó — así el chat aparece en
 `/admin/prospects` para que el admin sepa que hay que activarlo.
 
-Si un asesor pausa el bot para un deal puntual (checkbox en Bitrix,
-`fields.FIELD_BOT_ACTIVE`), o el bot mismo lo pausa al detectar que la
-persona pidió hablar con un humano, el webhook deja de responder para ese
-chat hasta que el campo se reactive manualmente — esto es un gate adicional,
-independiente del `bot_enabled` por chat, y solo aplica una vez existe un
-deal.
+El bot también se autopausa a través del mismo `bot_enabled` cuando detecta
+que la persona pidió hablar con un humano (`turn.handoff_requested`), o
+cuando se firma la Autorización de Corretaje
+(`app/flows/brokerage_authorization_signed.py`) — en ambos casos apaga el
+chat vía `store.set_bot_enabled(chat_id, False)`, igual que si un admin lo
+pausara desde el panel; para reactivarlo hay que volver a prenderlo desde
+ahí, no hay reactivación automática.
 
 La explicación del proceso (texto + nota de voz) se manda de una sola vez,
 sin preguntar antes si la persona la quiere, apenas se conoce su identidad
@@ -378,10 +379,6 @@ def _generate_and_send_reply(
         store.clear_deal_id(chat_id)
         deal_id = None
 
-    if deal_id is not None and not crm_client.get_bot_active(deal_id):
-        logger.info("Bot pausado para el deal %s (chat %s), no se responde", deal_id, chat_id)
-        return {"ok": True, "chat_id": chat_id, "skipped": "bot_paused"}
-
     deal_id_before_identity_resolution = deal_id
     if deal_id is None:
         deal_id = _create_deal_from_confirmed_identity(chat_id, crm_client, store)
@@ -462,7 +459,7 @@ def _generate_and_send_reply(
         if deal_id is not None and turn.listing != PropertyListing():
             crm_client.update_property_listing(deal_id, turn.listing)
         if deal_id is not None and turn.handoff_requested:
-            crm_client.set_bot_active(deal_id, False)
+            store.set_bot_enabled(chat_id, False)
             crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
         if deal_id_before_identity_resolution is None and deal_id is not None:

@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from app.crm.deps import get_crm_client
 from app.crm.protocol import PropertyListing
 from app.flows.brokerage_authorization_signed import process_authorization_signed
+from app.flows.whatsapp_bot import conversation_store
 from app.flows.registry_live_check import check_registration_number_live, confirm_registration_number_match
 from app.forms.coverage import is_location_covered
 from app.forms.cleaning import slugify_filename
@@ -372,5 +373,11 @@ def _mark_as_signed(payload: BrokerageAuthorizationPayload, pdf_bytes: bytes, si
 
     filename = _signed_pdf_filename(deal_id, payload.address, signed_at)
     process_authorization_signed(
-        deal_id, filename, pdf_bytes, _property_listing_from_payload(payload), crm_client, get_waha_client
+        deal_id,
+        filename,
+        pdf_bytes,
+        _property_listing_from_payload(payload),
+        crm_client,
+        get_waha_client,
+        conversation_store,
     )

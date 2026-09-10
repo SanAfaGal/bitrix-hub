@@ -1328,21 +1328,6 @@ def test_process_does_not_clarify_when_authorization_already_firmada() -> None:
 # ── Pausa manual / handoff automático ───────────────────────────────────
 
 
-def test_process_skips_when_bot_paused_for_deal() -> None:
-    waha = FakeWahaClient()
-    llm = FakeLlmClient()
-    crm = FakeCrmClient()
-    store = ConversationStore()
-    store.set_deal_id("573001112233@c.us", "6000")
-    crm.bot_active["6000"] = False
-
-    result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
-
-    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_paused"}
-    assert waha.calls == []
-    assert llm.calls == []
-
-
 def test_process_pauses_bot_and_comments_when_llm_requests_handoff() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(
@@ -1351,12 +1336,13 @@ def test_process_pauses_bot_and_comments_when_llm_requests_handoff() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
+    store.set_bot_enabled("573001112233@c.us", True)
 
     result = process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "la conecto con un asesor"}
     assert waha.calls == [("573001112233@c.us", "la conecto con un asesor", "default")]
-    assert crm.bot_active_updates == [("6000", False)]
+    assert _REAL_GET_BOT_ENABLED(store, "573001112233@c.us") is False
     assert crm.comments == [("6000", "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")]
 
 
@@ -1366,10 +1352,11 @@ def test_process_does_not_pause_when_handoff_not_requested() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
+    store.set_bot_enabled("573001112233@c.us", True)
 
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
-    assert crm.bot_active_updates == []
+    assert _REAL_GET_BOT_ENABLED(store, "573001112233@c.us") is True
     assert crm.comments == []
 
 

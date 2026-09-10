@@ -42,11 +42,6 @@ class FakeCrmClient:
         self._next_deal_id = 6000
         self.contact_identity_updates: list[tuple[str, str | None, str | None]] = []
 
-        # Activo por defecto (mismo comportamiento default que BitrixClient
-        # cuando el deal no tiene el campo seteado).
-        self.bot_active: dict[str, bool] = {}
-        self.bot_active_updates: list[tuple[str, bool]] = []
-
         # deal_ids que se simulan borrados en el CRM (deal_exists -> False).
         self.deleted_deals: set[str] = set()
 
@@ -146,13 +141,6 @@ class FakeCrmClient:
         self._next_deal_id += 1
         self.deal_by_contact[contact_id] = deal_id
         return deal_id
-
-    def get_bot_active(self, deal_id: str) -> bool:
-        return self.bot_active.get(deal_id, True)
-
-    def set_bot_active(self, deal_id: str, active: bool) -> None:
-        self.bot_active[deal_id] = active
-        self.bot_active_updates.append((deal_id, active))
 
     def get_property_listing(self, deal_id: str) -> PropertyListing:
         return self.property_listings.get(deal_id, PropertyListing())

@@ -98,22 +98,6 @@ class DealsMixin:
         """Marca el estado de firma de la Autorización de Corretaje (UF_CRM_1773864282733) del deal."""
         self.update_deal(deal_id, {fields.FIELD_AUTHORIZATION_STATUS: fields.AUTHORIZATION_VALUE_BY_STATUS[status]})
 
-    def get_bot_active(self, deal_id: str) -> bool:
-        """Lee el checkbox de bot activo/pausado (`fields.FIELD_BOT_ACTIVE`) del deal.
-
-        Vacío/None (deal sin el campo, o creado antes de que existiera) se
-        interpreta como activo — no pausa deals viejos por omisión.
-        """
-        deal = self.get_deal(deal_id)
-        value = deal.get(fields.FIELD_BOT_ACTIVE)
-        if value in (None, ""):
-            return True
-        return str(value) not in ("0", "N", "false", "False")
-
-    def set_bot_active(self, deal_id: str, active: bool) -> None:
-        """Marca el checkbox de bot activo/pausado (`fields.FIELD_BOT_ACTIVE`) del deal."""
-        self.update_deal(deal_id, {fields.FIELD_BOT_ACTIVE: 1 if active else 0})
-
     def find_or_create_property_seller_deal(
         self, contact_id: str, title: str | None = None, source: DealSource | None = None
     ) -> str | None:
@@ -152,7 +136,6 @@ class DealsMixin:
             "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
             "TITLE": title or f"Consignación WhatsApp - contacto {contact_id}",
             fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
-            fields.FIELD_BOT_ACTIVE: 1,
         }
         if source is not None:
             deal_fields[fields.FIELD_SOURCE] = fields.SOURCE_VALUE_BY_NAME[source]
