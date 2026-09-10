@@ -56,8 +56,9 @@ endpoints), `app/waha/phone.py` (conversión teléfono ↔ `chatId`).
 3. Chequeo del switch global `WHATSAPP_BOT_ENABLED` antes de construir
    ningún cliente.
 4. `process_whatsapp_bot()` corre en `asyncio.to_thread` — es sincrónico y
-   puede tardar varios segundos (transcripción de audio, pausas
-   deliberadas de `send_text_sequence`); así no bloquea el event loop.
+   puede tardar varios segundos (transcripción de audio, pausas deliberadas
+   de "escribiendo..." antes de cada envío, ver más abajo "Mitigación de
+   baneo"); así no bloquea el event loop.
 5. Dentro de `process()`: adquiere `store.chat_lock(chat_id)` (ver
    "Por qué un lock por chat" abajo) y llama a `_process()`:
    - Re-chequea el switch global.
@@ -214,6 +215,37 @@ vía (un mensaje posterior salió del cooldown con normalidad, o alguien
 contestó a mano), el último turno ya es `assistant` y el catch-up no hace
 nada — así que una ráfaga de varios mensajes seguidos, cada uno programando
 su propio timer, como mucho termina mandando una sola respuesta.
+
+## Mitigación de baneo: "visto"/"escribiendo" + cap de frecuencia
+
+WAHA usa WhatsApp Web no oficial (ver README, "Riesgo de baneo de Waha") —
+sin ningún guardrail, contestar instantáneo y en ráfaga es justo el patrón
+que WhatsApp asocia a spam. Dos medidas, ambas basadas en
+https://waha.devlike.pro/docs/overview/how-to-avoid-blocking/:
+
+- **"Visto" + "escribiendo..." + pausa 5-15s en TODO envío** —
+  `WahaClient._simulate_human_pacing`, llamado desde dentro de `send_text` y
+  `send_voice` (no algo que cada flujo tenga que manejar). Marca el mensaje
+  como visto, activa el indicador de "escribiendo...", espera un delay
+  aleatorio de 5 a 15 segundos, lo desactiva, y recién ahí manda el mensaje
+  real. Como cada `send_text`/`send_voice` individual ya trae su propia
+  pausa, esto también resuelve el espaciado entre varios mensajes de un
+  mismo turno (ej. respuesta + pregunta de zona, o voz + texto en
+  `whatsapp_bot_explanation.py`) sin que esos flujos necesiten lógica de
+  delay propia. `simulate_typing=False` lo salta — solo para el endpoint de
+  scaffolding `/webhook/waha-test` y tests.
+- **Cap de 4 mensajes/hora mientras el contacto no haya respondido nunca**
+  (`app.waha.outbound_throttle.should_throttle_proactive_send`) — WAHA
+  recomienda no iniciar conversación repetidamente sin respuesta. El bot
+  reactivo (este archivo) siempre contesta a un mensaje entrante, así que
+  nunca pasa por acá. Aplica solo a los tres flujos que sí inician sin
+  mensaje previo del cliente: `app.flows.welcome_authorization`,
+  `app.flows.notify_contact`, `app.flows.brokerage_authorization_signed`.
+  Una vez el contacto respondió alguna vez (chequeado contra el historial
+  real de Waha, `has_contact_replied`), el cap deja de aplicar — cortar una
+  conversación ya activa por un límite de frecuencia rompería el producto,
+  el riesgo real de baneo está en el primer contacto no solicitado, no en
+  seguir una conversación en curso.
 
 ## Los cuatro flags que parecen redundantes pero no lo son
 

@@ -539,7 +539,17 @@ Limitaciones conocidas, por ser experimental:
   bloquear el event loop mientras transcribe.
 - **Sin botones/listas interactivas** — solo texto plano (`WahaClient.send_text`).
 - **Riesgo de baneo de Waha** — es WhatsApp Web no oficial. No usar este
-  canal para mandar mensajes masivos no solicitados.
+  canal para mandar mensajes masivos no solicitados. Guardrails de código ya
+  implementados (ver `docs/whatsapp-bot.md`): todo envío marca "visto" y
+  simula "escribiendo..." con una pausa de 5-15s antes de mandar
+  (`WahaClient._simulate_human_pacing`), y los tres flujos que inician
+  conversación sin mensaje previo del cliente (enlace de Autorización,
+  notificación de deal, aviso de firma) tienen un cap de 4 mensajes/hora
+  mientras el contacto no haya respondido nunca (`app.waha.outbound_throttle`).
+  Lo que queda como responsabilidad operativa, no de código: mantener el
+  perfil de la sesión de Waha con foto/nombre/status, y no usar estos flujos
+  para campañas masivas fuera de su propósito actual (avisos 1:1 ligados a
+  un deal).
 - **Crea contacto/deal automáticamente para cualquier número que escriba**
   — sin verificación humana; un número equivocado o un mensaje de spam
   también genera un deal en el pipeline 34.
