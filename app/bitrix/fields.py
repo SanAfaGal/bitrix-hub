@@ -65,3 +65,10 @@ SOURCE_VALUE_BY_NAME: dict[str, int] = {
 # inmueble. Mientras esté vacío, `BitrixClient.update_property_listing`
 # ignora `property_type` (loguea un warning, no rompe el resto del update).
 PROPERTY_TYPE_VALUE_BY_NAME: dict[str, int] = {}
+
+# Smart Process "Sectores" (crm.item.*, ver app/bitrix/client_sectors.py) —
+# sincronizado desde el catálogo de sectores de Mobilia DWH
+# (app/location_catalog/), scripts/sync_mobilia_sectores.py.
+SECTOR_ENTITY_TYPE_ID = 1088
+FIELD_SECTOR_UBICACION = "UF_CRM_20_1789057091643"
+FIELD_SECTOR_CODE = "UF_CRM_20_1789060466273"

@@ -71,7 +71,14 @@ def _strip_trailing_word_block(text: str, remove_key: str) -> str:
         return text
     if normalize_key(" ".join(words[-window:])) != remove_key:
         return text
-    return " ".join(words[:-window])
+    words = words[:-window]
+    # El bloque quitado a veces estaba pegado a un separador suelto (ej. zona
+    # "Abriaquil - antioquia" con departamento "Antioquia": el "-" queda como
+    # último "word" tras el split) — sin esto sobrevive un guion colgado sin
+    # nada después.
+    while words and not any(char.isalnum() for char in words[-1]):
+        words.pop()
+    return " ".join(words)
 
 
 def dedupe_parts(parts: list[str]) -> list[str]:

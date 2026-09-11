@@ -86,6 +86,13 @@ def test_strip_trailing_word_block_does_not_touch_leading_match() -> None:
     )
 
 
+def test_strip_trailing_word_block_removes_dangling_separator_after_removal() -> None:
+    # Caso real: zona "Abriaquil - antioquia" (sector_code 5988) con
+    # departamento "Antioquia" — el "-" es un separador de palabra suelto que
+    # queda pegado al final tras quitar el relleno, no debe sobrevivir.
+    assert _strip_trailing_word_block("Abriaquil - antioquia", "antioquia") == "Abriaquil"
+
+
 def test_build_location_label_removes_city_name_embedded_in_sector() -> None:
     # Caso real: sector_code 105 en cat_mobilia_sectores — sector="San
     # Gabriel Itagui" y zona="Itagui" repiten el nombre de la ciudad.

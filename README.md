@@ -26,6 +26,7 @@ que cruza varios paquetes — flujo end-to-end, decisiones de diseño y el
 porqué de cada una — ver `docs/`:
 
 - [`docs/whatsapp-bot.md`](docs/whatsapp-bot.md) — bot conversacional de WhatsApp: arquitectura, flujo por mensaje, y por qué cada flag/lock/gate quedó así.
+- [`docs/sync-mobilia-sectores.md`](docs/sync-mobilia-sectores.md) — sincronización del catálogo de sectores de Mobilia DWH hacia el Smart Process de Bitrix: qué sincroniza, cómo identifica y compara sectores, y qué queda pendiente de verificar contra Bitrix real.
 
 ## Requisitos
 
