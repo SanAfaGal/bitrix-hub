@@ -205,6 +205,82 @@ body {
 .field__error { display: none; font-size: 12px; font-weight: 600; color: var(--color-error); }
 .field__error--visible { display: block; }
 .field__checkbox { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* Selector de indicativo de país (bandera + "+57" + flecha) pegado al campo
+   de teléfono — mismo look que el botón del sitio público, pero acá el
+   desplegable sí funciona (el de albertoalvarez.com/quiero-vender no abre
+   nada, queda fijo en Colombia). Países en app/shared/phone_countries.py. */
+.phone-group { display: flex; position: relative; }
+.phone-group__code {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 0 var(--space-3);
+  border: 1.5px solid var(--color-border);
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  background: var(--color-bg);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-navy);
+  cursor: pointer;
+}
+.phone-group__code:hover { background: var(--color-info-bg); }
+.phone-group__flag { width: 20px; height: auto; border-radius: 2px; flex-shrink: 0; }
+.phone-group__chevron { width: 12px; height: 12px; flex-shrink: 0; color: var(--color-text-muted); }
+.phone-group__input { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+.phone-country-dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 10;
+  width: 260px;
+  background: var(--color-card);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.phone-country-dropdown[hidden] { display: none; }
+.phone-country-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1.5px solid var(--color-border);
+  font-family: var(--font-family);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-navy);
+}
+.phone-country-search:focus { outline: none; background: var(--color-info-bg); }
+.phone-country-list {
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+  max-height: calc(5 * 38px);
+  overflow-y: auto;
+}
+.phone-country-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-navy);
+  cursor: pointer;
+}
+.phone-country-list__item:hover,
+.phone-country-list__item--active { background: var(--color-info-bg); }
+.phone-country-list__item--hidden { display: none; }
+.phone-country-list__flag { width: 18px; height: auto; border-radius: 2px; flex-shrink: 0; }
+.phone-country-list__name { flex: 1; }
+.phone-country-list__code { color: var(--color-text-muted); font-weight: 600; }
 /* select nativo: flecha propia con más aire a la derecha. */
 select.field__input {
   appearance: none;

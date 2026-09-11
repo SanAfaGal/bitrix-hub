@@ -28,24 +28,137 @@ NUEVO_LEAD_SCRIPT = (
     return value.replace(/^\\s+/, '').replace(/ {2,}/g, ' ');
   }
 
+  // Tipos de <input> (email, number, etc.) no soportan
+  // selectionStart/setSelectionRange — acceder tira InvalidStateError. En
+  // esos casos se pierde la posición del cursor (el valor igual queda
+  // transformado), no hay forma de preservarla.
   function transformPreservingCursor(el, transformFn) {
-    var cursorPos = el.selectionStart;
     var oldValue = el.value;
     var newValue = transformFn(oldValue);
     if (newValue === oldValue) return;
-    var newCursorPos = transformFn(oldValue.slice(0, cursorPos)).length;
+    var cursorPos = null;
+    try { cursorPos = el.selectionStart; } catch (e) { /* tipo sin selección */ }
     el.value = newValue;
-    el.setSelectionRange(newCursorPos, newCursorPos);
+    if (cursorPos !== null) {
+      try {
+        var newCursorPos = transformFn(oldValue.slice(0, cursorPos)).length;
+        el.setSelectionRange(newCursorPos, newCursorPos);
+      } catch (e) { /* tipo sin selección */ }
+    }
   }
 
   function collapseSpacesAndUppercase(value) {
     return collapseSpacesLive(value).toUpperCase();
   }
 
-  ['interested_party', 'address', 'location'].forEach(function (id) {
+  ['address', 'location'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('input', function () { transformPreservingCursor(el, collapseSpacesAndUppercase); clearFieldError(el); });
   });
+
+  // Nombre: solo letras — bloquea números y símbolos al escribir, mismo
+  // criterio que `onlyLettersUppercase` en app/forms/page_script_inputs.py
+  // (misma regla que `validate_person_name` en app/shared/field_specs.py).
+  function onlyLettersUppercase(value) {
+    return collapseSpacesLive(value.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ'\-\s]/g, '')).toUpperCase();
+  }
+  var interestedPartyInput = document.getElementById('interested_party');
+  if (interestedPartyInput) {
+    interestedPartyInput.addEventListener('input', function () {
+      transformPreservingCursor(interestedPartyInput, onlyLettersUppercase);
+      clearFieldError(interestedPartyInput);
+    });
+  }
+
+  // Teléfono: solo dígitos — mismo criterio que `validate_phone`
+  // (`clean_digits`) en app/shared/field_specs.py.
+  var phoneInput = document.getElementById('owner_phone');
+  if (phoneInput) {
+    phoneInput.addEventListener('input', function () {
+      transformPreservingCursor(phoneInput, function (value) { return value.replace(/[^0-9]/g, ''); });
+      clearFieldError(phoneInput);
+    });
+  }
+
+  // Correo: única excepción a la mayúscula del resto del formulario — va
+  // siempre en minúscula, mismo criterio que `clean_email`.
+  function collapseSpacesLowercase(value) {
+    return collapseSpacesLive(value).toLowerCase();
+  }
+  var emailInput = document.getElementById('email');
+  if (emailInput) {
+    emailInput.addEventListener('input', function () { transformPreservingCursor(emailInput, collapseSpacesLowercase); });
+  }
+
+  // Selector de indicativo de país: desplegable propio (ver
+  // app/shared/phone_countries.py para la lista completa, ~245 países ya
+  // renderizados server-side en las <li>) — clic en el botón lo abre/cierra,
+  // el buscador filtra en cada tecla (necesario con tantas opciones), clic
+  // en un país actualiza bandera/código/hidden input, clic afuera o Escape
+  // lo cierra.
+  var phoneCountryToggle = document.getElementById('phone-country-toggle');
+  var phoneCountryDropdown = document.getElementById('phone-country-dropdown');
+  var phoneCountrySearch = document.getElementById('phone-country-search');
+  var phoneCountryList = document.getElementById('phone-country-list');
+  var phoneCountryFlag = document.getElementById('phone-country-flag');
+  var phoneCountryLabel = document.getElementById('phone-country-label');
+  var phoneCountryCodeInput = document.getElementById('phone_country_code');
+  if (phoneCountryToggle && phoneCountryDropdown) {
+    var phoneCountryItems = Array.prototype.slice.call(
+      phoneCountryList.querySelectorAll('.phone-country-list__item')
+    );
+
+    function closePhoneCountryDropdown() {
+      phoneCountryDropdown.hidden = true;
+      phoneCountryToggle.setAttribute('aria-expanded', 'false');
+    }
+    function openPhoneCountryDropdown() {
+      phoneCountryDropdown.hidden = false;
+      phoneCountryToggle.setAttribute('aria-expanded', 'true');
+      phoneCountrySearch.value = '';
+      phoneCountryItems.forEach(function (el) { el.classList.remove('phone-country-list__item--hidden'); });
+      phoneCountrySearch.focus();
+    }
+    phoneCountryToggle.addEventListener('click', function (event) {
+      event.preventDefault();
+      if (phoneCountryDropdown.hidden) openPhoneCountryDropdown(); else closePhoneCountryDropdown();
+    });
+
+    var COMBINING_MARKS_RE = new RegExp('[\\u0300-\\u036f]', 'g');
+    function normalize(value) {
+      return value.normalize('NFKD').replace(COMBINING_MARKS_RE, '').toLowerCase();
+    }
+    phoneCountrySearch.addEventListener('input', function () {
+      var query = normalize(phoneCountrySearch.value.trim());
+      phoneCountryItems.forEach(function (item) {
+        var name = normalize(item.querySelector('.phone-country-list__name').textContent);
+        var matches = !query || name.indexOf(query) !== -1;
+        item.classList.toggle('phone-country-list__item--hidden', !matches);
+      });
+    });
+
+    phoneCountryItems.forEach(function (item) {
+      item.addEventListener('click', function () {
+        var code = item.getAttribute('data-code');
+        var iso2 = item.getAttribute('data-iso2');
+        phoneCountryFlag.src = 'https://flagcdn.com/w40/' + iso2 + '.png';
+        phoneCountryLabel.textContent = '+' + code;
+        phoneCountryCodeInput.value = code;
+        phoneCountryItems.forEach(function (el) {
+          el.classList.toggle('phone-country-list__item--active', el === item);
+        });
+        closePhoneCountryDropdown();
+      });
+    });
+    document.addEventListener('click', function (event) {
+      if (!phoneCountryToggle.contains(event.target) && !phoneCountryDropdown.contains(event.target)) {
+        closePhoneCountryDropdown();
+      }
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closePhoneCountryDropdown();
+    });
+  }
 
   // Precio de venta: mismo formato visual "$ 500.000.000" que el público —
   // el backend limpia a solo dígitos (ver app/forms/cleaning.py).

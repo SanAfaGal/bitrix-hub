@@ -23,7 +23,7 @@
 
       {{flash_html}}
 
-      <form method="post" action="/interno/nuevo-lead" class="form">
+      <form method="post" action="/interno/nuevo-lead" class="form" novalidate>
         <input type="hidden" name="idempotency_token" value="{{idempotency_token}}">
 
         <h3 class="form-section__title">
@@ -44,7 +44,22 @@
         <div class="field">
           <label class="field__label" for="owner_phone">{{label_owner_phone}} <span class="field__required">*</span></label>
           <span class="field__hint">Número de contacto del propietario.</span>
-          <input class="field__input" id="owner_phone" name="owner_phone" type="tel" required placeholder="{{placeholder_owner_phone}}" value="{{owner_phone}}">
+          <div class="phone-group">
+            <button type="button" class="phone-group__code" id="phone-country-toggle" aria-haspopup="listbox" aria-expanded="false">
+              {{phone_badge_html}}
+              <svg class="phone-group__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="phone-country-dropdown" id="phone-country-dropdown" hidden>
+              <input type="text" class="phone-country-search" id="phone-country-search" placeholder="Buscar país..." autocomplete="off">
+              <ul class="phone-country-list" id="phone-country-list" role="listbox">
+                {{phone_country_options_html}}
+              </ul>
+            </div>
+            <input type="hidden" id="phone_country_code" name="phone_country_code" value="{{phone_country_code}}">
+            <input class="field__input phone-group__input" id="owner_phone" name="owner_phone" type="tel" required placeholder="{{placeholder_owner_phone}}" value="{{owner_phone}}">
+          </div>
           <span class="field__error"></span>
         </div>
 

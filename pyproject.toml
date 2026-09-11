@@ -5,6 +5,7 @@ description = "Hub de integraciones disparadas por webhooks de Bitrix (Waha, y a
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.13.0",
+    "babel>=2.18.0",
     "beautifulsoup4>=4.15.0",
     "certifi>=2026.7.22",
     "fastapi>=0.141.1",
@@ -13,6 +14,7 @@ dependencies = [
     "numpy>=2.4.6",
     "openai>=3.3.1",
     "opencv-python-headless>=5.0.0.93",
+    "phonenumbers>=9.0.39",
     "pymupdf>=1.28.2",
     "pymysql>=1.1.1",
     "python-dotenv>=1.2.2",

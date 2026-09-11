@@ -24,6 +24,7 @@ from app.interno.page_script import NUEVO_LEAD_SCRIPT
 from app.shared import idempotency
 from app.shared.field_specs import FIELD_SPECS
 from app.shared.html_templates import RawHTML, render_template
+from app.shared.phone_countries import DEFAULT_PHONE_COUNTRY_CODE, PHONE_COUNTRIES, phone_country_by_code
 from app.waha.deps import get_waha_client
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,33 @@ def _property_type_options_html(selected: str | None) -> RawHTML:
     return RawHTML("".join(options))
 
 
+def _phone_country_options_html(selected_code: str) -> RawHTML:
+    from html import escape
+
+    items = []
+    for country in PHONE_COUNTRIES:
+        is_selected = " phone-country-list__item--active" if country["code"] == selected_code else ""
+        items.append(
+            f'<li class="phone-country-list__item{is_selected}" role="option" '
+            f'data-code="{escape(country["code"])}" data-iso2="{escape(country["iso2"])}" tabindex="-1">'
+            f'<img class="phone-country-list__flag" src="https://flagcdn.com/w20/{escape(country["iso2"])}.png" alt="">'
+            f'<span class="phone-country-list__name">{escape(country["name"])}</span>'
+            f'<span class="phone-country-list__code">+{escape(country["code"])}</span>'
+            "</li>"
+        )
+    return RawHTML("".join(items))
+
+
+def _phone_badge_html(selected_code: str) -> RawHTML:
+    from html import escape
+
+    country = phone_country_by_code(selected_code)
+    return RawHTML(
+        f'<img class="phone-group__flag" id="phone-country-flag" src="https://flagcdn.com/w40/{escape(country["iso2"])}.png" alt="">'
+        f'<span id="phone-country-label">+{escape(country["code"])}</span>'
+    )
+
+
 def _coverage_warning_html(message: str | None) -> RawHTML:
     if not message:
         return RawHTML("")
@@ -125,6 +153,7 @@ def _render_nuevo_lead(
     coverage_message: str | None = None,
     interested_party: str = "",
     owner_phone: str = "",
+    phone_country_code: str = DEFAULT_PHONE_COUNTRY_CODE,
     email: str = "",
     property_type: str | None = None,
     address: str = "",
@@ -140,6 +169,9 @@ def _render_nuevo_lead(
         idempotency_token=idempotency.new_token(),
         interested_party=interested_party,
         owner_phone=owner_phone,
+        phone_country_code=phone_country_code,
+        phone_badge_html=_phone_badge_html(phone_country_code),
+        phone_country_options_html=_phone_country_options_html(phone_country_code),
         email=email,
         property_type_options_html=_property_type_options_html(property_type),
         address=address,
@@ -162,6 +194,7 @@ def post_nuevo_lead(
     staff_user: dict[str, str] = Depends(require_staff_user),
     interested_party: str = Form(...),
     owner_phone: str = Form(...),
+    phone_country_code: str = Form(default=DEFAULT_PHONE_COUNTRY_CODE),
     email: str = Form(default=""),
     property_type: str = Form(...),
     address: str = Form(...),
@@ -174,6 +207,7 @@ def post_nuevo_lead(
     form_values = dict(
         interested_party=interested_party,
         owner_phone=owner_phone,
+        phone_country_code=phone_country_code,
         email=email,
         property_type=property_type,
         address=address,
@@ -186,6 +220,7 @@ def post_nuevo_lead(
         payload = NuevoLeadPayload(
             interested_party=interested_party,
             owner_phone=owner_phone,
+            phone_country_code=phone_country_code,
             email=email or None,
             property_type=property_type,
             address=address,

@@ -36,7 +36,7 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
         )
 
     contact_id = crm_client.find_or_create_property_seller_contact(
-        payload.owner_phone,
+        payload.full_phone,
         display_name=payload.interested_party,
         email=payload.email,
     )

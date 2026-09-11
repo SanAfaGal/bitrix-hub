@@ -52,6 +52,26 @@ def test_process_nuevo_lead_blocked_does_not_touch_crm(monkeypatch) -> None:
     assert crm.find_or_create_property_seller_contact_calls == []
 
 
+def test_process_nuevo_lead_sends_bare_phone_for_colombia(monkeypatch) -> None:
+    monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
+    crm = FakeCrmClient()
+
+    process_nuevo_lead(_payload(owner_phone="3001112233", phone_country_code="57"), crm, "asesor@albertoalvarez.com")
+
+    phone, *_ = crm.find_or_create_property_seller_contact_calls[0]
+    assert phone == "3001112233"
+
+
+def test_process_nuevo_lead_prefixes_phone_for_other_countries(monkeypatch) -> None:
+    monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
+    crm = FakeCrmClient()
+
+    process_nuevo_lead(_payload(owner_phone="5512345678", phone_country_code="52"), crm, "asesor@albertoalvarez.com")
+
+    phone, *_ = crm.find_or_create_property_seller_contact_calls[0]
+    assert phone == "525512345678"
+
+
 def test_process_nuevo_lead_records_coverage_exception_as_comment(monkeypatch) -> None:
     from app.forms.coverage import CoverageResult
 
@@ -68,6 +88,12 @@ def test_process_nuevo_lead_records_coverage_exception_as_comment(monkeypatch) -
     assert deal_id == result.deal_id
     assert "asesor@albertoalvarez.com" in comment
     assert "00081" in comment
+
+
+def test_payload_falls_back_to_colombia_for_unknown_country_code() -> None:
+    payload = _payload(phone_country_code="999")
+
+    assert payload.phone_country_code == "57"
 
 
 def _covered_result():

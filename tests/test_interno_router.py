@@ -79,6 +79,34 @@ def test_post_nuevo_lead_creates_lead_and_redirects(client: TestClient, monkeypa
     assert len(fake_crm.find_or_create_property_seller_deal_calls) == 1
 
 
+def test_post_nuevo_lead_uses_selected_phone_country_code(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _log_in()
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr(interno_router, "get_crm_client", lambda: fake_crm)
+    monkeypatch.setattr("app.forms.coverage.get_sector_coverage", lambda sector_code: True)
+
+    response = client.post(
+        "/interno/nuevo-lead",
+        data=_form_data(owner_phone="5512345678", phone_country_code="52"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    phone, *_ = fake_crm.find_or_create_property_seller_contact_calls[0]
+    assert phone == "525512345678"
+
+
+def test_get_nuevo_lead_shows_country_code_dropdown(client: TestClient) -> None:
+    _log_in()
+
+    response = client.get("/interno/nuevo-lead")
+
+    assert response.status_code == 200
+    assert 'id="phone-country-list"' in response.text
+    assert "Colombia" in response.text
+    assert "México" in response.text
+
+
 def test_post_nuevo_lead_blocked_by_coverage_shows_warning(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _log_in()
     fake_crm = FakeCrmClient()

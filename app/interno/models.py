@@ -22,6 +22,7 @@ from app.shared.field_specs import (
     validate_sale_price,
     validate_sector_code,
 )
+from app.shared.phone_countries import DEFAULT_PHONE_COUNTRY_CODE, phone_country_by_code
 
 
 class NuevoLeadPayload(BaseModel):
@@ -33,6 +34,7 @@ class NuevoLeadPayload(BaseModel):
 
     interested_party: str
     owner_phone: str
+    phone_country_code: str = DEFAULT_PHONE_COUNTRY_CODE
     email: str | None = None
     property_type: PropertyType
     address: str
@@ -51,6 +53,24 @@ class NuevoLeadPayload(BaseModel):
     @classmethod
     def _validate_owner_phone(cls, value: str) -> str:
         return validate_phone(value)
+
+    @field_validator("phone_country_code", mode="before")
+    @classmethod
+    def _validate_phone_country_code(cls, value: str) -> str:
+        # No hay forma de mandar un indicativo "inválido" desde el
+        # desplegable (son valores fijos de app/shared/phone_countries.py) —
+        # esto solo cubre a alguien pegándole directo a la API con un
+        # indicativo que no está en la lista, cae a Colombia en vez de fallar.
+        return phone_country_by_code(str(value).strip())["code"]
+
+    @property
+    def full_phone(self) -> str:
+        """Teléfono con indicativo de país listo para Bitrix — Colombia se
+        deja sin indicativo (`app/waha/phone.py::to_chat_id` ya lo asume
+        para un número de 10 dígitos), los demás países sí lo llevan."""
+        if self.phone_country_code == DEFAULT_PHONE_COUNTRY_CODE:
+            return self.owner_phone
+        return f"{self.phone_country_code}{self.owner_phone}"
 
     @field_validator("email", mode="before")
     @classmethod
