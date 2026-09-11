@@ -228,7 +228,7 @@ def post_activate_bot(chat_id: str, username: str = Depends(require_login)) -> R
     summary="Desactiva el bot para un chat",
 )
 def post_deactivate_bot(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
-    conversation_store.set_bot_enabled(chat_id, False)
+    conversation_store.set_bot_enabled(chat_id, False, reason="admin_manual")
     return RedirectResponse(url=f"{PROSPECTS_PATH}/{chat_id}", status_code=303)
 
 
@@ -260,6 +260,7 @@ def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTM
             "deal_id": conversation_store.get_deal_id(key),
             "channel": "whatsapp",
             "bot_enabled": conversation_store.get_bot_enabled(key),
+            "bot_enabled_reason": conversation_store.get_bot_enabled_reason(key),
         }
         selected_messages = conversation_store.get_full_history(key)
 

@@ -22,9 +22,9 @@ defecto** (`WHATSAPP_BOT_ENABLED=false`).
 | Archivo | Rol |
 |---|---|
 | `whatsapp_bot.py` | Orquestador — `process()`/`_process()`, el pipeline completo por mensaje entrante |
-| `whatsapp_bot_models.py` | Modelos SQLAlchemy: `Conversation` (tabla `leads`), `ConversationMessage` (tabla `messages`) |
+| `whatsapp_bot_models.py` | Modelos SQLAlchemy: `Conversation` (tabla `leads`), `ConversationMessage` (tabla `messages`), `WhatsappMessage` (tabla `whatsapp_messages`, dedup de `message_id`) |
 | `whatsapp_bot_store.py` | Funciones puras sobre una `Session` ya abierta — persistencia real |
-| `whatsapp_bot_conversation_store.py` | `ConversationStore` — envuelve `whatsapp_bot_store.py`, agrega locks/dedup/rate-limit en memoria |
+| `whatsapp_bot_conversation_store.py` | `ConversationStore` — envuelve `whatsapp_bot_store.py`, agrega locks/rate-limit en memoria y dedup híbrido (memoria + MySQL) |
 | `whatsapp_bot_db.py` | Engine/sesión SQLAlchemy del bot (comparte pool MySQL con `app.message_templates.db`) |
 | `whatsapp_bot_llm.py` | Texto puro: arma el prompt, parsea la salida del LLM — no toca CRM/Waha/store |
 | `whatsapp_bot_welcome.py` | Bienvenida de primer contacto (texto fijo, no generado por LLM) |
@@ -63,7 +63,12 @@ endpoints), `app/waha/phone.py` (conversión teléfono ↔ `chatId`).
    "Por qué un lock por chat" abajo) y llama a `_process()`:
    - Re-chequea el switch global.
    - Allowlist de dev (`WHATSAPP_BOT_ALLOWED_NUMBERS`).
-   - Dedup por `message_id` (reintentos de Waha).
+   - Dedup por `message_id` (reintentos de Waha, y mensajes viejos que Waha
+     reemite tras resincronizar historial al reconectar la sesión — p.ej.
+     luego de un restart del contenedor). Híbrido: `_seen_message_ids` en
+     memoria como fast-path, tabla `whatsapp_messages` en MySQL como red de
+     seguridad que sobrevive al restart (ver `ConversationStore.already_processed`/
+     `mark_processed`).
    - **Chat nuevo**: si es la primera vez que se ve este `chat_id`,
      `is_chat_new_in_waha()` decide el `bot_enabled` inicial (ver sección
      dedicada).
@@ -108,6 +113,26 @@ Dos caminos a `True`:
   muestra conversación real previa (`is_chat_new_in_waha`), se activa solo
   y este mismo mensaje ya se responde sin intervención de admin.
 
+Más caminos a `False` que solo el manual — el bot también se apaga solo en
+tres casos (`_generate_and_send_reply`/`whatsapp_bot_zone.py`/
+`brokerage_authorization_signed.py`): el cliente pide hablar con un asesor,
+confirma que su inmueble está fuera de zona de cobertura, o firma la
+Autorización de Corretaje. `Conversation.bot_enabled_reason`
+(`whatsapp_bot_models.py`) guarda cuál de los seis caminos fue el último en
+tocar el campo — visible en `/admin/prospects` junto al badge "Bot: ON/OFF":
+
+| `bot_enabled_reason` | Camino |
+|---|---|
+| `auto_new_chat` | Chat nuevo, sin conversación previa en Waha |
+| `auto_pending_review` | Chat nuevo con historial previo, **o falló la consulta a Waha** (ver nota de fail-closed abajo) |
+| `admin_manual` | Activado/desactivado a mano desde el panel |
+| `handoff_requested` | Cliente pidió hablar con un asesor |
+| `authorization_signed` | Firmó la Autorización de Corretaje |
+| `zone_out_of_coverage` | Confirmó que su inmueble está fuera de Medellín/Oriente antioqueño |
+
+Se sobreescribe en cada cambio — no es un historial de auditoría, solo el
+motivo del estado actual.
+
 ## Cómo se decide si un chat "nuevo" ya tenía conversación real
 
 `whatsapp_bot_new_chat_check.py::is_chat_new_in_waha()`. Se llama una sola
@@ -129,7 +154,10 @@ escribieron" con un solo mensaje genuino en la conversación.
 **Fail-closed:** si la consulta a Waha falla (`None`), se trata como si
 hubiera conversación previa (`bot_enabled` queda apagado) — más seguro no
 interrumpir una conversación existente que arriesgar una auto-activación
-sin poder verificarlo.
+sin poder verificarlo. `is_chat_new_in_waha()` devuelve un solo `bool`, sin
+distinguir estas dos causas — por eso ambas comparten el mismo
+`bot_enabled_reason` (`auto_pending_review`, ver tabla arriba). Diferenciarlas
+requeriría un tri-estado en esa función, no implementado.
 
 ## Importar historial al activar un chat viejo a mano
 

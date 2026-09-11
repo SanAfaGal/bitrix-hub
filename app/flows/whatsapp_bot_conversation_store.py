@@ -1,8 +1,16 @@
-"""`ConversationStore`: historial + cache de deal_id por chat, persistidos en MySQL; dedup y locks en memoria.
+"""`ConversationStore`: historial + cache de deal_id por chat, persistidos en MySQL; locks en memoria.
 
 Separado de `whatsapp_bot.py` (límite de 500 líneas del repo) — mismo
 motivo que `whatsapp_bot_llm.py`. `whatsapp_bot.py` reexporta
 `ConversationStore` para no romper los imports existentes (tests incluidos).
+
+El dedup de `message_id` (`already_processed`/`mark_processed`) es híbrido:
+`_seen_message_ids` sigue siendo un dict en memoria, fast-path para el caso
+normal (mensaje no duplicado, sin roundtrip a MySQL); `whatsapp_bot_store.
+is_message_processed`/`mark_message_processed` son la red de seguridad en
+MySQL que sobrevive a un restart del contenedor `api` — antes el dedup vivía
+solo en memoria y un restart durante una resincronización de historial de
+Waha podía hacer que el bot reprocesara y reenviara mensajes viejos.
 """
 from __future__ import annotations
 
@@ -77,10 +85,15 @@ class ConversationStore:
 
     def already_processed(self, message_id: str) -> bool:
         self._purge_expired_seen()
-        return message_id in self._seen_message_ids
+        if message_id in self._seen_message_ids:
+            return True
+        with self._SessionLocal() as session:
+            return store_db.is_message_processed(session, message_id)
 
     def mark_processed(self, message_id: str) -> None:
         self._seen_message_ids[message_id] = time.monotonic()
+        with self._SessionLocal() as session:
+            store_db.mark_message_processed(session, message_id)
 
     def is_rate_limited(self, chat_id: str) -> bool:
         """Retorna True si el chat está en cooldown (más de 1 msg en últimos 5 seg)."""
@@ -180,9 +193,13 @@ class ConversationStore:
         with self._SessionLocal() as session:
             return store_db.get_bot_enabled(session, chat_id)
 
-    def set_bot_enabled(self, chat_id: str, enabled: bool) -> None:
+    def get_bot_enabled_reason(self, chat_id: str) -> str | None:
         with self._SessionLocal() as session:
-            store_db.set_bot_enabled(session, chat_id, enabled)
+            return store_db.get_bot_enabled_reason(session, chat_id)
+
+    def set_bot_enabled(self, chat_id: str, enabled: bool, reason: str | None = None) -> None:
+        with self._SessionLocal() as session:
+            store_db.set_bot_enabled(session, chat_id, enabled, reason)
 
     def get_full_history(self, chat_id: str) -> list[dict[str, str]]:
         with self._SessionLocal() as session:

@@ -2,10 +2,12 @@
 
 Todo lo 1:1 por chat (identidad, deal_id, estado de la explicación) vive en
 `Conversation` (tabla `leads`); el historial de turnos vive en
-`ConversationMessage` (tabla `messages`, 1:N vía `lead_id` -> `leads.id`).
-Distinto del dedup de mensajes (`ConversationStore._seen_message_ids` en
-`whatsapp_bot.py`), que sigue en memoria porque es solo un TTL corto de
-reintentos de Waha y no importa perderlo.
+`ConversationMessage` (tabla `messages`, 1:N vía `lead_id` -> `leads.id`). El
+dedup de `message_id` de Waha vive en `WhatsappMessage` (tabla
+`whatsapp_messages`), sin relación con las otras dos tablas — así sobrevive a
+un restart del contenedor `api` (antes vivía solo en memoria en
+`ConversationStore._seen_message_ids`, que sigue existiendo como fast-path
+delante de esta tabla, ver `whatsapp_bot_conversation_store.py`).
 
 Funciones puras sobre una `Session` ya abierta (la abre y cierra
 `ConversationStore` por cada operación, ver `whatsapp_bot_db.py`).
@@ -17,9 +19,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.flows.whatsapp_bot_models import Conversation, ConversationMessage
+from app.flows.whatsapp_bot_models import Conversation, ConversationMessage, WhatsappMessage
 
 
 def _get_by_chat_id(session: Session, chat_id: str) -> Conversation | None:
@@ -106,6 +109,7 @@ def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
             Conversation.name,
             Conversation.phone,
             Conversation.bot_enabled,
+            Conversation.bot_enabled_reason,
         )
         .select_from(msg)
         .join(last_id_subq, (msg.lead_id == last_id_subq.c.lead_id) & (msg.id == last_id_subq.c.last_id))
@@ -128,8 +132,9 @@ def _list_whatsapp_chats(session: Session) -> list[dict[str, Any]]:
             "confirmed_name": name,
             "confirmed_phone": phone,
             "bot_enabled": bool(bot_enabled),
+            "bot_enabled_reason": bot_enabled_reason,
         }
-        for chat_id, last_content, last_created_at, message_count, deal_id, name, phone, bot_enabled in rows
+        for chat_id, last_content, last_created_at, message_count, deal_id, name, phone, bot_enabled, bot_enabled_reason in rows
     ]
 
 
@@ -150,6 +155,7 @@ def _list_email_leads(session: Session) -> list[dict[str, Any]]:
             "confirmed_name": row.name,
             "confirmed_phone": row.phone,
             "bot_enabled": None,  # No aplica al canal correo, ver Conversation.bot_enabled
+            "bot_enabled_reason": None,
         }
         for row in rows
     ]
@@ -179,6 +185,25 @@ def add_turn(session: Session, chat_id: str, role: str, content: str, created_at
         )
     )
     session.commit()
+
+
+def is_message_processed(session: Session, message_id: str) -> bool:
+    return (
+        session.execute(select(WhatsappMessage.id).where(WhatsappMessage.message_id == message_id)).scalar_one_or_none()
+        is not None
+    )
+
+
+def mark_message_processed(session: Session, message_id: str) -> None:
+    """Idempotente: dos webhooks casi simultáneos con el mismo `message_id` (el `chat_lock` de
+    `ConversationStore` serializa por chat, no entre chats, y no está tomado en este punto)
+    no deben tirar un `IntegrityError` sin manejar — la constraint única ya garantiza que solo
+    una fila sobrevive, acá solo se descarta el segundo intento en vez de propagar el error."""
+    session.add(WhatsappMessage(message_id=message_id, processed_at=datetime.now(timezone.utc)))
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
 
 
 def delete_chat(session: Session, chat_id: str) -> None:
@@ -273,9 +298,15 @@ def get_bot_enabled(session: Session, chat_id: str) -> bool:
     return bool(row.bot_enabled) if row else False
 
 
-def set_bot_enabled(session: Session, chat_id: str, enabled: bool) -> None:
+def get_bot_enabled_reason(session: Session, chat_id: str) -> str | None:
+    row = _get_by_chat_id(session, chat_id)
+    return row.bot_enabled_reason if row else None
+
+
+def set_bot_enabled(session: Session, chat_id: str, enabled: bool, reason: str | None = None) -> None:
     row = _get_or_create(session, chat_id)
     row.bot_enabled = enabled
+    row.bot_enabled_reason = reason
     session.commit()
 
 

@@ -364,6 +364,27 @@ def test_process_does_not_resend_duplicate_message_id() -> None:
     assert len(llm.calls) == 1
 
 
+def test_process_does_not_resend_duplicate_message_id_after_restart(tmp_path) -> None:
+    """Simula un reinicio del contenedor `api`: el dedup en memoria de la primera instancia
+    se pierde, pero la tabla `whatsapp_messages` en MySQL (acá, el mismo archivo SQLite) lo
+    recuerda igual — reproduce el bug real (Waha reenvía un mensaje viejo tras reconectar la
+    sesión, el bot no debe volver a generar ni mandar una respuesta)."""
+    db_path = str(tmp_path / "whatsapp_bot.db")
+    waha = FakeWahaClient()
+    llm = FakeLlmClient(reply_text=_plain_reply("ok"))
+    crm = FakeCrmClient()
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
+
+    process(_inbound(message_id="msg1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=first)
+
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
+    result = process(_inbound(message_id="msg1"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=second)
+
+    assert result["skipped"] == "duplicate_message"
+    assert len(waha.calls) == 1
+    assert len(llm.calls) == 1
+
+
 def test_process_does_not_send_or_store_when_llm_fails() -> None:
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=None)
@@ -1513,6 +1534,7 @@ def test_process_pauses_bot_and_comments_when_llm_requests_handoff() -> None:
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "la conecto con un asesor"}
     assert waha.calls == [("573001112233@c.us", "la conecto con un asesor", "default")]
     assert _REAL_GET_BOT_ENABLED(store, "573001112233@c.us") is False
+    assert store.get_bot_enabled_reason("573001112233@c.us") == "handoff_requested"
     assert crm.comments == [("6000", "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")]
 
 
@@ -1884,6 +1906,17 @@ def test_conversation_store_history_survives_new_instance_same_db_file(tmp_path)
     ]
 
 
+def test_conversation_store_dedup_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
+    first.mark_processed("msg1")
+
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
+
+    assert second.already_processed("msg1") is True
+
+
 def test_conversation_store_deal_id_survives_new_instance_same_db_file(tmp_path) -> None:
     db_path = str(tmp_path / "whatsapp_bot.db")
 
@@ -1989,3 +2022,22 @@ def test_conversation_store_bot_enabled_survives_new_instance_same_db_file(tmp_p
     second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
     assert second.get_bot_enabled("573001112233@c.us") is True
+
+
+def test_conversation_store_set_bot_enabled_persists_reason() -> None:
+    store = ConversationStore()
+
+    store.set_bot_enabled("573001112233@c.us", True, reason="admin_manual")
+
+    assert store.get_bot_enabled_reason("573001112233@c.us") == "admin_manual"
+
+
+def test_conversation_store_bot_enabled_reason_survives_new_instance_same_db_file(tmp_path) -> None:
+    db_path = str(tmp_path / "whatsapp_bot.db")
+
+    first = ConversationStore(engine=_sqlite_file_engine(db_path))
+    first.set_bot_enabled("573001112233@c.us", False, reason="zone_out_of_coverage")
+
+    second = ConversationStore(engine=_sqlite_file_engine(db_path))
+
+    assert second.get_bot_enabled_reason("573001112233@c.us") == "zone_out_of_coverage"

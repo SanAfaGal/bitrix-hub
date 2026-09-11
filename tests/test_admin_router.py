@@ -450,3 +450,4 @@ def test_deactivate_bot_disables_bot(client: TestClient, monkeypatch: pytest.Mon
     assert response.status_code == 303
     assert response.headers["location"] == f"/admin/prospects/{chat_id}"
     assert store.get_bot_enabled(chat_id) is False
+    assert store.get_bot_enabled_reason(chat_id) == "admin_manual"

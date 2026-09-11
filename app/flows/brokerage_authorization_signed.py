@@ -100,7 +100,7 @@ def process_authorization_signed(
 
         chat_id = _resolve_chat_id(crm_client, deal_id)
         if chat_id is not None:
-            conversation_store.set_bot_enabled(chat_id, False)
+            conversation_store.set_bot_enabled(chat_id, False, reason="authorization_signed")
         else:
             logger.warning("Deal %s firmado sin chat de WhatsApp resoluble, no se pausa el bot localmente", deal_id)
         crm_client.add_comment(deal_id, "Bot: Autorización de Corretaje firmada, bot pausado automáticamente.")

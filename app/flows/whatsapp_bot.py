@@ -289,6 +289,7 @@ def _process(
     config = config or load_bot_config()
 
     if not config.enabled:
+        logger.info("Bot deshabilitado globalmente (WHATSAPP_BOT_ENABLED=false), se ignora %s", inbound.chat_id)
         return {"ok": True, "chat_id": inbound.chat_id, "skipped": "bot_disabled"}
 
     if config.allowed_numbers:
@@ -312,7 +313,9 @@ def _process(
         # mismo chat `chat_exists` ya da True y esto no se vuelve a ejecutar. Ver
         # `whatsapp_bot_new_chat_check.is_chat_new_in_waha`.
         is_new_chat = is_chat_new_in_waha(inbound, waha_client)
-        store.set_bot_enabled(inbound.chat_id, is_new_chat)
+        store.set_bot_enabled(
+            inbound.chat_id, is_new_chat, reason="auto_new_chat" if is_new_chat else "auto_pending_review"
+        )
         logger.info(
             "Chat %s visto por primera vez, %s en Waha -> bot_enabled=%s",
             inbound.chat_id,
@@ -321,6 +324,11 @@ def _process(
         )
 
     if not store.get_bot_enabled(inbound.chat_id):
+        logger.info(
+            "Chat %s con bot apagado (bot_enabled_reason=%s), se guarda el mensaje sin responder",
+            inbound.chat_id,
+            store.get_bot_enabled_reason(inbound.chat_id),
+        )
         # Activación por chat (opt-in, prendida a mano desde el panel admin, ver
         # ConversationStore.get_bot_enabled/set_bot_enabled) — apagado por default para TODO
         # chat, nuevo o viejo. Mientras esté apagado: silencio total (nada de bienvenida, rate
@@ -516,7 +524,7 @@ def _generate_and_send_reply(
         if deal_id is not None and turn.listing != PropertyListing():
             crm_client.update_property_listing(deal_id, turn.listing)
         if deal_id is not None and turn.handoff_requested:
-            store.set_bot_enabled(chat_id, False)
+            store.set_bot_enabled(chat_id, False, reason="handoff_requested")
             crm_client.add_comment(deal_id, "Bot: cliente pidió hablar con un asesor, bot pausado automáticamente.")
 
         if deal_id_before_identity_resolution is None and deal_id is not None:

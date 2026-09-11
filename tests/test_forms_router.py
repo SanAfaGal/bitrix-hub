@@ -508,6 +508,9 @@ def test_post_form_with_deal_id_pauses_bot_when_signed(monkeypatch):
 
     assert response.status_code == 200
     assert forms_router_module.conversation_store.get_bot_enabled("573001112233@c.us") is False
+    assert (
+        forms_router_module.conversation_store.get_bot_enabled_reason("573001112233@c.us") == "authorization_signed"
+    )
     pause_comment = fake_crm.comments[-1][1]
     assert "pausado" in pause_comment.lower()
 

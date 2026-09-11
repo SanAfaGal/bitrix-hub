@@ -13,7 +13,7 @@ memoria de los tests (`build_sqlite_engine`).
 """
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -67,6 +67,14 @@ class Conversation(Base):
     # correo.
     bot_enabled: bool = Column(Boolean, nullable=False, default=False)
 
+    # Motivo del último cambio de `bot_enabled` — se sobreescribe en cada cambio, no es
+    # auditoría histórica. Valores usados hoy: `auto_new_chat`/`auto_pending_review` (chat
+    # nuevo, ver whatsapp_bot_new_chat_check.py), `admin_manual` (panel admin),
+    # `handoff_requested` (cliente pidió asesor), `authorization_signed` (firmó la
+    # Autorización de Corretaje), `zone_out_of_coverage` (fuera de Medellín/Oriente
+    # antioqueño). `None` para un lead nunca tocado o de correo.
+    bot_enabled_reason: str | None = Column(String(32), nullable=True, default=None)
+
     # True una vez que ya se intentó importar el historial previo de WhatsApp
     # desde Waha para este chat (`app.flows.whatsapp_bot_history_seed.
     # seed_history_from_waha`), sea que haya encontrado mensajes o no —
@@ -107,3 +115,20 @@ class ConversationMessage(Base):
     role: str = Column(String(16), nullable=False)
     content: str = Column(Text, nullable=False)
     created_at: float = Column(Float, nullable=False)
+
+
+class WhatsappMessage(Base):
+    """Log de dedup de `message_id` de Waha — independiente de `messages`/`leads` a propósito:
+    no todo mensaje entrante llega a guardarse como turno (bot apagado globalmente, número
+    fuera de `WHATSAPP_BOT_ALLOWED_NUMBERS`, media no soportada, transcripción fallida), pero
+    igual necesita dedup para no reenviar la misma respuesta si Waha reemite el webhook (p.ej.
+    al resincronizar historial tras reconectar la sesión luego de un restart del contenedor).
+    Sin TTL: una fila por mensaje procesado, para siempre, es trivial en espacio para el
+    volumen de este bot."""
+
+    __tablename__ = "whatsapp_messages"
+    __table_args__ = (UniqueConstraint("message_id", name="uq_whatsapp_messages_message_id"),)
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    message_id: str = Column(String(128), nullable=False)
+    processed_at = Column(DateTime, nullable=False)
