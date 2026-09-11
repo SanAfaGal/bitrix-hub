@@ -40,9 +40,13 @@ class PropertyListing:
 
     property_type: str | None = None
     address: str | None = None
-    sector_zone_city: str | None = None
     expected_sale_price: int | None = None
     registration_number: str | None = None
+    location_sector_code: str | None = None
+    """sector_code de Mobilia (el mismo que identifica el sector en el
+    catálogo de app.location_catalog) — no un id interno de Bitrix. Cada CRM
+    resuelve internamente cómo vincular esto a su propio modelo de datos;
+    ver BitrixClient.update_property_listing/find_sector_item_id_by_code."""
 
 
 class CrmClient(Protocol):
@@ -85,6 +89,15 @@ class CrmClient(Protocol):
 
     def set_duplicado_status(self, deal_id: str, has_duplicate: bool) -> None:
         """Marca en el CRM si el inmueble del deal resultó duplicado en Xposure."""
+        ...
+
+    def find_property_seller_deal_id(self, contact_id: str) -> str | None:
+        """Busca (sin crear) un deal de consignación ya existente para el contacto.
+
+        A diferencia de `find_or_create_property_seller_deal`, nunca crea
+        nada — usado para saber de antemano si un lead nuevo en realidad
+        va a reusar un deal existente (ver `app.flows.interno_nuevo_lead`).
+        """
         ...
 
     def get_authorization_status(self, deal: dict[str, Any]) -> AuthorizationStatus | None:

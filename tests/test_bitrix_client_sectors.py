@@ -39,8 +39,8 @@ def test_list_sector_items_returns_items_indexed_by_business_key(monkeypatch) ->
             {
                 "result": {
                     "items": [
-                        {"id": "10", "title": "El Poblado", fields.FIELD_SECTOR_CODE: "382"},
-                        {"id": "11", "title": "Laureles", fields.FIELD_SECTOR_CODE: "0083"},
+                        {"id": "10", "title": "El Poblado", fields.FIELD_SECTOR_CODE.uf_crm: "382"},
+                        {"id": "11", "title": "Laureles", fields.FIELD_SECTOR_CODE.uf_crm: "0083"},
                     ]
                 }
             }
@@ -51,8 +51,8 @@ def test_list_sector_items_returns_items_indexed_by_business_key(monkeypatch) ->
     result = _client().list_sector_items()
 
     assert result == {
-        "382": {"id": "10", "title": "El Poblado", fields.FIELD_SECTOR_CODE: "382"},
-        "0083": {"id": "11", "title": "Laureles", fields.FIELD_SECTOR_CODE: "0083"},
+        "382": {"id": "10", "title": "El Poblado", fields.FIELD_SECTOR_CODE.uf_crm: "382"},
+        "0083": {"id": "11", "title": "Laureles", fields.FIELD_SECTOR_CODE.uf_crm: "0083"},
     }
     assert captured["url"] == "https://example.bitrix24.com/rest/1/token/crm.item.list.json"
     assert captured["json"]["entityTypeId"] == fields.SECTOR_ENTITY_TYPE_ID
@@ -67,9 +67,9 @@ def test_list_sector_items_follows_pagination(monkeypatch) -> None:
         calls.append(json.get("start"))
         if json.get("start") in (None, 0):
             return FakeResponse(
-                {"result": {"items": [{"id": "1", "title": "A", fields.FIELD_SECTOR_CODE: "1"}]}, "next": 50}
+                {"result": {"items": [{"id": "1", "title": "A", fields.FIELD_SECTOR_CODE.uf_crm: "1"}]}, "next": 50}
             )
-        return FakeResponse({"result": {"items": [{"id": "2", "title": "B", fields.FIELD_SECTOR_CODE: "2"}]}})
+        return FakeResponse({"result": {"items": [{"id": "2", "title": "B", fields.FIELD_SECTOR_CODE.uf_crm: "2"}]}})
 
     monkeypatch.setattr("requests.post", fake_post)
 
@@ -104,7 +104,7 @@ def test_list_sector_items_skips_items_missing_business_key(monkeypatch) -> None
                 "result": {
                     "items": [
                         {"id": "10", "title": "Sin código"},
-                        {"id": "11", "title": "Con código", fields.FIELD_SECTOR_CODE: "5"},
+                        {"id": "11", "title": "Con código", fields.FIELD_SECTOR_CODE.uf_crm: "5"},
                     ]
                 }
             }
@@ -127,12 +127,12 @@ def test_create_sector_item_returns_new_id(monkeypatch) -> None:
 
     monkeypatch.setattr("requests.post", fake_post)
 
-    item_id = _client().create_sector_item({"TITLE": "El Poblado", fields.FIELD_SECTOR_CODE: "382"})
+    item_id = _client().create_sector_item({"TITLE": "El Poblado", fields.FIELD_SECTOR_CODE.uf_crm: "382"})
 
     assert item_id == "99"
     assert captured["url"] == "https://example.bitrix24.com/rest/1/token/crm.item.add.json"
     assert captured["json"]["entityTypeId"] == fields.SECTOR_ENTITY_TYPE_ID
-    assert captured["json"]["fields"] == {"TITLE": "El Poblado", fields.FIELD_SECTOR_CODE: "382"}
+    assert captured["json"]["fields"] == {"TITLE": "El Poblado", fields.FIELD_SECTOR_CODE.uf_crm: "382"}
 
 
 def test_create_sector_item_returns_none_on_request_error(monkeypatch) -> None:
@@ -256,3 +256,36 @@ def test_batch_upsert_sector_items_returns_empty_result_without_calling_bitrix(m
     assert result.succeeded_creates == {}
     assert result.succeeded_updates == set()
     assert result.failed == {}
+
+
+def test_find_sector_item_id_by_code_returns_id_when_found(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        captured["json"] = json
+        return FakeResponse({"result": {"items": [{"id": "50", "title": "El Poblado"}]}})
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    item_id = _client().find_sector_item_id_by_code("382")
+
+    assert item_id == "50"
+    assert captured["url"] == "https://example.bitrix24.com/rest/1/token/crm.item.list.json"
+    assert captured["json"]["filter"] == {fields.FIELD_SECTOR_CODE.uf_crm: "382"}
+    assert captured["json"]["entityTypeId"] == fields.SECTOR_ENTITY_TYPE_ID
+
+
+def test_find_sector_item_id_by_code_returns_none_when_not_found(monkeypatch) -> None:
+    monkeypatch.setattr("requests.post", lambda url, json, timeout: FakeResponse({"result": {"items": []}}))
+
+    assert _client().find_sector_item_id_by_code("no-existe") is None
+
+
+def test_find_sector_item_id_by_code_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    assert _client().find_sector_item_id_by_code("382") is None

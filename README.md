@@ -27,6 +27,7 @@ porqué de cada una — ver `docs/`:
 
 - [`docs/whatsapp-bot.md`](docs/whatsapp-bot.md) — bot conversacional de WhatsApp: arquitectura, flujo por mensaje, y por qué cada flag/lock/gate quedó así.
 - [`docs/sync-mobilia-sectores.md`](docs/sync-mobilia-sectores.md) — sincronización del catálogo de sectores de Mobilia DWH hacia el Smart Process de Bitrix: qué sincroniza, cómo identifica y compara sectores, y qué queda pendiente de verificar contra Bitrix real.
+- [`docs/bitrix-ubicacion-field.md`](docs/bitrix-ubicacion-field.md) — campo "[Ventas] Ubicación" del deal: por qué no se llenaba, y el formato real del value (`T{hex(entityTypeId)}_{id}`) confirmado contra Bitrix real.
 
 ## Requisitos
 
@@ -706,9 +707,12 @@ consumido solo por la propia página del formulario). El catálogo se cachea
 en memoria varias horas para no consultar esa base externa en cada carga de
 página; si no es alcanzable, el campo simplemente queda sin sugerencias —
 nunca bloquea el envío. Variables de entorno en `.env.example`
-(`MOBILIA_DWH_*`). Este campo todavía no tiene mapeo a ningún campo de
-Bitrix (`FIELD_SECTOR_ZONE_CITY` en `app/bitrix/fields.py` sigue sin usarse)
-ni lógica de cobertura — solo asiste el texto que termina en el PDF.
+(`MOBILIA_DWH_*`). El texto libre solo asiste el PDF — el `sector_code`
+elegido junto a ese texto (`location_sector_code`) sí se manda a Bitrix:
+`BitrixClient.update_property_listing` lo resuelve contra el Smart Process
+de Sectores (`app/bitrix/client_sectors.py::find_sector_item_id_by_code`) y
+vincula el campo `[Ventas] Ubicación` (`FIELD_DEAL_UBICACION_SECTOR` en
+`app/bitrix/fields.py`) del deal.
 
 ## Corte de producción pendiente (MLS -> bitrix-hub)
 

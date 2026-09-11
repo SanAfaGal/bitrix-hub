@@ -77,17 +77,17 @@ class DealsMixin:
 
     def get_matricula(self, deal: dict[str, Any]) -> str | None:
         """Extrae la matrícula del inmueble de un deal (campo UF_CRM_1773860489786)."""
-        matricula = deal.get(fields.FIELD_MATRICULA)
+        matricula = deal.get(fields.FIELD_MATRICULA.uf_crm)
         return str(matricula) if matricula else None
 
     def set_duplicado_status(self, deal_id: str, has_duplicate: bool) -> None:
         """Marca el campo Duplicado/Sin duplicado (UF_CRM_1773861337167) del deal."""
         value = fields.VALUE_DUPLICADO if has_duplicate else fields.VALUE_SIN_DUPLICADO
-        self.update_deal(deal_id, {fields.FIELD_DUPLICADO: value})
+        self.update_deal(deal_id, {fields.FIELD_DUPLICADO.uf_crm: value})
 
     def get_authorization_status(self, deal: dict[str, Any]) -> AuthorizationStatus | None:
         """Extrae el estado de firma de la Autorización de Corretaje (UF_CRM_1773864282733)."""
-        value = deal.get(fields.FIELD_AUTHORIZATION_STATUS)
+        value = deal.get(fields.FIELD_AUTHORIZATION_STATUS.uf_crm)
         try:
             value = int(value)
         except (TypeError, ValueError):
@@ -96,7 +96,46 @@ class DealsMixin:
 
     def set_authorization_status(self, deal_id: str, status: AuthorizationStatus) -> None:
         """Marca el estado de firma de la Autorización de Corretaje (UF_CRM_1773864282733) del deal."""
-        self.update_deal(deal_id, {fields.FIELD_AUTHORIZATION_STATUS: fields.AUTHORIZATION_VALUE_BY_STATUS[status]})
+        self.update_deal(
+            deal_id, {fields.FIELD_AUTHORIZATION_STATUS.uf_crm: fields.AUTHORIZATION_VALUE_BY_STATUS[status]}
+        )
+
+    def find_property_seller_deal_id(self, contact_id: str) -> str | None:
+        """Busca (sin crear) un deal de consignación ya existente para el contacto.
+
+        Misma búsqueda que hace `find_or_create_property_seller_deal` antes
+        de decidir si crea uno — separada acá para poder preguntar de
+        antemano "¿esto va a reusar un deal existente?" (ver
+        `app.flows.interno_nuevo_lead`) sin duplicar el resto de esa lógica.
+        Ante un error de red, retorna `None` igual que "no encontrado" — el
+        caller de todos modos vuelve a intentar la búsqueda real dentro de
+        `find_or_create_property_seller_deal`.
+        """
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.deal.list.json",
+                json={
+                    "filter": {"CONTACT_ID": contact_id, "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID},
+                    "select": ["ID"],
+                    "order": {"ID": "DESC"},
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            result = payload.get("result") if isinstance(payload, dict) else None
+            if isinstance(result, list) and result:
+                deal_id = result[0].get("ID")
+                if deal_id:
+                    return str(deal_id)
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error(
+                "Error buscando deal de consignación para contacto %s en Bitrix: %s%s",
+                contact_id,
+                exc,
+                error_detail(exc),
+            )
+        return None
 
     def find_or_create_property_seller_deal(
         self, contact_id: str, title: str | None = None, source: DealSource | None = None
@@ -135,14 +174,14 @@ class DealsMixin:
             "CONTACT_ID": contact_id,
             "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
             "TITLE": title or f"Consignación WhatsApp - contacto {contact_id}",
-            fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
+            fields.FIELD_FIRST_CONTACT.uf_crm: datetime.now(timezone.utc).isoformat(),
         }
         if source is not None:
             source_value = fields.SOURCE_VALUE_BY_NAME.get(source)
             if source_value is None:
                 logger.warning("Sin VALUE ID de Bitrix mapeado para el origen %r, se omite el campo", source)
             else:
-                deal_fields[fields.FIELD_SOURCE] = source_value
+                deal_fields[fields.FIELD_SOURCE.uf_crm] = source_value
 
         try:
             response = requests.post(
@@ -170,10 +209,9 @@ class DealsMixin:
         """Lee los datos del inmueble ya guardados en el deal (lo que falta queda en None)."""
         deal = self.get_deal(deal_id)
         return PropertyListing(
-            property_type=self._property_type_name(deal.get(fields.FIELD_PROPERTY_TYPE)),
-            address=self._as_text(deal.get(fields.FIELD_ADDRESS)),
-            sector_zone_city=self._as_text(deal.get(fields.FIELD_SECTOR_ZONE_CITY)),
-            expected_sale_price=self._as_int(deal.get(fields.FIELD_EXPECTED_SALE_PRICE)),
+            property_type=self._property_type_name(deal.get(fields.FIELD_PROPERTY_TYPE.uf_crm)),
+            address=self._as_text(deal.get(fields.FIELD_ADDRESS.uf_crm)),
+            expected_sale_price=self._as_int(deal.get(fields.FIELD_EXPECTED_SALE_PRICE.uf_crm)),
             registration_number=self.get_matricula(deal),
         )
 
@@ -184,7 +222,7 @@ class DealsMixin:
         if listing.property_type is not None:
             value = fields.PROPERTY_TYPE_VALUE_BY_NAME.get(listing.property_type)
             if value is not None:
-                updates[fields.FIELD_PROPERTY_TYPE] = value
+                updates[fields.FIELD_PROPERTY_TYPE.uf_crm] = value
             else:
                 logger.warning(
                     "Tipo de inmueble %r sin VALUE ID en PROPERTY_TYPE_VALUE_BY_NAME, no se actualiza en deal %s",
@@ -192,13 +230,21 @@ class DealsMixin:
                     deal_id,
                 )
         if listing.address is not None:
-            updates[fields.FIELD_ADDRESS] = listing.address
-        if listing.sector_zone_city is not None:
-            updates[fields.FIELD_SECTOR_ZONE_CITY] = listing.sector_zone_city
+            updates[fields.FIELD_ADDRESS.uf_crm] = listing.address
         if listing.expected_sale_price is not None:
-            updates[fields.FIELD_EXPECTED_SALE_PRICE] = listing.expected_sale_price
+            updates[fields.FIELD_EXPECTED_SALE_PRICE.uf_crm] = listing.expected_sale_price
         if listing.registration_number is not None:
-            updates[fields.FIELD_MATRICULA] = listing.registration_number
+            updates[fields.FIELD_MATRICULA.uf_crm] = listing.registration_number
+        if listing.location_sector_code is not None:
+            sector_item_id = self.find_sector_item_id_by_code(listing.location_sector_code)
+            if sector_item_id is not None:
+                updates[fields.FIELD_DEAL_UBICACION_SECTOR.uf_crm] = fields.sector_crm_link_value(sector_item_id)
+            else:
+                logger.warning(
+                    "Sin ítem de Smart Process de sectores para sector_code %r, no se vincula Ubicación en deal %s",
+                    listing.location_sector_code,
+                    deal_id,
+                )
 
         if updates:
             self.update_deal(deal_id, updates)

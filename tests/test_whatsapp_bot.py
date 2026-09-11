@@ -688,7 +688,7 @@ def test_process_updates_property_listing_when_llm_extracts_fields() -> None:
         reply_text=json.dumps(
             {
                 "reply": "perfecto, algo mas?",
-                "fields": {"property_type": "Apartamento", "sector_zone_city": "El Poblado, Medellín"},
+                "fields": {"property_type": "Apartamento"},
             }
         )
     )
@@ -699,7 +699,7 @@ def test_process_updates_property_listing_when_llm_extracts_fields() -> None:
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert crm.property_listing_updates == [
-        ("6000", PropertyListing(property_type="Apartamento", sector_zone_city="El Poblado, Medellín")),
+        ("6000", PropertyListing(property_type="Apartamento")),
     ]
 
 

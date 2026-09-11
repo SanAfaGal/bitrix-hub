@@ -208,7 +208,7 @@ class ContactsMixin:
         try:
             response = requests.post(
                 f"{self.webhook_url}crm.contact.list.json",
-                json={"filter": {fields.FIELD_USERNAME: username}, "select": ["ID"]},
+                json={"filter": {fields.FIELD_USERNAME.uf_crm: username}, "select": ["ID"]},
                 timeout=REQUEST_TIMEOUT,
             )
             response.raise_for_status()
@@ -234,7 +234,7 @@ class ContactsMixin:
             phone_value = phone if phone.startswith("+") else f"+{phone}"
             contact_fields["PHONE"] = [{"VALUE": phone_value, "VALUE_TYPE": "MOBILE"}]
         if username:
-            contact_fields[fields.FIELD_USERNAME] = username
+            contact_fields[fields.FIELD_USERNAME.uf_crm] = username
         if email:
             contact_fields["EMAIL"] = [{"VALUE": email, "VALUE_TYPE": "WORK"}]
 

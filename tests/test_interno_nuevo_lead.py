@@ -38,6 +38,33 @@ def test_process_nuevo_lead_creates_contact_and_deal(monkeypatch) -> None:
     assert result.deal_id is not None
     assert result.contact_id is not None
     assert crm.property_listings[result.deal_id].address == "CALLE 10 # 20-30"
+    assert result.reused_existing_deal is False
+
+
+def test_process_nuevo_lead_flags_reused_deal_for_existing_contact(monkeypatch) -> None:
+    monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
+    crm = FakeCrmClient()
+    crm.contact_by_phone["3001112233"] = "5001"
+    crm.deal_by_contact["5001"] = "6001"
+
+    result = process_nuevo_lead(_payload(), crm, "asesor@albertoalvarez.com")
+
+    assert result.ok is True
+    assert result.contact_id == "5001"
+    assert result.deal_id == "6001"
+    assert result.reused_existing_deal is True
+
+
+def test_process_nuevo_lead_does_not_flag_new_deal_for_existing_contact_without_deal(monkeypatch) -> None:
+    monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
+    crm = FakeCrmClient()
+    crm.contact_by_phone["3001112233"] = "5001"
+
+    result = process_nuevo_lead(_payload(), crm, "asesor@albertoalvarez.com")
+
+    assert result.ok is True
+    assert result.contact_id == "5001"
+    assert result.reused_existing_deal is False
 
 
 def test_process_nuevo_lead_blocked_does_not_touch_crm(monkeypatch) -> None:

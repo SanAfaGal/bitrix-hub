@@ -131,6 +131,9 @@ class FakeCrmClient:
         if full_name:
             contact["NAME"] = full_name
 
+    def find_property_seller_deal_id(self, contact_id: str) -> str | None:
+        return self.deal_by_contact.get(contact_id)
+
     def find_or_create_property_seller_deal(
         self, contact_id: str, title: str | None = None, source: str | None = None
     ) -> str | None:
@@ -151,9 +154,6 @@ class FakeCrmClient:
         self.property_listings[deal_id] = PropertyListing(
             property_type=listing.property_type if listing.property_type is not None else current.property_type,
             address=listing.address if listing.address is not None else current.address,
-            sector_zone_city=(
-                listing.sector_zone_city if listing.sector_zone_city is not None else current.sector_zone_city
-            ),
             expected_sale_price=(
                 listing.expected_sale_price
                 if listing.expected_sale_price is not None
@@ -163,5 +163,8 @@ class FakeCrmClient:
                 listing.registration_number
                 if listing.registration_number is not None
                 else current.registration_number
+            ),
+            location_sector_code=(
+                listing.location_sector_code if listing.location_sector_code is not None else current.location_sector_code
             ),
         )

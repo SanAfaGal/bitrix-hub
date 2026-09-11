@@ -61,7 +61,7 @@ def test_dedupe_source_excludes_all_copies_of_a_duplicate_code() -> None:
 def test_build_target_fields_uses_build_location_label_for_ubicacion() -> None:
     sector = _sector("1")
     target = sector_sync.build_target_fields(sector)
-    assert target[fields.FIELD_SECTOR_UBICACION] == "El Poblado, Sur, Medellín, Antioquia, Colombia"
+    assert target[fields.FIELD_SECTOR_UBICACION.uf_crm] == "El Poblado, Sur, Medellín, Antioquia, Colombia"
 
 
 def test_build_target_fields_never_sends_title() -> None:
@@ -75,15 +75,15 @@ def test_build_target_fields_never_sends_title() -> None:
 def test_build_target_fields_includes_business_key_field() -> None:
     sector = _sector("00083")
     target = sector_sync.build_target_fields(sector)
-    assert target[fields.FIELD_SECTOR_CODE] == "00083"
+    assert target[fields.FIELD_SECTOR_CODE.uf_crm] == "00083"
 
 
 # --- needs_update ---
 
 
 def test_needs_update_false_when_values_match() -> None:
-    target = {fields.FIELD_SECTOR_UBICACION: "El Poblado"}
-    existing = {"title": "El Poblado", fields.FIELD_SECTOR_UBICACION: "El Poblado"}
+    target = {fields.FIELD_SECTOR_UBICACION.uf_crm: "El Poblado"}
+    existing = {"title": "El Poblado", fields.FIELD_SECTOR_UBICACION.uf_crm: "El Poblado"}
     assert sector_sync.needs_update(existing, target) is False
 
 
@@ -91,14 +91,14 @@ def test_needs_update_ignores_title() -> None:
     """TITLE lo arma una regla de automatización de Bitrix (concatena campos
     del ítem), no se manda desde acá ni participa en la comparación —
     comparar por TITLE rompería la idempotencia si esa regla lo reescribe."""
-    target = {fields.FIELD_SECTOR_UBICACION: "El Poblado"}
-    existing = {"title": "678 - El Poblado", fields.FIELD_SECTOR_UBICACION: "El Poblado"}
+    target = {fields.FIELD_SECTOR_UBICACION.uf_crm: "El Poblado"}
+    existing = {"title": "678 - El Poblado", fields.FIELD_SECTOR_UBICACION.uf_crm: "El Poblado"}
     assert sector_sync.needs_update(existing, target) is False
 
 
 def test_needs_update_true_when_ubicacion_differs() -> None:
-    target = {fields.FIELD_SECTOR_UBICACION: "El Poblado Nuevo"}
-    existing = {"title": "El Poblado", fields.FIELD_SECTOR_UBICACION: "El Poblado"}
+    target = {fields.FIELD_SECTOR_UBICACION.uf_crm: "El Poblado Nuevo"}
+    existing = {"title": "El Poblado", fields.FIELD_SECTOR_UBICACION.uf_crm: "El Poblado"}
     assert sector_sync.needs_update(existing, target) is True
 
 
@@ -116,7 +116,7 @@ def test_plan_sync_detects_new_sector() -> None:
 def test_plan_sync_detects_existing_unchanged_sector() -> None:
     sector = _sector("1")
     target = sector_sync.build_target_fields(sector)
-    existing_by_code = {"1": {"id": "50", "title": "678 - lo que sea", fields.FIELD_SECTOR_UBICACION: target[fields.FIELD_SECTOR_UBICACION]}}
+    existing_by_code = {"1": {"id": "50", "title": "678 - lo que sea", fields.FIELD_SECTOR_UBICACION.uf_crm: target[fields.FIELD_SECTOR_UBICACION.uf_crm]}}
     to_create, to_update, unchanged = sector_sync.plan_sync([sector], existing_by_code)
     assert to_create == []
     assert to_update == []
@@ -125,7 +125,7 @@ def test_plan_sync_detects_existing_unchanged_sector() -> None:
 
 def test_plan_sync_detects_existing_changed_sector() -> None:
     sector = _sector("1")
-    existing_by_code = {"1": {"id": "50", "title": "Nombre viejo", fields.FIELD_SECTOR_UBICACION: "Nombre viejo"}}
+    existing_by_code = {"1": {"id": "50", "title": "Nombre viejo", fields.FIELD_SECTOR_UBICACION.uf_crm: "Nombre viejo"}}
     to_create, to_update, unchanged = sector_sync.plan_sync([sector], existing_by_code)
     assert to_create == []
     assert to_update == [("50", sector)]
@@ -156,7 +156,7 @@ def test_run_sync_creates_new_sectors(monkeypatch) -> None:
 def test_run_sync_updates_changed_sectors(monkeypatch) -> None:
     sector = _sector("1")
     monkeypatch.setattr(sector_sync, "fetch_all_sectores", lambda: [sector])
-    existing_by_code = {"1": {"id": "50", "title": "Nombre viejo", fields.FIELD_SECTOR_UBICACION: "Nombre viejo"}}
+    existing_by_code = {"1": {"id": "50", "title": "Nombre viejo", fields.FIELD_SECTOR_UBICACION.uf_crm: "Nombre viejo"}}
     batch_result = BatchUpsertResult(succeeded_updates={"update_1"})
     client = FakeSectorsBitrixClient(existing_by_code=existing_by_code, batch_result=batch_result)
 
@@ -176,7 +176,7 @@ def test_run_sync_is_idempotent_on_second_run(monkeypatch) -> None:
     sector = _sector("1")
     monkeypatch.setattr(sector_sync, "fetch_all_sectores", lambda: [sector])
     target = sector_sync.build_target_fields(sector)
-    existing_by_code = {"1": {"id": "50", "title": "678 - lo que sea", fields.FIELD_SECTOR_UBICACION: target[fields.FIELD_SECTOR_UBICACION]}}
+    existing_by_code = {"1": {"id": "50", "title": "678 - lo que sea", fields.FIELD_SECTOR_UBICACION.uf_crm: target[fields.FIELD_SECTOR_UBICACION.uf_crm]}}
     client = FakeSectorsBitrixClient(existing_by_code=existing_by_code)
 
     summary = sector_sync.run_sync(client, dry_run=False)
@@ -290,8 +290,8 @@ def test_run_sync_reports_bitrix_items_missing_from_source_without_touching_them
     monkeypatch.setattr(sector_sync, "fetch_all_sectores", lambda: [sector])
     target = sector_sync.build_target_fields(sector)
     existing_by_code = {
-        "1": {"id": "50", "title": "678 - lo que sea", fields.FIELD_SECTOR_UBICACION: target[fields.FIELD_SECTOR_UBICACION]},
-        "999": {"id": "60", "title": "Sector fantasma", fields.FIELD_SECTOR_UBICACION: "Sector fantasma"},
+        "1": {"id": "50", "title": "678 - lo que sea", fields.FIELD_SECTOR_UBICACION.uf_crm: target[fields.FIELD_SECTOR_UBICACION.uf_crm]},
+        "999": {"id": "60", "title": "Sector fantasma", fields.FIELD_SECTOR_UBICACION.uf_crm: "Sector fantasma"},
     }
     client = FakeSectorsBitrixClient(existing_by_code=existing_by_code)
 

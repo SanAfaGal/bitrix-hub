@@ -397,6 +397,34 @@ def test_find_or_create_property_seller_deal_returns_existing_match(monkeypatch,
     assert any("encontrado" in record.message and "id=123" in record.message for record in caplog.records)
 
 
+def test_find_property_seller_deal_id_returns_existing_match(monkeypatch) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        assert url.endswith("crm.deal.list.json")
+        return FakeResponse({"result": [{"ID": "123"}]})
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_property_seller_deal_id("7") == "123"
+
+
+def test_find_property_seller_deal_id_returns_none_when_no_match(monkeypatch) -> None:
+    monkeypatch.setattr("requests.post", lambda url, json, timeout: FakeResponse({"result": []}))
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_property_seller_deal_id("7") is None
+
+
+def test_find_property_seller_deal_id_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_property_seller_deal_id("7") is None
+
+
 def test_find_or_create_property_seller_deal_creates_when_no_match(monkeypatch) -> None:
     calls = []
 
@@ -422,7 +450,6 @@ def test_get_property_listing_reads_known_fields(monkeypatch) -> None:
             {
                 "result": {
                     "UF_CRM_1773860692300": "Calle 10 # 20-30",
-                    "UF_CRM_1773861181680": "El Poblado, Medellín",
                     "UF_CRM_1773861238965": "350000000",
                     "UF_CRM_1773860489786": "50C-1945945",
                 }
@@ -436,7 +463,6 @@ def test_get_property_listing_reads_known_fields(monkeypatch) -> None:
 
     assert listing.property_type is None  # el fake deal no trae ese campo
     assert listing.address == "Calle 10 # 20-30"
-    assert listing.sector_zone_city == "El Poblado, Medellín"
     assert listing.expected_sale_price == 350000000
     assert listing.registration_number == "50C-1945945"
 
@@ -518,6 +544,40 @@ def test_update_property_listing_skips_property_type_without_value_mapping(monke
         client.update_property_listing("42", PropertyListing(property_type="Tipo inventado"))
 
     assert any("Tipo inventado" in record.message for record in caplog.records)
+
+
+def test_update_property_listing_links_sector_item_when_code_resolves(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        if url.endswith("crm.item.list.json"):
+            return FakeResponse({"result": {"items": [{"id": "50"}]}})
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.update_property_listing("42", PropertyListing(location_sector_code="382"))
+
+    # T{hex(entityTypeId)}_{id} — entityTypeId=1088 (0x440) — confirmado
+    # contra Bitrix real, ver docs/bitrix-ubicacion-field.md.
+    assert captured["json"]["fields"] == {"UF_CRM_1789061336": "T440_50"}
+
+
+def test_update_property_listing_skips_ubicacion_when_sector_code_not_found(monkeypatch, caplog) -> None:
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        if url.endswith("crm.item.list.json"):
+            return FakeResponse({"result": {"items": []}})
+        raise AssertionError("no debería llamar a crm.deal.update si no hay nada que actualizar")
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    with caplog.at_level("WARNING"):
+        client.update_property_listing("42", PropertyListing(location_sector_code="no-existe"))
+
+    assert any("no-existe" in record.message for record in caplog.records)
 
 
 def test_get_matricula_extracts_custom_field() -> None:

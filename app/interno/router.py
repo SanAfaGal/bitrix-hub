@@ -294,7 +294,14 @@ def post_nuevo_lead(
         # repetida en Bitrix.
         logger.info("Token de idempotencia ya usado para el lead recién creado %s, no se repite la escritura", result.deal_id)
 
-    return RedirectResponse(url=f"/interno/lead/{result.deal_id}", status_code=303)
+    redirect_url = f"/interno/lead/{result.deal_id}"
+    if result.reused_existing_deal:
+        # Este contacto ya tenía un deal de consignación abierto — no se creó uno
+        # nuevo, se reusó el existente, y update_property_listing acaba de pisar
+        # los datos de inmueble que ya tuviera cargados.
+        flash_message = "Este contacto ya tenía un lead de consignación — se actualizó el inmueble sobre ese lead existente."
+        redirect_url += f"?flash={quote(flash_message)}"
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @router.get("/lead/{deal_id}", response_class=HTMLResponse, summary="Resumen de un lead y siguientes pasos")
@@ -335,7 +342,11 @@ def get_lead_detail(
             owner_full_name=owner_full_name or "(sin nombre)",
             property_type=listing.property_type or "(pendiente)",
             address=listing.address or "(pendiente)",
-            location=listing.sector_zone_city or "(pendiente)",
+            # `PropertyListing` ya no trae un texto de ubicación legible: el
+            # deal solo guarda el vínculo al ítem del Smart Process de
+            # Sectores (ver app.bitrix.fields.FIELD_DEAL_UBICACION_SECTOR),
+            # no una copia de texto. Mostrar ese vínculo acá queda pendiente.
+            location="(pendiente)",
             public_form_url=public_form_url,
         )
     )

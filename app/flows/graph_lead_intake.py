@@ -113,7 +113,6 @@ def create_lead(lead: ParsedLead, crm_client: CrmClient) -> LeadIntakeResult:
         deal_id,
         PropertyListing(
             property_type=lead.tipo_inmueble,
-            sector_zone_city=lead.zona,
             expected_sale_price=lead.valor_estimado,
         ),
     )
@@ -127,6 +126,10 @@ def create_lead(lead: ParsedLead, crm_client: CrmClient) -> LeadIntakeResult:
 
 def _build_comment(lead) -> str | None:
     lines = ["Lead recibido por formulario web (Quiero Vender)."]
+    if lead.zona:
+        # Texto libre (sin sector_code) — no se puede vincular al Smart
+        # Process de Sectores, así que queda solo en el comentario.
+        lines.append(f"Zona/Sector/Barrio: {lead.zona}")
     if lead.mensaje:
         lines.append(f"Mensaje: {lead.mensaje}")
     if lead.tracking_id:

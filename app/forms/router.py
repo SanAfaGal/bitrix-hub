@@ -370,16 +370,20 @@ def _signed_pdf_filename(deal_id: str, address: str, signed_at: datetime) -> str
 
 
 def _property_listing_from_payload(payload: BrokerageAuthorizationPayload) -> PropertyListing:
-    """Solo los campos del inmueble que ya tienen mapeo definido a Bitrix.
+    """Campos del inmueble con mapeo a Bitrix.
 
-    `location` queda pendiente: todavía no se define qué campo de Bitrix
-    (sector/zona/ciudad) le corresponde, así que por ahora solo va al PDF.
+    `location` (el texto libre con sugerencias del `<datalist>`) no se manda
+    — solo se usa para armar el PDF. `location_sector_code` sí se manda: el
+    CRM lo resuelve internamente contra el Smart Process de Sectores para
+    vincular el campo "[Ventas] Ubicación" del deal (ver
+    `PropertyListing.location_sector_code`).
     """
     return PropertyListing(
         property_type=payload.property_type,
         address=payload.address,
         expected_sale_price=payload.sale_price,
         registration_number=payload.registration_number or None,
+        location_sector_code=payload.location_sector_code,
     )
 
 

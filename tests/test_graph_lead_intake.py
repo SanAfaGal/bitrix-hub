@@ -43,9 +43,9 @@ def test_creates_contact_and_deal_for_vender_lead() -> None:
     assert crm.find_or_create_property_seller_deal_calls[-1][1] == "Consignación Web - Diana Herrera"
     listing = crm.property_listings[result.deal_id]
     assert listing.property_type == "Apartamento"
-    assert listing.sector_zone_city == "El Poblado"
     assert listing.expected_sale_price == 6500000
     assert crm.comments and "8974dd3b" in crm.comments[-1][1]
+    assert "El Poblado" in crm.comments[-1][1]
 
 
 def test_skips_non_vender_service_type() -> None:

@@ -80,6 +80,24 @@ def test_post_nuevo_lead_creates_lead_and_redirects(client: TestClient, monkeypa
     assert len(fake_crm.find_or_create_property_seller_deal_calls) == 1
 
 
+def test_post_nuevo_lead_flashes_warning_when_deal_already_existed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _log_in()
+    fake_crm = FakeCrmClient()
+    fake_crm.contact_by_phone["3001112233"] = "5001"
+    fake_crm.deal_by_contact["5001"] = "6001"
+    monkeypatch.setattr(interno_router, "get_crm_client", lambda: fake_crm)
+    monkeypatch.setattr("app.forms.coverage.get_sector_coverage", lambda sector_code: True)
+
+    response = client.post("/interno/nuevo-lead", data=_form_data(), follow_redirects=False)
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/interno/lead/6001?flash=")
+    assert "consignaci" in location
+
+
 def test_post_nuevo_lead_uses_selected_phone_country_code(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _log_in()
     fake_crm = FakeCrmClient()

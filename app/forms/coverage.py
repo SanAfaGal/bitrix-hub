@@ -37,7 +37,6 @@ class CoverageResult:
 _PUBLIC_BLOCKED_MESSAGE = "En este momento no podemos continuar con el proceso para la ubicación indicada."
 _INTERNAL_BLOCKED_MESSAGE = (
     "El inmueble se encuentra fuera de la zona de cobertura configurada. "
-    "Como captador, puedes continuar de todas formas — quedará registrado."
 )
 
 

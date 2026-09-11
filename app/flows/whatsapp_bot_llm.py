@@ -35,7 +35,7 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
     "con un objeto JSON válido, sin texto antes ni después, con esta forma "
     'exacta:\n{"reply": "<el mensaje que se le manda a la persona por '
     'WhatsApp>", "fields": {"property_type": <uno de ' + repr(list(PROPERTY_TYPES)) + " o null>, "
-    '"address": <string o null>, "sector_zone_city": <string o null>, '
+    '"address": <string o null>, '
     '"expected_sale_price": <número entero o null>, "registration_number": '
     '<string o null>}, "client_full_name": <nombre y apellido de la persona, '
     'string o null>, "client_phone": <teléfono de la persona, string o '
@@ -171,7 +171,6 @@ def _to_property_listing(data: dict[str, Any]) -> PropertyListing:
     return PropertyListing(
         property_type=property_type,
         address=_as_text(data.get("address")),
-        sector_zone_city=_as_text(data.get("sector_zone_city")),
         expected_sale_price=expected_sale_price,
         registration_number=_as_text(data.get("registration_number")),
     )

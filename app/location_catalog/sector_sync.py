@@ -74,8 +74,8 @@ def build_target_fields(sector: Sector) -> dict[str, str]:
     este sync mandara su propio TITLE, competiría con esa regla."""
     label = build_location_label(sector.sector, sector.zona, sector.ciudad, sector.departamento, sector.pais)
     return {
-        fields.FIELD_SECTOR_UBICACION: label,
-        fields.FIELD_SECTOR_CODE: sector.sector_code,
+        fields.FIELD_SECTOR_UBICACION.uf_crm: label,
+        fields.FIELD_SECTOR_CODE.uf_crm: sector.sector_code,
     }
 
 
@@ -85,7 +85,7 @@ def needs_update(existing: dict[str, Any], target_fields: dict[str, str]) -> boo
     Solo compara Ubicación: TITLE no se manda (lo arma una regla de
     automatización de Bitrix) y por lo tanto no participa en la decisión de
     si hace falta un update."""
-    return existing.get(fields.FIELD_SECTOR_UBICACION) != target_fields[fields.FIELD_SECTOR_UBICACION]
+    return existing.get(fields.FIELD_SECTOR_UBICACION.uf_crm) != target_fields[fields.FIELD_SECTOR_UBICACION.uf_crm]
 
 
 def plan_sync(

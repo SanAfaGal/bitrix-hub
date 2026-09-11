@@ -111,9 +111,11 @@ class SectorsMixin:
                 return None if start is None else items_by_code
 
             for item in items:
-                code = item.get(fields.FIELD_SECTOR_CODE)
+                code = item.get(fields.FIELD_SECTOR_CODE.uf_crm)
                 if not code:
-                    logger.warning("Ítem de Smart Process de sectores sin %s, se omite: %s", fields.FIELD_SECTOR_CODE, item)
+                    logger.warning(
+                        "Ítem de Smart Process de sectores sin %s, se omite: %s", fields.FIELD_SECTOR_CODE.uf_crm, item
+                    )
                     continue
                 items_by_code[str(code)] = item
 
@@ -122,6 +124,35 @@ class SectorsMixin:
                 break
             start = next_start
         return items_by_code
+
+    def find_sector_item_id_by_code(self, sector_code: str) -> str | None:
+        """Busca el id de Bitrix de un ítem del Smart Process de Sectores por
+        `sector_code` de Mobilia — un solo ítem vía `filter`, no trae los
+        ~1.500 ítems como `list_sector_items()`. Usado para vincular el campo
+        "[Ventas] Ubicación" (`FIELD_DEAL_UBICACION_SECTOR`) del deal.
+        """
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.item.list.json",
+                json={
+                    "entityTypeId": fields.SECTOR_ENTITY_TYPE_ID,
+                    "filter": {fields.FIELD_SECTOR_CODE.uf_crm: sector_code},
+                    "select": ["*", "UF_*"],
+                    "useOriginalUfNames": "Y",
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error buscando ítem de sector %s en Bitrix: %s%s", sector_code, exc, error_detail(exc))
+            return None
+
+        items = _extract_items(payload)
+        if not items:
+            return None
+        item_id = items[0].get("id")
+        return str(item_id) if item_id else None
 
     def create_sector_item(self, item_fields: dict[str, Any]) -> str | None:
         """Crea un ítem del Smart Process de sectores. Retorna el nuevo id o None si falla."""
