@@ -18,8 +18,8 @@ from app.message_templates.store import (
 FAVICON_URL = "/static/imgs/favicon.ico"
 LOGO_URL = "/static/imgs/logo_short.webp"
 
-LOGIN_PATH = "/admin/login"
-LOGOUT_PATH = "/admin/logout"
+# Login/logout viven en app/auth/ (cuenta corporativa, único para todo el staff).
+LOGOUT_PATH = "/auth/logout"
 TEMPLATES_PATH = "/admin/templates"
 CONFIG_PATH = "/admin/config"
 PROSPECTS_PATH = "/admin/prospects"
@@ -37,48 +37,6 @@ def _head(title: str) -> str:
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
 {ADMIN_STYLE}"""
-
-
-def render_login_html(*, error: str | None = None) -> str:
-    error_html = f'<div class="alert alert--error">{escape(error)}</div>' if error else ""
-    return f"""<!doctype html>
-<html lang="es">
-<head>
-{_head("Iniciar sesión")}
-</head>
-<body>
-<div class="page">
-  <div class="frame">
-    <div class="brand">
-      <img class="brand__logo" src="{LOGO_URL}" alt="Alberto Álvarez">
-      <div class="brand__identity">
-        <span class="brand__name">Alberto Álvarez</span>
-        <span class="brand__tagline">Panel administrativo</span>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card__header">
-        <h1 class="card__title">Iniciar sesión</h1>
-        <p class="card__subtitle">Acceso del equipo comercial al panel de plantillas del bot.</p>
-      </div>
-      {error_html}
-      <form method="post" action="{LOGIN_PATH}" style="display:flex;flex-direction:column;gap:var(--space-4)">
-        <div class="field">
-          <label class="field__label" for="username">Usuario</label>
-          <input class="field__input" id="username" name="username" type="text" required autofocus>
-        </div>
-        <div class="field">
-          <label class="field__label" for="password">Clave</label>
-          <input class="field__input" id="password" name="password" type="password" required>
-        </div>
-        <button type="submit" class="btn btn--primary">Entrar</button>
-      </form>
-    </div>
-  </div>
-</div>
-</body>
-</html>
-"""
 
 
 _NAVPILL_ICONS = {

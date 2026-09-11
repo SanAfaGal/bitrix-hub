@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lead {{deal_id}} — Alberto Álvarez</title>
+  <link rel="icon" href="/static/imgs/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/interno/estilos.css">
+</head>
+<body>
+<div class="page">
+  <div class="frame">
+    <div class="brand">
+      <img class="brand__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">
+      <div class="brand__identity">
+        <span class="brand__name">Alberto Álvarez</span>
+        <span class="brand__tagline">{{staff_name}}</span>
+      </div>
+      <form method="post" action="/auth/logout"><button type="submit" class="btn btn--link">Cerrar sesión</button></form>
+    </div>
+
+    <div class="card">
+      <div class="card__header">
+        <h1 class="card__title">Lead creado</h1>
+        <p class="card__subtitle">Deal #{{deal_id}} en Bitrix.</p>
+      </div>
+
+      {{flash_html}}
+
+      <dl class="summary">
+        <dt>Propietario</dt><dd>{{owner_full_name}}</dd>
+        <dt>Tipo de inmueble</dt><dd>{{property_type}}</dd>
+        <dt>Dirección</dt><dd>{{address}}</dd>
+        <dt>Ubicación</dt><dd>{{location}}</dd>
+      </dl>
+
+      <p class="card__subtitle">¿Iniciar ahora el proceso de Autorización de Corretaje? Los datos ya capturados se reusan — el propietario solo completa lo que falta.</p>
+
+      <div class="actions">
+        <a class="btn btn--primary" href="{{public_form_url}}" target="_blank" rel="noopener">Abrir formulario aquí (firma en el sitio)</a>
+        <form method="post" action="/interno/lead/{{deal_id}}/enviar-whatsapp">
+          <button type="submit" class="btn btn--secondary">Enviar enlace por WhatsApp</button>
+        </form>
+      </div>
+
+      <a class="btn btn--link" href="/interno/nuevo-lead">Crear otro lead</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

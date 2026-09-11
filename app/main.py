@@ -15,10 +15,12 @@ from starlette.middleware.sessions import SessionMiddleware
 mimetypes.add_type("image/webp", ".webp")
 
 from app.admin.router import router as admin_router
-from app.admin.settings import load_admin_settings
+from app.auth.router import router as auth_router
+from app.auth.settings import load_session_settings
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
 from app.graph.router import router as graph_router
+from app.interno.router import router as interno_router
 from app.location_catalog.router import router as location_catalog_router
 from app.message_templates import store as templates_store
 from app.waha.router import router as waha_router
@@ -69,9 +71,21 @@ tags_metadata = [
     {
         "name": "Admin",
         "description": (
-            "Panel interno (login único) para editar las plantillas de "
-            "WhatsApp y el comportamiento del bot sin tocar código — ver "
-            "app/admin/ y app/message_templates/."
+            "Panel interno (cuenta corporativa + ADMIN_EMAILS) para editar las "
+            "plantillas de WhatsApp y el comportamiento del bot sin tocar código "
+            "— ver app/admin/ y app/message_templates/."
+        ),
+    },
+    {
+        "name": "Autenticación",
+        "description": "Login corporativo (Microsoft Entra ID), único para todo el staff — ver app/auth/.",
+    },
+    {
+        "name": "Interno",
+        "description": (
+            "Páginas privadas para el staff (cuenta corporativa, sin ADMIN_EMAILS): "
+            "crear un lead y, opcionalmente, iniciar de inmediato la Autorización de "
+            "Corretaje — ver app/interno/."
         ),
     },
 ]
@@ -123,17 +137,18 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
-# Firma la cookie de sesión del panel admin (app/admin/). `load_admin_settings()`
-# falla duro si falta ADMIN_SESSION_SECRET en .env — sin esto, un despliegue mal
-# configurado firmaría cookies con un secreto público y permitiría forjar sesión
-# de admin sin credenciales. `https_only`/`same_site="strict"` evitan que la cookie
-# viaje por HTTP o se filtre en una navegación cross-site (ver ADMIN_SESSION_HTTPS_ONLY
-# en app/admin/settings.py para el escape hatch de desarrollo local sin TLS).
-_admin_settings = load_admin_settings()
+# Firma la cookie de sesión de todo el staff (interno + admin, ver app/auth/).
+# `load_session_settings()` falla duro si falta SESSION_SECRET_KEY en .env — sin
+# esto, un despliegue mal configurado firmaría cookies con un secreto público y
+# permitiría forjar sesión sin login. `https_only`/`same_site="strict"` evitan que
+# la cookie viaje por HTTP o se filtre en una navegación cross-site (ver
+# SESSION_HTTPS_ONLY en app/auth/settings.py para el escape hatch de desarrollo
+# local sin TLS).
+_session_settings = load_session_settings()
 app.add_middleware(
     SessionMiddleware,
-    secret_key=_admin_settings.session_secret,
-    https_only=_admin_settings.session_https_only,
+    secret_key=_session_settings.secret,
+    https_only=_session_settings.https_only,
     same_site="strict",
 )
 
@@ -144,9 +159,14 @@ app.include_router(forms_router)
 app.include_router(graph_router)
 app.include_router(location_catalog_router)
 app.include_router(admin_router)
+app.include_router(auth_router)
+app.include_router(interno_router)
 
 # Assets de marca (favicon, logo) usados por app/forms y app/admin.
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+# CSS/JS propios de las páginas privadas de app/interno/ (HTML/CSS/JS sueltos,
+# ver app/interno/README.md).
+app.mount("/static/interno", StaticFiles(directory="app/interno/static"), name="static-interno")
 
 
 @app.get("/health", tags=["Salud"], summary="Estado del servicio")

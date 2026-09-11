@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.admin.deps import require_login
+from app.auth.deps import require_admin
 from app.crm.deps import get_crm_client
 from app.flows import graph_lead_store as processed_store
 from app.flows.graph_lead_intake import LEAD_SENDER, create_lead
@@ -31,7 +31,7 @@ def get_inbox(
     ),
     top: int = Query(default=25, ge=1, le=100, description="Cantidad máxima de mensajes a devolver."),
     client: GraphClient = Depends(get_graph_client),
-    _: str = Depends(require_login),
+    _: str = Depends(require_admin),
 ) -> list[dict[str, Any]]:
     """Endpoint de prueba: confirma acceso al inbox y el filtrado por remitente.
 
@@ -51,7 +51,7 @@ def get_inbox(
 def post_process_leads(
     top: int = Query(default=25, ge=1, le=100, description="Cantidad máxima de correos a revisar en esta corrida."),
     client: GraphClient = Depends(get_graph_client),
-    _: str = Depends(require_login),
+    _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Lista los correos de `LEAD_SENDER`, salta los ya procesados y crea contacto+negociación para el resto.
 

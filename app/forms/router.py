@@ -155,6 +155,26 @@ def _is_already_signed(deal_id: str) -> bool:
     return crm_client.get_authorization_status(deal) == "firmada"
 
 
+def _prefill_from_deal(deal_id: str) -> dict[str, str]:
+    """Solo los campos ya capturados por un lead creado desde app/interno/ (o
+    cualquier otro origen que haya llamado `update_property_listing`) — el
+    propietario no debería repetir información que el captador ya guardó en
+    Bitrix. Ver el docstring de `render_form_html` para qué campos cubre."""
+    try:
+        crm_client = get_crm_client()
+    except (HTTPException, RuntimeError):
+        return {}
+    listing = crm_client.get_property_listing(deal_id)
+    prefill: dict[str, str] = {}
+    if listing.property_type:
+        prefill["property_type"] = listing.property_type
+    if listing.address:
+        prefill["address"] = listing.address
+    if listing.expected_sale_price:
+        prefill["sale_price"] = str(listing.expected_sale_price)
+    return prefill
+
+
 @router.get(
     FORM_PATH,
     response_class=HTMLResponse,
@@ -166,6 +186,8 @@ def get_brokerage_authorization_form(deal_id: str | None = None, token: str | No
             return HTMLResponse(render_link_invalid_html())
         if _is_already_signed(deal_id):
             return HTMLResponse(render_already_signed_html())
+        prefill = _prefill_from_deal(deal_id)
+        return HTMLResponse(render_form_html(deal_id=deal_id, token=token, prefill=prefill))
     return HTMLResponse(render_form_html(deal_id=deal_id, token=token))
 
 

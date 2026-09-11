@@ -11,7 +11,7 @@ from typing import Any, Literal, Protocol
 
 AuthorizationStatus = Literal["pendiente_envio", "pendiente_firma", "firmada"]
 
-DealSource = Literal["whatsapp", "pagina_web"]
+DealSource = Literal["whatsapp", "pagina_web", "interno"]
 
 
 @dataclass(frozen=True)

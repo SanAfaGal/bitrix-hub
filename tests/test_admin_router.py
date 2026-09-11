@@ -6,78 +6,55 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.admin import auth as admin_auth
 from app.admin import router as admin_router
-from app.admin.settings import AdminSettings
+from app.auth.deps import require_admin
 from app.flows.whatsapp_bot import ConversationStore
 from app.main import app
 from app.message_templates import db as templates_db
 from app.message_templates import store as templates_store
 from app.message_templates.models import Base
-from app.shared import rate_limit as rate_limit_module
 
-_CREDENTIALS = AdminSettings(username="admin", password="secret123", session_secret="test-secret")
+_ADMIN_EMAIL = "admin@albertoalvarez.com"
 _FIRST_TEMPLATE_KEY = templates_store.TEMPLATE_SECTIONS[0]["keys"][0]
-
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limits() -> None:
-    """El rate limit del login es en memoria de proceso — sin esto, los tests de este archivo
-    comparten el mismo bucket (TestClient no trae IP real) y se agotan entre sí."""
-    rate_limit_module._hits.clear()
 
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """DB de plantillas en SQLite en memoria (una sola conexión compartida vía StaticPool,
-    para que sobreviva entre requests) y credenciales fijas, sin depender de env vars reales."""
+    para que sobreviva entre requests). El login en sí (Entra ID) se prueba en
+    tests/test_auth.py — acá `require_admin` se sobreescribe vía dependency_overrides,
+    siguiendo el patrón documentado en CLAUDE.md."""
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
     )
     Base.metadata.create_all(engine)
     monkeypatch.setattr(templates_db, "SessionLocal", sessionmaker(bind=engine, future=True))
-    monkeypatch.setattr(admin_auth, "load_admin_settings", lambda: _CREDENTIALS)
     return TestClient(app)
 
 
-def _log_in(client: TestClient) -> None:
-    response = client.post("/admin/login", data={"username": "admin", "password": "secret123"})
-    assert response.status_code == 200  # sigue el redirect y termina en /admin/templates/<primera key>
+def _log_in() -> None:
+    app.dependency_overrides[require_admin] = lambda: _ADMIN_EMAIL
+
+
+def _log_out() -> None:
+    app.dependency_overrides.pop(require_admin, None)
+
+
+@pytest.fixture(autouse=True)
+def _clear_override():
+    yield
+    _log_out()
 
 
 def test_templates_index_redirects_to_login_when_not_authenticated(client: TestClient) -> None:
     response = client.get("/admin/templates", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
-
-
-def test_login_with_wrong_credentials_shows_error(client: TestClient) -> None:
-    response = client.post("/admin/login", data={"username": "admin", "password": "incorrecta"})
-
-    assert response.status_code == 200
-    assert "incorrectos" in response.text
-
-
-def test_login_is_rate_limited_after_too_many_attempts(client: TestClient) -> None:
-    for _ in range(10):
-        response = client.post("/admin/login", data={"username": "admin", "password": "incorrecta"})
-        assert response.status_code == 200
-
-    blocked = client.post("/admin/login", data={"username": "admin", "password": "incorrecta"})
-
-    assert blocked.status_code == 429
-
-
-def test_login_redirects_to_first_template(client: TestClient) -> None:
-    response = client.post("/admin/login", data={"username": "admin", "password": "secret123"}, follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == f"/admin/templates/{_FIRST_TEMPLATE_KEY}"
+    assert response.headers["location"] == "/auth/login?next=/admin/templates"
 
 
 def test_templates_index_redirects_to_first_template_when_authenticated(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.get("/admin/templates", follow_redirects=False)
 
@@ -86,7 +63,7 @@ def test_templates_index_redirects_to_first_template_when_authenticated(client: 
 
 
 def test_template_editor_page_is_reachable(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.get(f"/admin/templates/{_FIRST_TEMPLATE_KEY}")
 
@@ -96,7 +73,7 @@ def test_template_editor_page_is_reachable(client: TestClient) -> None:
 
 
 def test_unknown_template_key_redirects_to_first_template(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.get("/admin/templates/no_existe", follow_redirects=False)
 
@@ -105,7 +82,7 @@ def test_unknown_template_key_redirects_to_first_template(client: TestClient) ->
 
 
 def test_config_page_does_not_expose_system_prompt_as_a_template(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.get(f"/admin/templates/{templates_store.CONFIG_KEY}", follow_redirects=False)
 
@@ -114,7 +91,7 @@ def test_config_page_does_not_expose_system_prompt_as_a_template(client: TestCli
 
 
 def test_edit_template_persists_and_is_used_by_the_bot(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.post(f"/admin/templates/{_FIRST_TEMPLATE_KEY}", data={"content": "Texto editado desde el panel"})
 
@@ -125,7 +102,7 @@ def test_edit_template_persists_and_is_used_by_the_bot(client: TestClient) -> No
 
 
 def test_edit_template_rejects_empty_content(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.post(f"/admin/templates/{_FIRST_TEMPLATE_KEY}", data={"content": ""})
 
@@ -135,7 +112,7 @@ def test_edit_template_rejects_empty_content(client: TestClient) -> None:
 
 
 def test_restore_template_resets_to_default(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
     client.post(f"/admin/templates/{_FIRST_TEMPLATE_KEY}", data={"content": "Editado"})
 
     response = client.post(f"/admin/templates/{_FIRST_TEMPLATE_KEY}/restore")
@@ -146,7 +123,7 @@ def test_restore_template_resets_to_default(client: TestClient) -> None:
 
 
 def test_edit_unknown_template_key_redirects(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.post("/admin/templates/no_existe", data={"content": "texto"}, follow_redirects=False)
 
@@ -157,11 +134,11 @@ def test_config_page_requires_login(client: TestClient) -> None:
     response = client.get("/admin/config", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
+    assert response.headers["location"] == "/auth/login?next=/admin/config"
 
 
 def test_config_page_shows_system_prompt(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.get("/admin/config")
 
@@ -171,7 +148,7 @@ def test_config_page_shows_system_prompt(client: TestClient) -> None:
 
 
 def test_edit_config_persists(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
 
     response = client.post("/admin/config", data={"content": "Nuevo comportamiento del bot"})
 
@@ -181,7 +158,7 @@ def test_edit_config_persists(client: TestClient) -> None:
 
 
 def test_restore_config_resets_to_default(client: TestClient) -> None:
-    _log_in(client)
+    _log_in()
     client.post("/admin/config", data={"content": "Editado"})
 
     response = client.post("/admin/config/restore")
@@ -192,21 +169,11 @@ def test_restore_config_resets_to_default(client: TestClient) -> None:
     ]
 
 
-def test_logout_then_templates_page_redirects_again(client: TestClient) -> None:
-    _log_in(client)
-
-    client.post("/admin/logout")
-    response = client.get(f"/admin/templates/{_FIRST_TEMPLATE_KEY}", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
-
-
 def test_prospects_list_requires_login(client: TestClient) -> None:
     response = client.get("/admin/prospects", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
+    assert response.headers["location"] == "/auth/login?next=/admin/prospects"
 
 
 def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -216,7 +183,7 @@ def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.Monk
     store.set_deal_id("573001112233@c.us", "42")
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
-    _log_in(client)
+    _log_in()
     response = client.get("/admin/prospects")
 
     assert response.status_code == 200
@@ -228,7 +195,7 @@ def test_prospects_list_shows_chats(client: TestClient, monkeypatch: pytest.Monk
 def test_prospects_list_shows_empty_state(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(admin_router, "conversation_store", ConversationStore())
 
-    _log_in(client)
+    _log_in()
     response = client.get("/admin/prospects")
 
     assert response.status_code == 200
@@ -244,7 +211,7 @@ def test_prospect_detail_shows_full_history(client: TestClient, monkeypatch: pyt
     store.set_confirmed_identity(chat_id, "Ana", "573001112233")
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
-    _log_in(client)
+    _log_in()
     response = client.get(f"/admin/prospects/{chat_id}")
 
     assert response.status_code == 200
@@ -260,7 +227,7 @@ def test_prospect_detail_keeps_the_chat_list_visible(client: TestClient, monkeyp
     store.add_turn("222@c.us", "user", "chat dos")
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
-    _log_in(client)
+    _log_in()
     response = client.get("/admin/prospects/111@c.us")
 
     assert response.status_code == 200
@@ -273,7 +240,7 @@ def test_prospect_detail_requires_login(client: TestClient) -> None:
     response = client.get("/admin/prospects/573001112233@c.us", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
+    assert response.headers["location"] == "/auth/login?next=/admin/prospects/573001112233@c.us"
 
 
 def test_prospects_list_shows_bot_off_badge_by_default(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -281,7 +248,7 @@ def test_prospects_list_shows_bot_off_badge_by_default(client: TestClient, monke
     store.add_turn("573001112233@c.us", "user", "hola")
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
-    _log_in(client)
+    _log_in()
     response = client.get("/admin/prospects")
 
     assert response.status_code == 200
@@ -298,7 +265,7 @@ def test_prospect_detail_shows_bot_on_badge_and_deactivate_form(
     store.set_bot_enabled(chat_id, True)
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
-    _log_in(client)
+    _log_in()
     response = client.get(f"/admin/prospects/{chat_id}")
 
     assert response.status_code == 200
@@ -310,14 +277,14 @@ def test_activate_bot_requires_login(client: TestClient) -> None:
     response = client.post("/admin/prospects/573001112233@c.us/bot/activate", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
+    assert response.headers["location"].startswith("/auth/login")
 
 
 def test_deactivate_bot_requires_login(client: TestClient) -> None:
     response = client.post("/admin/prospects/573001112233@c.us/bot/deactivate", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
+    assert response.headers["location"].startswith("/auth/login")
 
 
 def test_activate_bot_seeds_history_and_enables_bot(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -334,7 +301,7 @@ def test_activate_bot_seeds_history_and_enables_bot(client: TestClient, monkeypa
         or {"seeded": True, "messages_imported": 3, "analysis": None},
     )
 
-    _log_in(client)
+    _log_in()
     response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
 
     assert response.status_code == 303
@@ -363,7 +330,7 @@ def test_activate_bot_holds_chat_lock_while_seeding_history(client: TestClient, 
 
     monkeypatch.setattr(admin_router, "seed_history_from_waha", _fake_seed)
 
-    _log_in(client)
+    _log_in()
     response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
 
     assert response.status_code == 303
@@ -389,7 +356,7 @@ def test_activate_bot_replies_to_the_pending_message(client: TestClient, monkeyp
         lambda cid, w, l, c, *, store: reply_calls.append((cid, w, l, c, store)) or {"ok": True},
     )
 
-    _log_in(client)
+    _log_in()
     response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
 
     assert response.status_code == 303
@@ -411,7 +378,7 @@ def test_activate_bot_is_a_noop_when_already_enabled(client: TestClient, monkeyp
         lambda s, w, l, cid: seed_calls.append((s, w, l, cid)) or {"seeded": False, "messages_imported": 0, "analysis": None},
     )
 
-    _log_in(client)
+    _log_in()
     response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
 
     assert response.status_code == 303
@@ -432,7 +399,7 @@ def test_activate_bot_handles_misconfigured_integration_gracefully(
 
     monkeypatch.setattr(admin_router, "get_waha_client", _raise)
 
-    _log_in(client)
+    _log_in()
     response = client.post(f"/admin/prospects/{chat_id}/bot/activate", follow_redirects=False)
 
     assert response.status_code == 303
@@ -445,7 +412,7 @@ def test_deactivate_bot_disables_bot(client: TestClient, monkeypatch: pytest.Mon
     store.set_bot_enabled(chat_id, True)
     monkeypatch.setattr(admin_router, "conversation_store", store)
 
-    _log_in(client)
+    _log_in()
     response = client.post(f"/admin/prospects/{chat_id}/bot/deactivate", follow_redirects=False)
 
     assert response.status_code == 303

@@ -6,27 +6,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.admin import auth as admin_auth
 from app.admin import router as admin_router
-from app.admin.settings import AdminSettings
-from app.location_catalog import client as location_catalog_client
+from app.auth.deps import require_admin
 from app.location_catalog.client import Sector
 from app.main import app
 from app.message_templates import db as templates_db
 from app.message_templates.models import Base
-from app.shared import rate_limit as rate_limit_module
 
-_CREDENTIALS = AdminSettings(username="admin", password="secret123", session_secret="test-secret")
+_ADMIN_EMAIL = "admin@albertoalvarez.com"
 
 _SECTORS = [
     Sector(sector_code="001", sector="Centro", zona="Zona 1", ciudad="Bogotá", departamento="Cundinamarca", pais="Colombia", cobertura=True),
     Sector(sector_code="002", sector="Norte", zona="Zona 2", ciudad="Cali", departamento="Valle", pais="Colombia", cobertura=False),
 ]
-
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limits() -> None:
-    rate_limit_module._hits.clear()
 
 
 @pytest.fixture
@@ -36,21 +28,25 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     )
     Base.metadata.create_all(engine)
     monkeypatch.setattr(templates_db, "SessionLocal", sessionmaker(bind=engine, future=True))
-    monkeypatch.setattr(admin_auth, "load_admin_settings", lambda: _CREDENTIALS)
     monkeypatch.setattr(admin_router.location_catalog_client, "fetch_all_sectores", lambda: list(_SECTORS))
     return TestClient(app)
 
 
 def _log_in(client: TestClient) -> None:
-    response = client.post("/admin/login", data={"username": "admin", "password": "secret123"})
-    assert response.status_code == 200
+    app.dependency_overrides[require_admin] = lambda: _ADMIN_EMAIL
+
+
+@pytest.fixture(autouse=True)
+def _clear_override():
+    yield
+    app.dependency_overrides.pop(require_admin, None)
 
 
 def test_coverage_page_requires_login(client: TestClient) -> None:
     response = client.get("/admin/cobertura", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/login"
+    assert response.headers["location"] == "/auth/login?next=/admin/cobertura"
 
 
 def test_coverage_page_lists_all_sectors_by_default(client: TestClient) -> None:

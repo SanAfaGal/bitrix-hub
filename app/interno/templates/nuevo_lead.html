@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nuevo lead — Alberto Álvarez</title>
+  <link rel="icon" href="/static/imgs/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/interno/estilos.css">
+</head>
+<body>
+<div class="page">
+  <div class="frame">
+    <div class="brand">
+      <img class="brand__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">
+      <div class="brand__identity">
+        <span class="brand__name">Alberto Álvarez</span>
+        <span class="brand__tagline">{{staff_name}}</span>
+      </div>
+      <form method="post" action="/auth/logout"><button type="submit" class="btn btn--link">Cerrar sesión</button></form>
+    </div>
+
+    <div class="card">
+      <div class="card__header">
+        <h1 class="card__title">Nuevo lead</h1>
+        <p class="card__subtitle">Datos del propietario y del inmueble para crear el contacto y la negociación en Bitrix.</p>
+      </div>
+
+      {{flash_html}}
+
+      <form method="post" action="/interno/nuevo-lead" class="form">
+        <input type="hidden" name="idempotency_token" value="{{idempotency_token}}">
+
+        <div class="field">
+          <label class="field__label" for="owner_full_name">Nombre completo del propietario</label>
+          <input class="field__input" id="owner_full_name" name="owner_full_name" type="text" required value="{{owner_full_name}}">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="owner_phone">Teléfono</label>
+          <input class="field__input" id="owner_phone" name="owner_phone" type="tel" required value="{{owner_phone}}">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="owner_email">Correo (opcional)</label>
+          <input class="field__input" id="owner_email" name="owner_email" type="email" value="{{owner_email}}">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="property_type">Tipo de inmueble</label>
+          <select class="field__input" id="property_type" name="property_type" required>
+            {{property_type_options_html}}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="address">Dirección del inmueble</label>
+          <input class="field__input" id="address" name="address" type="text" required value="{{address}}">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="location">Ubicación (sector, ciudad)</label>
+          <input class="field__input" id="location" name="location" type="text" list="location-suggestions" required autocomplete="off" value="{{location}}">
+          <datalist id="location-suggestions"></datalist>
+          <input type="hidden" id="location_sector_code" name="location_sector_code" value="{{location_sector_code}}">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="expected_sale_price">Precio de venta esperado (opcional)</label>
+          <input class="field__input" id="expected_sale_price" name="expected_sale_price" type="text" inputmode="numeric" value="{{expected_sale_price}}">
+        </div>
+
+        {{coverage_warning_html}}
+
+        <button type="submit" class="btn btn--primary">Crear lead</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script src="/static/interno/script.js"></script>
+</body>
+</html>

@@ -138,7 +138,11 @@ class DealsMixin:
             fields.FIELD_FIRST_CONTACT: datetime.now(timezone.utc).isoformat(),
         }
         if source is not None:
-            deal_fields[fields.FIELD_SOURCE] = fields.SOURCE_VALUE_BY_NAME[source]
+            source_value = fields.SOURCE_VALUE_BY_NAME.get(source)
+            if source_value is None:
+                logger.warning("Sin VALUE ID de Bitrix mapeado para el origen %r, se omite el campo", source)
+            else:
+                deal_fields[fields.FIELD_SOURCE] = source_value
 
         try:
             response = requests.post(

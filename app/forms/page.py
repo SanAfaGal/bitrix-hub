@@ -317,9 +317,11 @@ def render_already_signed_html() -> str:
 def _render_text_input(field: dict) -> str:
     placeholder = field.get("placeholder")
     suggest = field.get("suggest")
+    prefill_value = field.get("value")
     input_html = (
         '<input class="field__input{correctable_class}" id="field-{name}" type="{input_type}" '
-        '{name_attr}{placeholder}{inputmode}{autocomplete}{required}{readonly}{form}>'.format(
+        '{name_attr}{value}{placeholder}{inputmode}{autocomplete}{required}{readonly}{form}>'.format(
+            value=f' value="{escape(str(prefill_value))}"' if prefill_value else "",
             # Dueño del espacio del lápiz superpuesto (ver el `.field__input-wrap`
             # que arma _render_field para los campos con `confirm_text`).
             correctable_class=" field__input--correctable" if field.get("confirm_text") else "",
@@ -360,13 +362,17 @@ def _render_text_input(field: dict) -> str:
 
 
 def _render_select(field: dict, options: list[tuple[str, str]]) -> str:
+    selected_value = field.get("value")
     options_html = "\n".join(
-        f'            <option value="{escape(value)}">{escape(label)}</option>' for value, label in options
+        f'            <option value="{escape(value)}"{" selected" if value == selected_value else ""}>'
+        f"{escape(label)}</option>"
+        for value, label in options
     )
+    placeholder_selected = "" if selected_value else " selected"
     return (
         f'          <select class="field__input" id="field-{field["name"]}" name="{field["name"]}"'
         f'{" required" if field["required"] else ""}>\n'
-        '            <option value="" selected disabled>Selecciona una opción...</option>\n'
+        f'            <option value=""{placeholder_selected} disabled>Selecciona una opción...</option>\n'
         f"{options_html}\n"
         "          </select>"
     )
@@ -434,7 +440,7 @@ def _render_field(field: dict) -> str:
     )
 
 
-def _render_fields_with_sections(fields: list[dict]) -> str:
+def _render_fields_with_sections(fields: list[dict], prefill: dict[str, str] | None = None) -> str:
     parts = []
     last_section = None
     for field in fields:
@@ -448,16 +454,25 @@ def _render_fields_with_sections(fields: list[dict]) -> str:
             )
             parts.append(f'        <h3 class="form-section__title">{icon}{title}</h3>')
             last_section = section
-        parts.append(_render_field(field))
+        prefill_value = (prefill or {}).get(field["name"])
+        parts.append(_render_field({**field, "value": prefill_value} if prefill_value else field))
     return "\n".join(parts)
 
 
-def render_form_html(deal_id: str | None = None, token: str | None = None) -> str:
+def render_form_html(
+    deal_id: str | None = None, token: str | None = None, prefill: dict[str, str] | None = None
+) -> str:
+    """`prefill` solo cubre campos que no dependen de un paso del wizard con
+    verificación en vivo (`property_type`, `address`, `sale_price`) — no
+    `location`/`registration_number`, que necesitan pasar por su chequeo de
+    cobertura/duplicado en Xposure para quedar en el estado "confirmado" que
+    espera el wizard (ver `_FIELDS`/`confirm_text`). El cliente los ve
+    prellenados pero editables — puede corregir un dato mal capturado."""
     deal_id_field_html = (
         f'        <input type="hidden" name="deal_id" value="{escape(deal_id)}">' if deal_id else ""
     )
     token_field_html = f'        <input type="hidden" name="token" value="{escape(token)}">' if token else ""
-    fields_html = _render_fields_with_sections(_FIELDS)
+    fields_html = _render_fields_with_sections(_FIELDS, prefill)
     location_field_html = _render_field(_LOCATION_FIELD)
     wizard_html = render_wizard_html(location_field_html)
     return (

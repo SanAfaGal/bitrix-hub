@@ -66,10 +66,13 @@ LLM_MODEL=gpt-4o-mini
 WHATSAPP_BOT_ALLOWED_NUMBERS=
 WHATSAPP_BOT_HISTORY_ANALYSIS_LIMIT=40
 
-# Panel admin de plantillas (/admin/templates) y su base MySQL
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=cambia-esto-por-una-clave-segura
-ADMIN_SESSION_SECRET=cambia-esto-por-un-secreto-largo-y-aleatorio
+# Login corporativo (Microsoft Entra ID, único para todo el staff — /interno/ y /admin/)
+MS_OAUTH_TENANT_ID=tu-tenant-id
+MS_OAUTH_CLIENT_ID=tu-client-id
+MS_OAUTH_CLIENT_SECRET=tu-client-secret
+ADMIN_EMAILS=admin@albertoalvarez.com
+SESSION_SECRET_KEY=cambia-esto-por-un-secreto-largo-y-aleatorio
+
 MYSQL_HOST=mysql
 MYSQL_DATABASE=bitrix_hub
 MYSQL_USER=bitrix_hub
@@ -186,9 +189,15 @@ app/
     cache.py                # Cache en memoria (TTL + cooldown) del catálogo de sectores/ciudades
     router.py                 # GET /formularios/ubicaciones (tag "Formularios") — consumido por app/forms/
   admin/
-    router.py                 # GET/POST /admin/login, /admin/templates (tag "Admin")
-    auth.py, deps.py            # Login único (ADMIN_USERNAME/PASSWORD), sesión en cookie firmada
+    router.py                 # GET/POST /admin/templates (tag "Admin"), protegido con Depends(require_admin)
     page.py, page_styles.py       # HTML/CSS del panel (mismo patrón que app/forms/, guía de estilo de la empresa)
+  auth/
+    client.py                 # OAuth2 authorization-code contra Microsoft Entra ID (sync, requests — adaptado de flash-view)
+    deps.py                  # require_staff_user (cualquier cuenta corporativa), require_admin (+ ADMIN_EMAILS)
+    router.py                 # GET /auth/login, /auth/callback, POST /auth/logout (tag "Autenticación")
+  interno/
+    router.py                 # GET/POST /interno/nuevo-lead, /interno/lead/{deal_id} (tag "Interno")
+    templates/, static/          # HTML/CSS/JS sueltos (no armados en Python, ver app/shared/html_templates.py)
   main.py                 # FastAPI(), openapi_tags, include_router(...), GET /health
 scripts/
   resolve_bitrix_drive_folder.py     # Busca carpetas de Bitrix Drive por nombre
@@ -571,11 +580,40 @@ curl -X POST "http://127.0.0.1:8000/webhook/waha-message" \
   }'
 ```
 
+### Login corporativo (app/auth/) y páginas privadas (app/interno/)
+
+Único punto de login para todo el staff: `GET /auth/login` inicia el flujo
+OAuth2 contra Microsoft Entra ID (app registration single-tenant — solo
+cuentas del tenant configurado pueden completar el login; `ALLOWED_EMAIL_DOMAINS`
+es una defensa en profundidad opcional encima de eso), `GET /auth/callback`
+confirma la identidad vía Microsoft Graph `/me` (nunca se parsea el JWT) y
+`POST /auth/logout` cierra también la sesión SSO de Microsoft. Sesión en
+cookie firmada (`SessionMiddleware`/`itsdangerous`, `SESSION_SECRET_KEY`),
+una sola para todo el staff.
+
+Dos niveles de acceso sobre esa misma sesión:
+
+- **`require_staff_user`** — cualquier cuenta corporativa autenticada.
+  Protege `/interno/...`: `GET/POST /interno/nuevo-lead` (crea contacto +
+  deal en Bitrix desde el formulario que llena un captador) y
+  `GET /interno/lead/{deal_id}` (resumen + "iniciar autorización ahora",
+  reusando los datos ya capturados — ver `app/forms/router.py::_prefill_from_deal`
+  para qué campos del formulario público llegan prellenados).
+- **`require_admin`** — lo anterior, más el correo en `ADMIN_EMAILS`.
+  Protege `/admin/...` (ver abajo) y `/graph/inbox`, `/graph/process-leads`.
+
+**Cobertura y captadores**: para el propietario (formulario público), sin
+cobertura en su sector bloquea sin excepción. Para el captador
+(`/interno/nuevo-lead`), sin cobertura también bloquea, pero puede marcar
+"continuar de todas formas" — queda registrado como comentario en el deal de
+Bitrix (quién, cuándo, qué sector), no se descarta la validación en
+silencio. Ver `app/forms/coverage.py::check_coverage`.
+
 ### Panel admin de plantillas y comportamiento del bot
 
-`GET /admin/templates` (login único, `ADMIN_USERNAME`/`ADMIN_PASSWORD`) deja
-que el equipo comercial edite, sin tocar código ni redeployar, los textos
-que le llegan al cliente por WhatsApp y el `system_prompt` del bot LLM.
+`GET /admin/templates` (cuenta corporativa + `ADMIN_EMAILS`, ver arriba)
+deja que el equipo comercial edite, sin tocar código ni redeployar, los
+textos que le llegan al cliente por WhatsApp y el `system_prompt` del bot LLM.
 Reemplaza lo que antes era código Python hardcodeado o el env var
 `WHATSAPP_BOT_SYSTEM_PROMPT` (deprecado). Los disparadores (`key`) son
 fijos en código — el panel solo edita el texto de cada uno, no crea

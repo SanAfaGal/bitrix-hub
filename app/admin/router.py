@@ -1,27 +1,28 @@
-"""Endpoints del panel admin: login, edición de plantillas de WhatsApp y configuración del bot."""
+"""Endpoints del panel admin: edición de plantillas de WhatsApp y configuración del bot.
+
+Login vive en `app/auth/` (cuenta corporativa) — acá solo se exige además
+`ADMIN_EMAILS` vía `Depends(require_admin)`, ver `app/auth/deps.py`.
+"""
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 
-from app.admin.auth import log_in, log_out, verify_credentials
 from app.admin.coverage_page import filter_by_estado, render_coverage_html
-from app.admin.deps import require_login
-from app.admin.models import LoginPayload, TemplateUpdatePayload
+from app.admin.models import TemplateUpdatePayload
 from app.admin.page import (
     CONFIG_PATH,
     COVERAGE_PATH,
-    LOGIN_PATH,
     PROSPECTS_PATH,
     TEMPLATES_PATH,
     render_config_html,
-    render_login_html,
     render_template_editor_html,
 )
 from app.admin.prospects_page import render_prospects_html
+from app.auth.deps import require_admin
 from app.crm.deps import get_crm_client
 from app.flows.whatsapp_bot import conversation_store, reply_after_activation
 from app.flows.whatsapp_bot_activation import activate_bot_for_chat
@@ -29,16 +30,11 @@ from app.flows.whatsapp_bot_history_seed import seed_history_from_waha
 from app.llm.deps import get_llm_client
 from app.location_catalog import client as location_catalog_client
 from app.message_templates import store as templates_store
-from app.shared.rate_limit import rate_limit
 from app.waha.deps import get_waha_client
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Admin"])
-
-# Sin límite de intentos, un usuario/clave débiles quedan expuestos a fuerza
-# bruta si el panel llega a estar accesible desde internet.
-_LOGIN_RATE_LIMIT = {"max_requests": 10, "window_seconds": 60}
 
 
 def _template_keys() -> list[str]:
@@ -48,40 +44,13 @@ def _template_keys() -> list[str]:
     return keys
 
 
-@router.get(LOGIN_PATH, response_class=HTMLResponse, summary="Login del panel admin")
-def get_login() -> HTMLResponse:
-    return HTMLResponse(render_login_html())
-
-
-@router.post(LOGIN_PATH, summary="Autentica al usuario del panel admin", response_model=None)
-def post_login(request: Request, username: str = Form(...), password: str = Form(...)) -> HTMLResponse | RedirectResponse:
-    rate_limit(request, "admin-login", **_LOGIN_RATE_LIMIT)
-    try:
-        payload = LoginPayload(username=username, password=password)
-    except ValidationError:
-        return HTMLResponse(render_login_html(error="Usuario y clave son obligatorios."))
-
-    if not verify_credentials(payload.username, payload.password):
-        return HTMLResponse(render_login_html(error="Usuario o clave incorrectos."))
-
-    log_in(request, payload.username)
-    first_key = _template_keys()[0]
-    return RedirectResponse(url=f"{TEMPLATES_PATH}/{first_key}", status_code=303)
-
-
-@router.post("/admin/logout", summary="Cierra la sesión del panel admin")
-def post_logout(request: Request) -> RedirectResponse:
-    log_out(request)
-    return RedirectResponse(url=LOGIN_PATH, status_code=303)
-
-
 @router.get(TEMPLATES_PATH, summary="Redirige a la primera plantilla")
-def get_templates_index(username: str = Depends(require_login)) -> RedirectResponse:
+def get_templates_index(username: str = Depends(require_admin)) -> RedirectResponse:
     return RedirectResponse(url=f"{TEMPLATES_PATH}/{_template_keys()[0]}", status_code=303)
 
 
 @router.get(f"{TEMPLATES_PATH}/{{key}}", response_class=HTMLResponse, summary="Edita una plantilla de WhatsApp", response_model=None)
-def get_template_editor(key: str, username: str = Depends(require_login)) -> HTMLResponse | RedirectResponse:
+def get_template_editor(key: str, username: str = Depends(require_admin)) -> HTMLResponse | RedirectResponse:
     if key not in _template_keys():
         return RedirectResponse(url=f"{TEMPLATES_PATH}/{_template_keys()[0]}", status_code=303)
     content = templates_store.get_template(key)
@@ -90,7 +59,7 @@ def get_template_editor(key: str, username: str = Depends(require_login)) -> HTM
 
 @router.post(f"{TEMPLATES_PATH}/{{key}}", summary="Guarda el texto de una plantilla", response_model=None)
 def post_template(
-    key: str, content: str = Form(default=""), username: str = Depends(require_login)
+    key: str, content: str = Form(default=""), username: str = Depends(require_admin)
 ) -> HTMLResponse | RedirectResponse:
     if key not in _template_keys():
         return RedirectResponse(url=f"{TEMPLATES_PATH}/{_template_keys()[0]}", status_code=303)
@@ -122,7 +91,7 @@ def post_template(
 
 
 @router.post(f"{TEMPLATES_PATH}/{{key}}/restore", summary="Restaura una plantilla a su valor por defecto", response_model=None)
-def post_restore_template(key: str, username: str = Depends(require_login)) -> HTMLResponse | RedirectResponse:
+def post_restore_template(key: str, username: str = Depends(require_admin)) -> HTMLResponse | RedirectResponse:
     if key not in _template_keys():
         return RedirectResponse(url=f"{TEMPLATES_PATH}/{_template_keys()[0]}", status_code=303)
 
@@ -136,13 +105,13 @@ def post_restore_template(key: str, username: str = Depends(require_login)) -> H
 
 
 @router.get(CONFIG_PATH, response_class=HTMLResponse, summary="Edita el comportamiento del bot (system prompt)")
-def get_config(username: str = Depends(require_login)) -> HTMLResponse:
+def get_config(username: str = Depends(require_admin)) -> HTMLResponse:
     content = templates_store.get_template(templates_store.CONFIG_KEY)
     return HTMLResponse(render_config_html(username=username, content=content))
 
 
 @router.post(CONFIG_PATH, summary="Guarda el comportamiento del bot", response_model=None)
-def post_config(content: str = Form(default=""), username: str = Depends(require_login)) -> HTMLResponse:
+def post_config(content: str = Form(default=""), username: str = Depends(require_admin)) -> HTMLResponse:
     try:
         payload = TemplateUpdatePayload(content=content)
     except ValidationError:
@@ -164,7 +133,7 @@ def post_config(content: str = Form(default=""), username: str = Depends(require
 
 
 @router.post(f"{CONFIG_PATH}/restore", summary="Restaura el comportamiento del bot al valor por defecto")
-def post_restore_config(username: str = Depends(require_login)) -> HTMLResponse:
+def post_restore_config(username: str = Depends(require_admin)) -> HTMLResponse:
     default_content = templates_store.DEFAULT_TEMPLATES[templates_store.CONFIG_KEY]
     templates_store.set_template(templates_store.CONFIG_KEY, default_content, updated_by=username)
     return HTMLResponse(
@@ -173,7 +142,7 @@ def post_restore_config(username: str = Depends(require_login)) -> HTMLResponse:
 
 
 @router.get(PROSPECTS_PATH, response_class=HTMLResponse, summary="Lista los prospectos que el bot está atendiendo")
-def get_prospects(username: str = Depends(require_login)) -> HTMLResponse:
+def get_prospects(username: str = Depends(require_admin)) -> HTMLResponse:
     chats = conversation_store.list_chats()
     return HTMLResponse(render_prospects_html(username=username, chats=chats))
 
@@ -182,7 +151,7 @@ def get_prospects(username: str = Depends(require_login)) -> HTMLResponse:
     f"{PROSPECTS_PATH}/{{chat_id}}/delete",
     summary="Elimina la conversación de un prospecto",
 )
-def post_delete_prospect(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
+def post_delete_prospect(chat_id: str, username: str = Depends(require_admin)) -> RedirectResponse:
     conversation_store.delete_chat(chat_id)
     return RedirectResponse(url=PROSPECTS_PATH, status_code=303)
 
@@ -191,7 +160,7 @@ def post_delete_prospect(chat_id: str, username: str = Depends(require_login)) -
     f"{PROSPECTS_PATH}/{{chat_id}}/bot/activate",
     summary="Activa el bot para un chat, importando su historial previo de WhatsApp si hace falta",
 )
-def post_activate_bot(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
+def post_activate_bot(chat_id: str, username: str = Depends(require_admin)) -> RedirectResponse:
     activate_bot_for_chat(
         chat_id,
         conversation_store,
@@ -208,7 +177,7 @@ def post_activate_bot(chat_id: str, username: str = Depends(require_login)) -> R
     f"{PROSPECTS_PATH}/{{chat_id}}/bot/deactivate",
     summary="Desactiva el bot para un chat",
 )
-def post_deactivate_bot(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
+def post_deactivate_bot(chat_id: str, username: str = Depends(require_admin)) -> RedirectResponse:
     conversation_store.set_bot_enabled(chat_id, False, reason="admin_manual")
     return RedirectResponse(url=f"{PROSPECTS_PATH}/{chat_id}", status_code=303)
 
@@ -218,7 +187,7 @@ def post_deactivate_bot(chat_id: str, username: str = Depends(require_login)) ->
     response_class=HTMLResponse,
     summary="Muestra el hilo de un prospecto junto con la lista completa",
 )
-def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTMLResponse:
+def get_prospect_detail(key: str, username: str = Depends(require_admin)) -> HTMLResponse:
     """`key` es el `chat_id` (WhatsApp) o el `tracking_id` (lead de correo) — se resuelve buscando
     en `list_chats()`, que ya trae ambos canales mezclados (ver `app.flows.whatsapp_bot_store.list_chats`).
     """
@@ -257,7 +226,7 @@ def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTM
 
 
 @router.get(COVERAGE_PATH, response_class=HTMLResponse, summary="Lista sectores y su cobertura de ventas")
-def get_coverage(estado: str = "todos", username: str = Depends(require_login)) -> HTMLResponse:
+def get_coverage(estado: str = "todos", username: str = Depends(require_admin)) -> HTMLResponse:
     sectores = location_catalog_client.fetch_all_sectores()
     flash, flash_error = (None, False)
     if sectores is None:
@@ -278,7 +247,7 @@ def post_coverage_batch(
     accion: str = Form(...),
     estado: str = Form("todos"),
     sector_code: list[str] = Form(default=[]),
-    username: str = Depends(require_login),
+    username: str = Depends(require_admin),
 ) -> HTMLResponse:
     flash: str
     flash_error = False

@@ -58,6 +58,12 @@ VALUE_SOURCE_PAGINA_WEB = 93026
 SOURCE_VALUE_BY_NAME: dict[str, int] = {
     "whatsapp": VALUE_SOURCE_SERVICIO_AL_CLIENTE,
     "pagina_web": VALUE_SOURCE_PAGINA_WEB,
+    # "interno" (lead creado por un captador desde app/interno/) queda sin
+    # mapear a propósito: no hay todavía un VALUE ID de Bitrix confirmado
+    # para ese origen — TODO: correr
+    # scripts/list_bitrix_picklist_values.py UF_CRM_1787836749518 y agregarlo
+    # acá. Mientras tanto, find_or_create_property_seller_deal omite el campo
+    # (loguea un warning) en vez de fallar.
 }
 
 # TODO: llenar corriendo `scripts/list_bitrix_picklist_values.py UF_CRM_1773860139420`
