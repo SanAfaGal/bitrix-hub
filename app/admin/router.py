@@ -258,8 +258,14 @@ def get_prospect_detail(key: str, username: str = Depends(require_login)) -> HTM
 
 @router.get(COVERAGE_PATH, response_class=HTMLResponse, summary="Lista sectores y su cobertura de ventas")
 def get_coverage(estado: str = "todos", username: str = Depends(require_login)) -> HTMLResponse:
-    sectors = filter_by_estado(location_catalog_client.fetch_all_sectores(), estado)
-    return HTMLResponse(render_coverage_html(username=username, sectors=sectors, estado=estado))
+    sectores = location_catalog_client.fetch_all_sectores()
+    flash, flash_error = (None, False)
+    if sectores is None:
+        sectores, flash, flash_error = [], "No se pudo leer el catálogo de sectores del DWH de Mobilia.", True
+    sectors = filter_by_estado(sectores, estado)
+    return HTMLResponse(
+        render_coverage_html(username=username, sectors=sectors, estado=estado, flash=flash, flash_error=flash_error)
+    )
 
 
 @router.post(
@@ -287,7 +293,10 @@ def post_coverage_batch(
     else:
         flash, flash_error = "No se pudo actualizar la cobertura en el DWH — intenta de nuevo.", True
 
-    sectors = filter_by_estado(location_catalog_client.fetch_all_sectores(), estado)
+    sectores = location_catalog_client.fetch_all_sectores()
+    if sectores is None:
+        sectores, flash, flash_error = [], "No se pudo leer el catálogo de sectores del DWH de Mobilia.", True
+    sectors = filter_by_estado(sectores, estado)
     return HTMLResponse(
         render_coverage_html(username=username, sectors=sectors, estado=estado, flash=flash, flash_error=flash_error)
     )

@@ -144,11 +144,11 @@ def test_fetch_all_sectores_returns_every_row_without_dedupe(monkeypatch) -> Non
     assert [s.cobertura for s in sectores] == [True, True, False]
 
 
-def test_fetch_all_sectores_returns_empty_list_when_query_fails(monkeypatch) -> None:
+def test_fetch_all_sectores_returns_none_when_query_fails(monkeypatch) -> None:
     monkeypatch.setattr(db, "engine", create_engine("sqlite:///:memory:", future=True))
     monkeypatch.setattr(client, "load_location_catalog_settings", lambda: _settings_for("tabla_que_no_existe"))
 
-    assert client.fetch_all_sectores() == []
+    assert client.fetch_all_sectores() is None
 
 
 def test_set_cobertura_activates_selected_sectores(monkeypatch) -> None:

@@ -42,10 +42,17 @@ class Sector:
     cobertura: bool
 
 
-def fetch_all_sectores() -> list[Sector]:
+def fetch_all_sectores() -> list[Sector] | None:
     """Lista completa de sectores para el admin de cobertura de ventas — sin el
     dedupe de `fetch_all_locations` (acá cada `sector_code` se administra por
-    separado, aunque dos terminen con el mismo texto de ubicación)."""
+    separado, aunque dos terminen con el mismo texto de ubicación).
+
+    `None` cuando falla la consulta (DWH caído, vista mal configurada) —
+    deliberadamente distinto de `[]` (vista real sin filas). `run_sync`
+    (`app.location_catalog.sector_sync`) necesita esa distinción: confundir
+    "fuente caída" con "catálogo vacío" hacía que reportara TODOS los
+    sectores de Bitrix como "ya no están en la fuente" y terminara con éxito
+    pese al fallo real."""
     view_name = load_location_catalog_settings().view_name
     query = text(
         f"SELECT sector_code, sector, zona, ciudad, departamento, pais, cobertura_ventas "  # noqa: S608 — view_name es config del operador
@@ -56,7 +63,7 @@ def fetch_all_sectores() -> list[Sector]:
             rows = connection.execute(query).all()
     except SQLAlchemyError:
         logger.exception("No se pudo leer el catálogo de sectores del DWH de Mobilia")
-        return []
+        return None
 
     return [
         Sector(

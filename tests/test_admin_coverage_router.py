@@ -82,6 +82,18 @@ def test_coverage_page_renders_cascade_filters_and_row_data_attrs(client: TestCl
     assert '<form method="get"' not in response.text
 
 
+def test_coverage_page_shows_error_flash_when_dwh_is_unreachable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(admin_router.location_catalog_client, "fetch_all_sectores", lambda: None)
+    _log_in(client)
+
+    response = client.get("/admin/cobertura")
+
+    assert response.status_code == 200
+    assert "No se pudo leer el catálogo de sectores del DWH de Mobilia." in response.text
+
+
 def test_coverage_page_filters_by_estado(client: TestClient) -> None:
     _log_in(client)
 
