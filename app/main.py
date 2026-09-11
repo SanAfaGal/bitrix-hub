@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -94,7 +95,19 @@ async def _lifespan(app: FastAPI):
         templates_store.seed_defaults()
     except Exception:
         logger.exception("No se pudo inicializar la base de plantillas de MySQL, se seguirá con los defaults")
+    _warn_if_webhook_secrets_missing()
     yield
+
+
+def _warn_if_webhook_secrets_missing() -> None:
+    """Sin `WHATSAPP_WEBHOOK_SECRET`/`BITRIX_WEBHOOK_SECRET`, los webhooks quedan sin
+    autenticación (`app/waha/router.py`, `app/flows/router.py`) — es válido correr así en
+    desarrollo local, pero un despliegue real que lo olvide queda abierto sin que nada lo
+    señale más que este warning al arrancar."""
+    if not (os.getenv("WHATSAPP_WEBHOOK_SECRET") or "").strip():
+        logger.warning("WHATSAPP_WEBHOOK_SECRET no está configurado — el webhook de Waha acepta cualquier request")
+    if not (os.getenv("BITRIX_WEBHOOK_SECRET") or "").strip():
+        logger.warning("BITRIX_WEBHOOK_SECRET no está configurado — el webhook de Bitrix acepta cualquier request")
 
 
 app = FastAPI(
@@ -113,8 +126,16 @@ app = FastAPI(
 # Firma la cookie de sesión del panel admin (app/admin/). `load_admin_settings()`
 # falla duro si falta ADMIN_SESSION_SECRET en .env — sin esto, un despliegue mal
 # configurado firmaría cookies con un secreto público y permitiría forjar sesión
-# de admin sin credenciales.
-app.add_middleware(SessionMiddleware, secret_key=load_admin_settings().session_secret)
+# de admin sin credenciales. `https_only`/`same_site="strict"` evitan que la cookie
+# viaje por HTTP o se filtre en una navegación cross-site (ver ADMIN_SESSION_HTTPS_ONLY
+# en app/admin/settings.py para el escape hatch de desarrollo local sin TLS).
+_admin_settings = load_admin_settings()
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_admin_settings.session_secret,
+    https_only=_admin_settings.session_https_only,
+    same_site="strict",
+)
 
 app.include_router(xposure_router)
 app.include_router(flows_router)
