@@ -13,14 +13,7 @@
 <body>
 <div class="page">
   <div class="frame">
-    <div class="brand">
-      <img class="brand__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">
-      <div class="brand__identity">
-        <span class="brand__name">Alberto Álvarez</span>
-        <span class="brand__tagline">{{staff_name}}</span>
-      </div>
-      <form method="post" action="/auth/logout"><button type="submit" class="btn btn--link">Cerrar sesión</button></form>
-    </div>
+    {{header_html}}
 
     <div class="card">
       <div class="card__header">
@@ -42,7 +35,7 @@
       <div class="actions">
         <a class="btn btn--primary" href="{{public_form_url}}" target="_blank" rel="noopener">Abrir formulario aquí (firma en el sitio)</a>
         <form method="post" action="/interno/lead/{{deal_id}}/enviar-whatsapp">
-          <button type="submit" class="btn btn--secondary">Enviar enlace por WhatsApp</button>
+          <button type="submit" class="btn btn--outline">Enviar enlace por WhatsApp</button>
         </form>
       </div>
 

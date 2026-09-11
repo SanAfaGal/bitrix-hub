@@ -20,7 +20,9 @@ from app.forms.models import PROPERTY_TYPES
 from app.forms.page import FORM_PATH
 from app.forms.settings import load_form_link_secret
 from app.interno.models import NuevoLeadPayload
+from app.interno.page_script import NUEVO_LEAD_SCRIPT
 from app.shared import idempotency
+from app.shared.field_specs import FIELD_SPECS
 from app.shared.html_templates import RawHTML, render_template
 from app.waha.deps import get_waha_client
 
@@ -31,6 +33,43 @@ router = APIRouter(prefix="/interno", tags=["Interno"])
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _NUEVO_LEAD_PATH = _TEMPLATES_DIR / "nuevo_lead.html"
 _LEAD_DETAIL_PATH = _TEMPLATES_DIR / "lead_detail.html"
+
+
+def _header_html(staff_name: str) -> RawHTML:
+    """Header propio de interno: marca + insignia "Interno" a la izquierda
+    (para no confundirlo con el formulario público) y la sesión activa a la
+    derecha (avatar con inicial, nombre y botón de cerrar sesión) — mismo
+    header en `nuevo_lead.html` y `lead_detail.html`, armado acá una sola vez
+    en vez de duplicar el marcado en las dos plantillas."""
+    from html import escape
+
+    initial = escape(staff_name.strip()[:1].upper() or "?")
+    safe_name = escape(staff_name)
+    return RawHTML(
+        '<header class="topbar">'
+        '<div class="topbar__brand">'
+        '<img class="topbar__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">'
+        '<div class="topbar__identity">'
+        '<span class="topbar__name">Alberto Álvarez</span>'
+        '<span class="topbar__badge">Interno</span>'
+        "</div>"
+        "</div>"
+        '<div class="topbar__session">'
+        f'<span class="topbar__avatar">{initial}</span>'
+        '<span class="topbar__user">'
+        f'<span class="topbar__user-name">{safe_name}</span>'
+        '<span class="topbar__user-status">Sesión iniciada</span>'
+        "</span>"
+        '<form method="post" action="/auth/logout">'
+        '<button type="submit" class="topbar__logout" aria-label="Cerrar sesión" title="Cerrar sesión">'
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
+        "</svg>"
+        "</button>"
+        "</form>"
+        "</div>"
+        "</header>"
+    )
 
 
 def _flash_html(message: str | None, *, error: bool = False) -> RawHTML:
@@ -64,35 +103,52 @@ def _coverage_warning_html(message: str | None) -> RawHTML:
     )
 
 
+def _field_text_kwargs() -> dict[str, str]:
+    """Label y placeholder de cada campo, leídos de `FIELD_SPECS` — mismo
+    texto que el formulario público para los campos que comparten (ver
+    app/shared/field_specs.py), en vez de una copia a mano en la plantilla.
+    El hint NO viaja acá a propósito: cambia según el formulario (interno
+    captura en un momento distinto, con contexto distinto), así que cada
+    plantilla escribe el suyo directamente."""
+    kwargs: dict[str, str] = {}
+    for name, spec in FIELD_SPECS.items():
+        kwargs[f"label_{name}"] = spec.label
+        kwargs[f"placeholder_{name}"] = spec.placeholder or ""
+    return kwargs
+
+
 def _render_nuevo_lead(
     *,
     staff_name: str,
     flash: str | None = None,
     flash_error: bool = False,
     coverage_message: str | None = None,
-    owner_full_name: str = "",
+    interested_party: str = "",
     owner_phone: str = "",
-    owner_email: str = "",
+    email: str = "",
     property_type: str | None = None,
     address: str = "",
     location: str = "",
     location_sector_code: str = "",
-    expected_sale_price: str = "",
+    sale_price: str = "",
 ) -> str:
     return render_template(
         _NUEVO_LEAD_PATH,
         staff_name=staff_name,
+        header_html=_header_html(staff_name),
         flash_html=_flash_html(flash, error=flash_error),
         idempotency_token=idempotency.new_token(),
-        owner_full_name=owner_full_name,
+        interested_party=interested_party,
         owner_phone=owner_phone,
-        owner_email=owner_email,
+        email=email,
         property_type_options_html=_property_type_options_html(property_type),
         address=address,
         location=location,
         location_sector_code=location_sector_code,
-        expected_sale_price=expected_sale_price,
+        sale_price=sale_price,
         coverage_warning_html=_coverage_warning_html(coverage_message),
+        script_html=RawHTML(NUEVO_LEAD_SCRIPT),
+        **_field_text_kwargs(),
     )
 
 
@@ -104,38 +160,38 @@ def get_nuevo_lead(staff_user: dict[str, str] = Depends(require_staff_user)) -> 
 @router.post("/nuevo-lead", summary="Crea el contacto y la negociación en Bitrix", response_model=None)
 def post_nuevo_lead(
     staff_user: dict[str, str] = Depends(require_staff_user),
-    owner_full_name: str = Form(...),
+    interested_party: str = Form(...),
     owner_phone: str = Form(...),
-    owner_email: str = Form(default=""),
+    email: str = Form(default=""),
     property_type: str = Form(...),
     address: str = Form(...),
     location: str = Form(...),
     location_sector_code: str = Form(...),
-    expected_sale_price: str = Form(default=""),
+    sale_price: str = Form(default=""),
     coverage_override: str = Form(default=""),
     idempotency_token: str = Form(...),
 ) -> HTMLResponse | RedirectResponse:
     form_values = dict(
-        owner_full_name=owner_full_name,
+        interested_party=interested_party,
         owner_phone=owner_phone,
-        owner_email=owner_email,
+        email=email,
         property_type=property_type,
         address=address,
         location=location,
         location_sector_code=location_sector_code,
-        expected_sale_price=expected_sale_price,
+        sale_price=sale_price,
     )
 
     try:
         payload = NuevoLeadPayload(
-            owner_full_name=owner_full_name,
+            interested_party=interested_party,
             owner_phone=owner_phone,
-            owner_email=owner_email or None,
+            email=email or None,
             property_type=property_type,
             address=address,
             location=location,
             location_sector_code=location_sector_code,
-            expected_sale_price=expected_sale_price,
+            sale_price=sale_price,
             coverage_override=coverage_override == "true",
             idempotency_token=idempotency_token,
         )
@@ -209,6 +265,7 @@ def get_lead_detail(
         render_template(
             _LEAD_DETAIL_PATH,
             staff_name=staff_user["name"],
+            header_html=_header_html(staff_user["name"]),
             deal_id=deal_id,
             flash_html=_flash_html(flash),
             owner_full_name=owner_full_name or "(sin nombre)",

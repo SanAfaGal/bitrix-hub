@@ -8,14 +8,14 @@ from tests.fakes import FakeCrmClient
 
 def _payload(**overrides) -> NuevoLeadPayload:
     defaults = dict(
-        owner_full_name="Ana Pérez",
+        interested_party="Ana Pérez",
         owner_phone="3001112233",
-        owner_email=None,
+        email=None,
         property_type="Apartamento",
         address="Calle 10 # 20-30",
         location="El Poblado, Medellín",
         location_sector_code="00081",
-        expected_sale_price=0,
+        sale_price=0,
         coverage_override=False,
         idempotency_token="tok-1",
     )

@@ -6,14 +6,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.forms.cleaning import (
-    blank_to_none,
-    clean_digits,
-    clean_email,
-    clean_id_number,
-    clean_name,
-    clean_uppercase_alnum,
-    collapse_whitespace,
+from app.forms.cleaning import blank_to_none, clean_id_number, clean_uppercase_alnum
+from app.shared.field_specs import (
+    PROPERTY_TYPES,
+    PropertyType,
+    validate_address,
+    validate_amount,
+    validate_email,
+    validate_location,
+    validate_person_name,
+    validate_sale_price,
+    validate_sector_code,
 )
 
 # Tope de tamaño para un data URL de imagen en base64. ~10MB de imagen
@@ -23,39 +26,8 @@ from app.forms.cleaning import (
 # gigante pensado para tumbar CPU en la limpieza con OpenCV.
 _MAX_IMAGE_DATA_URL_LENGTH = 14_000_000
 
-# Opciones del campo Bitrix UF_CRM_1773860139420 ("Tipo de inmueble"): se
-# guarda el NAME tal como lo usa `filler.py` para el PDF. Los VALUE numéricos
-# de Bitrix no se usan todavía (no hay sync de vuelta a ese campo UF).
-PROPERTY_TYPES: tuple[str, ...] = (
-    "Apartamento",
-    "Apartaestudio",
-    "Bodega",
-    "Casa",
-    "Casa campestre",
-    "Casa comercial",
-    "Consultorio",
-    "Edificio",
-    "Finca",
-    "Hotel",
-    "Local",
-    "Lote",
-    "Parcelación",
-    "Parqueadero",
-)
-PropertyType = Literal[*PROPERTY_TYPES]
 YesNo = Literal["si", "no"]
 
-_NAME_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-\s]+$")
-# Ubicación: "sector, ciudad, departamento" — mismo alfabeto que _NAME_RE más
-# coma y punto (necesarios para valores reales como "Bogotá D.C." o el
-# formato con comas que arma el catálogo de ubicaciones, ver
-# app/location_catalog/client.py).
-_LOCATION_RE = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ'\-,.\s]+$")
-# Dominio hecho de etiquetas separadas por un solo punto (sin puntos dobles,
-# sin punto al inicio/final del dominio) y TLD de al menos 2 letras — más
-# estricto que "algo@algo.algo" (que dejaba pasar "juan@example..com" o
-# "juan@example.c").
-_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[a-zA-Z]{2,}$")
 # Matrícula inmobiliaria: "código de oficina - número de matrícula" (ej.
 # "50C-1945945"), código de oficina de 3-4 caracteres (dígitos con letra
 # opcional al final) y número de matrícula de 5-8 dígitos; o solo dígitos
@@ -66,13 +38,6 @@ _REGISTRATION_NUMBER_RE = re.compile(r"^(?:\d{3}[A-Z]?|\d{2}[A-Z])-\d{5,8}$|^\d{
 # traer letras); el guion se permite porque en varios países es parte real
 # del número, no solo formato (ver clean_id_number).
 _ID_NUMBER_RE = re.compile(r"^[A-Z0-9-]+$")
-
-
-def _clean_and_check_name(value: str, *, field_label: str, min_length: int) -> str:
-    cleaned = clean_name(value)
-    if len(cleaned) < min_length or not _NAME_RE.match(cleaned):
-        raise ValueError(f"{field_label} inválido.")
-    return cleaned
 
 
 def _clean_and_check_id_number(value: str, *, field_label: str) -> str:
@@ -94,43 +59,10 @@ def validate_registration_number(value: str) -> str:
     return cleaned
 
 
-def validate_sector_code(value: str) -> str:
-    """Compartido entre `BrokerageAuthorizationPayload` y `VerifyLocationCoveragePayload`
-    (chequeo en vivo de cobertura, ver app/forms/router.py) — validación deliberadamente
-    laxa (no vacío): no hay certeza del formato real de sector_code en producción para
-    imponer un patrón más estricto sin arriesgar rechazar códigos válidos."""
-    blank_checked = blank_to_none(value)
-    if blank_checked is None:
-        raise ValueError("Ubicación inválida.")
-    return blank_checked
-
-
 def _clean_optional_amount(
     value: object, *, field_label: str, minimum: int, maximum: int | None = None
 ) -> int | None:
-    """Monto/cantidad opcional: acepta el string que manda el formulario web
-    ("500.000.000", "$ 500000000", "") o un número ya tipado si alguien le
-    pega directo a la API con JSON — en los dos casos se valida el mismo
-    rango, no solo cuando llega como string."""
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        raise ValueError(f"{field_label} inválido.")
-    if isinstance(value, int):
-        amount = value
-    elif isinstance(value, float):
-        amount = round(value)
-    else:
-        blank_checked = blank_to_none(str(value))
-        if blank_checked is None:
-            return None
-        digits = clean_digits(blank_checked)
-        if not digits:
-            raise ValueError(f"{field_label} inválido.")
-        amount = int(digits)
-    if amount < minimum or (maximum is not None and amount > maximum):
-        raise ValueError(f"{field_label} inválido.")
-    return amount
+    return validate_amount(value, label=field_label, minimum=minimum, maximum=maximum)
 
 
 class BrokerageAuthorizationPayload(BaseModel):
@@ -160,7 +92,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     @field_validator("interested_party", mode="before")
     @classmethod
     def _validate_interested_party(cls, value: str) -> str:
-        return _clean_and_check_name(value, field_label="Nombre completo del interesado", min_length=3)
+        return validate_person_name(value, label="Nombre completo del interesado")
 
     @field_validator("id_number", "signer_id_number", mode="before")
     @classmethod
@@ -170,26 +102,17 @@ class BrokerageAuthorizationPayload(BaseModel):
     @field_validator("email", mode="before")
     @classmethod
     def _validate_email(cls, value: str) -> str:
-        cleaned = clean_email(value)
-        if not _EMAIL_RE.match(cleaned):
-            raise ValueError("Correo electrónico inválido.")
-        return cleaned
+        return validate_email(value)
 
     @field_validator("address", mode="before")
     @classmethod
     def _validate_address(cls, value: str) -> str:
-        cleaned = collapse_whitespace(value).upper()
-        if len(cleaned) < 5:
-            raise ValueError("Dirección del inmueble inválida.")
-        return cleaned
+        return validate_address(value)
 
     @field_validator("location", mode="before")
     @classmethod
     def _validate_location(cls, value: str) -> str:
-        cleaned = clean_name(value)
-        if len(cleaned) < 3 or not _LOCATION_RE.match(cleaned):
-            raise ValueError("Ubicación inválida.")
-        return cleaned
+        return validate_location(value)
 
     @field_validator("location_sector_code", mode="before")
     @classmethod
@@ -206,7 +129,7 @@ class BrokerageAuthorizationPayload(BaseModel):
     def _validate_sale_price(cls, value: object) -> int:
         # Opcional en el formulario: en blanco se guarda como 0 en vez de
         # quedar vacío, para no dejar el campo sin dato en Bitrix.
-        return _clean_optional_amount(value, field_label="Precio de venta", minimum=1) or 0
+        return validate_sale_price(value)
 
     @field_validator("outstanding_debt", mode="before")
     @classmethod

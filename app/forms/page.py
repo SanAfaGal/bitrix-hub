@@ -13,6 +13,31 @@ from app.forms.page_script import FORM_SCRIPT
 from app.forms.page_styles import FORM_STYLE
 from app.forms.page_wizard import WIZARD_STYLE, render_wizard_html
 from app.forms.page_wizard_script import WIZARD_SCRIPT
+from app.shared.field_specs import FIELD_SPECS
+
+
+def _shared_field(spec_name: str, **overrides: object) -> dict:
+    """Arma un dict de `_FIELDS`/`_LOCATION_FIELD` a partir de `FIELD_SPECS`
+    (label/hint/placeholder/kind/input_type/inputmode) — evita que este
+    archivo repita a mano el mismo texto que ya vive en
+    `app.shared.field_specs`, compartido con `app/interno/`. `overrides`
+    puede traer su propio `name` (ej. "location_display", que reusa el texto
+    de "location" pero viaja con otro nombre de campo)."""
+    spec = FIELD_SPECS[spec_name]
+    field = dict(
+        name=spec_name,
+        label=spec.label,
+        hint=spec.hint,
+        kind=spec.kind,
+        input_type=spec.input_type,
+        required=spec.required,
+    )
+    if spec.placeholder:
+        field["placeholder"] = spec.placeholder
+    if spec.inputmode:
+        field["inputmode"] = spec.inputmode
+    field.update(overrides)
+    return field
 
 # Rutas públicas: en español y con nombre claro — las abre el cliente final
 # desde un link de WhatsApp, tiene que entender qué es antes de tocarlo.
@@ -59,45 +84,25 @@ SECTION_ICONS = {
 # `kind` decide cómo se renderiza: "text" -> <input>, "select" -> <select>
 # con las opciones de `property_type`, "yesno" -> <select> Sí/No obligatorio.
 _FIELDS = [
-    dict(
-        name="interested_party", label="Nombre completo del interesado", kind="text",
-        input_type="text", required=True, section="interested",
-        hint="Persona que autoriza la venta del inmueble.",
-        placeholder="Ej: Juan Pérez Gómez",
-    ),
+    _shared_field("interested_party", section="interested"),
     dict(
         name="id_number", label="Documento de identidad", kind="text", input_type="text", required=True,
         section="interested",
         hint="Cédula, cédula de extranjería o pasaporte del interesado, sin puntos ni espacios.",
         placeholder="Ej: 1234567890",
     ),
-    dict(
-        name="email", label="Correo electrónico", kind="text", input_type="email", required=True,
-        section="interested",
-        hint="Correo de contacto del interesado.",
-        placeholder="Ej: nombre@correo.com",
-    ),
-    dict(
-        name="property_type", label="Tipo de inmueble", kind="select", required=True,
-        section="property",
-        hint="Categoría del inmueble que se va a autorizar.",
-    ),
+    _shared_field("email", section="interested"),
+    _shared_field("property_type", section="property"),
     # Solo lectura y sin `name`: no vuelve a viajar en el submit (ya viaja el
     # campo real "location", ver _LOCATION_FIELD más abajo) — es nada más
     # para que el cliente vea confirmado acá lo que ya escribió en el wizard,
     # en vez de que el dato "desaparezca" al ocultarse el paso de ubicación.
-    dict(
-        name="location_display", label="Ubicación", kind="text", input_type="text", required=False,
+    _shared_field(
+        "location", name="location_display", required=False,
         section="property", readonly=True, no_submit=True,
-        hint="Sector, ciudad y departamento donde está ubicado el inmueble.",
         confirm_text="Tenemos cobertura en esta zona.",
     ),
-    dict(
-        name="address", label="Dirección del inmueble", kind="text", input_type="text", required=True,
-        section="property",
-        hint="Ubicación del inmueble que se va a promocionar.",
-        placeholder="Ej: Cra 7 # 12-34, Apto 302",
-    ),
+    _shared_field("address", section="property"),
     dict(
         name="registration_number", label="Matrícula inmobiliaria", kind="text", input_type="text",
         required=True, section="property",
@@ -105,13 +110,7 @@ _FIELDS = [
         placeholder="Ej: 050-123456",
         confirm_text="Este inmueble no está publicado en Xposure MLS, puedes continuar.",
     ),
-    dict(
-        name="sale_price", label="Precio de venta (COP)", kind="text", input_type="text", required=False,
-        section="financial",
-        hint="Precio al que te gustaría ofertar el inmueble, en pesos colombianos. No es el precio final de venta. "
-        "Puedes dejarlo en blanco si aún no lo tienes claro.",
-        placeholder="Ej: $ 350.000.000", inputmode="numeric",
-    ),
+    _shared_field("sale_price", section="financial"),
     dict(
         name="mortgage_loan", label="Crédito hipotecario", kind="yesno", required=True,
         section="financial",
@@ -136,11 +135,8 @@ _FIELDS = [
 # es el mismo campo (`name="location"`, mismo id, mismo desplegable de
 # sugerencias) así que se renderiza con `_render_field` igual que el resto,
 # solo que fuera de `_FIELDS`/`_render_fields_with_sections`.
-_LOCATION_FIELD = dict(
-    name="location", label="Ubicación", kind="text", input_type="text", required=True,
-    suggest="location-suggestions", form="authorization-form",
-    hint="Sector, ciudad y departamento donde está ubicado el inmueble.",
-    placeholder="Ej: El Poblado, Medellín, Antioquia",
+_LOCATION_FIELD = _shared_field(
+    "location", suggest="location-suggestions", form="authorization-form"
 )
 
 _HTML = """<!doctype html>

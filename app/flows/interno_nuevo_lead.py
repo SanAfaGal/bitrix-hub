@@ -37,8 +37,8 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
 
     contact_id = crm_client.find_or_create_property_seller_contact(
         payload.owner_phone,
-        display_name=payload.owner_full_name,
-        email=payload.owner_email,
+        display_name=payload.interested_party,
+        email=payload.email,
     )
     if not contact_id:
         return NuevoLeadResult(
@@ -51,7 +51,7 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
         )
 
     deal_id = crm_client.find_or_create_property_seller_deal(
-        contact_id, title=f"Consignación - {payload.owner_full_name}", source="interno"
+        contact_id, title=f"Consignación - {payload.interested_party}", source="interno"
     )
     if not deal_id:
         return NuevoLeadResult(
@@ -69,7 +69,7 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
             property_type=payload.property_type,
             address=payload.address,
             sector_zone_city=payload.location,
-            expected_sale_price=payload.expected_sale_price or None,
+            expected_sale_price=payload.sale_price or None,
         ),
     )
 

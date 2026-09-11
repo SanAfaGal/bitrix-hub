@@ -13,14 +13,7 @@
 <body>
 <div class="page">
   <div class="frame">
-    <div class="brand">
-      <img class="brand__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">
-      <div class="brand__identity">
-        <span class="brand__name">Alberto Álvarez</span>
-        <span class="brand__tagline">{{staff_name}}</span>
-      </div>
-      <form method="post" action="/auth/logout"><button type="submit" class="btn btn--link">Cerrar sesión</button></form>
-    </div>
+    {{header_html}}
 
     <div class="card">
       <div class="card__header">
@@ -33,43 +26,73 @@
       <form method="post" action="/interno/nuevo-lead" class="form">
         <input type="hidden" name="idempotency_token" value="{{idempotency_token}}">
 
+        <h3 class="form-section__title">
+          <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          Datos del propietario
+        </h3>
+
         <div class="field">
-          <label class="field__label" for="owner_full_name">Nombre completo del propietario</label>
-          <input class="field__input" id="owner_full_name" name="owner_full_name" type="text" required value="{{owner_full_name}}">
+          <label class="field__label" for="interested_party">{{label_interested_party}} <span class="field__required">*</span></label>
+          <span class="field__hint">Persona dueña del inmueble.</span>
+          <input class="field__input" id="interested_party" name="interested_party" type="text" required placeholder="{{placeholder_interested_party}}" value="{{interested_party}}">
+          <span class="field__error"></span>
         </div>
 
         <div class="field">
-          <label class="field__label" for="owner_phone">Teléfono</label>
-          <input class="field__input" id="owner_phone" name="owner_phone" type="tel" required value="{{owner_phone}}">
+          <label class="field__label" for="owner_phone">{{label_owner_phone}} <span class="field__required">*</span></label>
+          <span class="field__hint">Número de contacto del propietario.</span>
+          <input class="field__input" id="owner_phone" name="owner_phone" type="tel" required placeholder="{{placeholder_owner_phone}}" value="{{owner_phone}}">
+          <span class="field__error"></span>
         </div>
 
         <div class="field">
-          <label class="field__label" for="owner_email">Correo (opcional)</label>
-          <input class="field__input" id="owner_email" name="owner_email" type="email" value="{{owner_email}}">
+          <label class="field__label" for="email">{{label_email}}</label>
+          <span class="field__hint">Opcional — correo de contacto del propietario.</span>
+          <input class="field__input" id="email" name="email" type="email" placeholder="{{placeholder_email}}" value="{{email}}">
         </div>
 
+        <h3 class="form-section__title">
+          <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9.5 12 3l9 6.5"/>
+            <path d="M5 10v10h14V10"/>
+          </svg>
+          Datos del inmueble
+        </h3>
+
         <div class="field">
-          <label class="field__label" for="property_type">Tipo de inmueble</label>
+          <label class="field__label" for="property_type">{{label_property_type}} <span class="field__required">*</span></label>
+          <span class="field__hint">Categoría del inmueble que se va a promocionar.</span>
           <select class="field__input" id="property_type" name="property_type" required>
             {{property_type_options_html}}
           </select>
+          <span class="field__error"></span>
         </div>
 
         <div class="field">
-          <label class="field__label" for="address">Dirección del inmueble</label>
-          <input class="field__input" id="address" name="address" type="text" required value="{{address}}">
+          <label class="field__label" for="address">{{label_address}} <span class="field__required">*</span></label>
+          <span class="field__hint">Ubicación exacta del inmueble.</span>
+          <input class="field__input" id="address" name="address" type="text" required placeholder="{{placeholder_address}}" value="{{address}}">
+          <span class="field__error"></span>
         </div>
 
         <div class="field">
-          <label class="field__label" for="location">Ubicación (sector, ciudad)</label>
-          <input class="field__input" id="location" name="location" type="text" list="location-suggestions" required autocomplete="off" value="{{location}}">
-          <datalist id="location-suggestions"></datalist>
+          <label class="field__label" for="location">{{label_location}} <span class="field__required">*</span></label>
+          <span class="field__hint">Sector, ciudad y departamento donde está ubicado el inmueble.</span>
+          <div class="field__input-wrap">
+            <input class="field__input" id="location" name="location" type="text" required autocomplete="off" placeholder="{{placeholder_location}}" value="{{location}}">
+            <ul class="location-suggest" id="location-suggestions" hidden></ul>
+          </div>
           <input type="hidden" id="location_sector_code" name="location_sector_code" value="{{location_sector_code}}">
+          <span class="field__error"></span>
         </div>
 
         <div class="field">
-          <label class="field__label" for="expected_sale_price">Precio de venta esperado (opcional)</label>
-          <input class="field__input" id="expected_sale_price" name="expected_sale_price" type="text" inputmode="numeric" value="{{expected_sale_price}}">
+          <label class="field__label" for="sale_price">{{label_sale_price}}</label>
+          <span class="field__hint">Opcional — precio en pesos colombianos, si ya se tiene.</span>
+          <input class="field__input" id="sale_price" name="sale_price" type="text" inputmode="numeric" placeholder="{{placeholder_sale_price}}" value="{{sale_price}}">
         </div>
 
         {{coverage_warning_html}}
@@ -79,6 +102,6 @@
     </div>
   </div>
 </div>
-<script src="/static/interno/script.js"></script>
+{{script_html}}
 </body>
 </html>

@@ -10,7 +10,10 @@ misma IIFE.
 """
 from __future__ import annotations
 
-SUBMIT_SCRIPT = """  var form = document.getElementById('authorization-form');
+from app.shared.field_validation_script import FIELD_VALIDATION_SCRIPT
+
+SUBMIT_SCRIPT = (
+    """  var form = document.getElementById('authorization-form');
   var status = document.getElementById('form-status');
   var submitButton = document.getElementById('submit-button');
 
@@ -27,50 +30,9 @@ SUBMIT_SCRIPT = """  var form = document.getElementById('authorization-form');
     status.className = '';
     status.textContent = '';
   }
-
-  function fieldErrorEl(el) {
-    var wrap = el.closest('.field');
-    return wrap && wrap.querySelector('.field__error');
-  }
-
-  function fieldLabelText(el) {
-    var wrap = el.closest('.field');
-    var label = wrap && wrap.querySelector('.field__label');
-    return label ? label.textContent.replace('*', '').trim() : 'Este dato';
-  }
-
-  function showFieldError(el, message) {
-    el.classList.add('field__input--invalid');
-    var errorEl = fieldErrorEl(el);
-    if (errorEl) {
-      errorEl.textContent = message;
-      errorEl.classList.add('field__error--visible');
-    }
-  }
-
-  function clearFieldError(el) {
-    el.classList.remove('field__input--invalid');
-    var errorEl = fieldErrorEl(el);
-    if (errorEl) {
-      errorEl.textContent = '';
-      errorEl.classList.remove('field__error--visible');
-    }
-  }
-
-  // Marca con un mensaje propio cada campo obligatorio vacío (no solo el
-  // primero) y devuelve el primero, para poder llevarle el foco.
-  function markMissingRequiredFields() {
-    var firstMissing = null;
-    Array.prototype.forEach.call(form.querySelectorAll('[required]'), function (el) {
-      if (!el.value || !el.value.trim()) {
-        showFieldError(el, 'Dato obligatorio para tu Autorización de Corretaje.');
-        if (!firstMissing) firstMissing = el;
-      } else {
-        clearFieldError(el);
-      }
-    });
-    return firstMissing;
-  }
+"""
+    + FIELD_VALIDATION_SCRIPT
+    + """
 
   // El backend (Pydantic) devuelve 422 con `detail: [{loc: ["body", "campo"],
   // msg: "Value error, <mensaje>"}, ...]` — esto lo lleva al campo exacto que
@@ -173,7 +135,7 @@ SUBMIT_SCRIPT = """  var form = document.getElementById('authorization-form');
     evt.preventDefault();
     clearFormError();
 
-    var missingField = markMissingRequiredFields();
+    var missingField = markMissingRequiredFields(form, 'Dato obligatorio para tu Autorización de Corretaje.');
     var invalidLocation = !missingField ? validateLocationSelection() : null;
     var firstInvalid = missingField || invalidLocation;
     if (firstInvalid) {
@@ -245,3 +207,4 @@ SUBMIT_SCRIPT = """  var form = document.getElementById('authorization-form');
     });
   });
 """
+)
