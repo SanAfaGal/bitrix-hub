@@ -20,21 +20,30 @@ from typing import Literal
 
 from app.forms.cleaning import blank_to_none, clean_digits, clean_email, clean_name, collapse_whitespace
 
+# Opciones exactas del picklist de Bitrix UF_CRM_1773860139420 ("Tipo de
+# inmueble") — mismo NAME que aparece ahí (case incluido), no una lista
+# aparte: `filler.py` guarda este texto tal cual para el PDF y no hay sync
+# de vuelta a Bitrix por VALUE numérico, así que si el NAME no coincide
+# letra por letra queda inconsistente con lo que el equipo ve en el CRM.
 PROPERTY_TYPES: tuple[str, ...] = (
-    "Apartamento",
+    "Aparta Suite",
     "Apartaestudio",
+    "Apartamento",
     "Bodega",
-    "Casa",
-    "Casa campestre",
-    "Casa comercial",
+    "Burbuja",
+    "Cabaña",
+    "Casa Campestre",
+    "Casa Comercial",
+    "Casa Vivienda",
     "Consultorio",
     "Edificio",
     "Finca",
     "Hotel",
     "Local",
     "Lote",
-    "Parcelación",
+    "Oficina",
     "Parqueadero",
+    "Penthouse",
 )
 PropertyType = Literal[*PROPERTY_TYPES]
 
