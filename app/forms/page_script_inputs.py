@@ -27,13 +27,22 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
   // lo que venga después (quitar caracteres o colapsar espacios cumple esto;
   // el formato de moneda no, por eso los montos no usan este helper).
   function transformPreservingCursor(el, transformFn) {
-    var cursorPos = el.selectionStart;
     var oldValue = el.value;
     var newValue = transformFn(oldValue);
     if (newValue === oldValue) return;
-    var newCursorPos = transformFn(oldValue.slice(0, cursorPos)).length;
+    // Tipos de <input> (email, number, etc.) no soportan
+    // selectionStart/setSelectionRange — acceder tira InvalidStateError
+    // (ej. el campo de correo, más abajo). En esos casos se pierde la
+    // posición del cursor, no hay forma de preservarla.
+    var cursorPos = null;
+    try { cursorPos = el.selectionStart; } catch (e) { /* tipo sin selección */ }
     el.value = newValue;
-    el.setSelectionRange(newCursorPos, newCursorPos);
+    if (cursorPos !== null) {
+      try {
+        var newCursorPos = transformFn(oldValue.slice(0, cursorPos)).length;
+        el.setSelectionRange(newCursorPos, newCursorPos);
+      } catch (e) { /* tipo sin selección */ }
+    }
   }
 
   // Formato visual "$ 500.000.000" mientras se escribe — el backend igual
