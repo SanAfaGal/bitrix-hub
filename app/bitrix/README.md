@@ -17,19 +17,14 @@ segunda.
 - `deps.py::get_bitrix_client()` — factory consumida por
   `app/crm/deps.py::get_crm_client()`.
 
-## Picklists sin mapear a propósito
+## Picklists con VALUE ID fijo por instalación
 
 Bitrix obliga a algunos campos a un VALUE ID numérico que solo existe
 corriendo `scripts/list_bitrix_picklist_values.py <campo>` contra el Bitrix
-real — no se puede adivinar. Dos casos así hoy:
-
-- `PROPERTY_TYPE_VALUE_BY_NAME` (vacío) — `update_property_listing` ignora
-  `property_type` si no hay mapeo, solo loguea un warning.
-- `SOURCE_VALUE_BY_NAME` — cubre `"whatsapp"`/`"pagina_web"`, pero no
-  `"interno"` (leads creados desde `app/interno/`) todavía.
-  `find_or_create_property_seller_deal` hace lo mismo: si el `source` no
-  tiene VALUE ID mapeado, omite el campo en vez de fallar.
-
-Cuando se tenga el VALUE ID real de "interno", agregarlo a
-`SOURCE_VALUE_BY_NAME` en `fields.py` es el único cambio necesario — el
-resto del código ya lo soporta.
+real — no se puede adivinar. `PROPERTY_TYPE_VALUE_BY_NAME` y
+`SOURCE_VALUE_BY_NAME` en `fields.py` ya están completos contra esta
+instalación; si Bitrix agrega una opción nueva a cualquiera de los dos
+picklists, hay que volver a correr el script y agregar la entrada acá —
+mientras un nombre no tenga VALUE ID mapeado, `update_property_listing`/
+`find_or_create_property_seller_deal` lo omiten en silencio (loguean un
+warning) en vez de fallar.

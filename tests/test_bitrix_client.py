@@ -206,6 +206,8 @@ def test_get_contact_phone_falls_back_to_first_available() -> None:
 def test_get_contact_phone_returns_none_when_no_phone() -> None:
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.get_contact_phone({}) is None
+    assert client.get_contact_phone({"PHONE": []}) is None
+    assert client.get_contact_phone({"PHONE": [{"VALUE": "", "VALUE_TYPE": "WORK"}]}) is None
 
 
 def test_find_or_create_property_seller_contact_returns_existing_match(monkeypatch, caplog) -> None:
@@ -432,7 +434,7 @@ def test_get_property_listing_reads_known_fields(monkeypatch) -> None:
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     listing = client.get_property_listing("42")
 
-    assert listing.property_type is None  # sin VALUE mapeado todavía
+    assert listing.property_type is None  # el fake deal no trae ese campo
     assert listing.address == "Calle 10 # 20-30"
     assert listing.sector_zone_city == "El Poblado, Medellín"
     assert listing.expected_sale_price == 350000000
@@ -479,6 +481,32 @@ def test_update_property_listing_does_nothing_when_all_none(monkeypatch) -> None
     client.update_property_listing("42", PropertyListing())  # no debe lanzar ni llamar a Bitrix
 
 
+def test_update_property_listing_writes_mapped_property_type(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        captured["json"] = json
+        return FakeResponse({"result": True})
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    client.update_property_listing("42", PropertyListing(property_type="Apartamento"))
+
+    assert captured["json"]["fields"] == {"UF_CRM_1773860139420": 93176}
+
+
+def test_get_property_listing_reads_mapped_property_type(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "requests.get", lambda url, params, timeout: FakeResponse({"result": {"UF_CRM_1773860139420": 93176}})
+    )
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    listing = client.get_property_listing("42")
+
+    assert listing.property_type == "Apartamento"
+
+
 def test_update_property_listing_skips_property_type_without_value_mapping(monkeypatch, caplog) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         return FakeResponse({"result": True})
@@ -487,11 +515,9 @@ def test_update_property_listing_skips_property_type_without_value_mapping(monke
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("WARNING"):
-        client.update_property_listing("42", PropertyListing(property_type="Apartamento"))
+        client.update_property_listing("42", PropertyListing(property_type="Tipo inventado"))
 
-    assert any("Apartamento" in record.message for record in caplog.records)
-    assert client.get_contact_phone({"PHONE": []}) is None
-    assert client.get_contact_phone({"PHONE": [{"VALUE": "", "VALUE_TYPE": "WORK"}]}) is None
+    assert any("Tipo inventado" in record.message for record in caplog.records)
 
 
 def test_get_matricula_extracts_custom_field() -> None:
