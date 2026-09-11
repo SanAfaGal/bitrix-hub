@@ -432,7 +432,7 @@ def _generate_and_send_reply(
 
     awaiting_zone_response = False
     if deal_id is not None and store.get_zone_asked(chat_id) and store.get_zone_in_coverage(chat_id) is None:
-        if maybe_handle_zone_response(chat_id, text, waha_client, session, store):
+        if maybe_handle_zone_response(chat_id, text, waha_client, session, store, user_turn_created_at):
             return {"ok": True, "chat_id": chat_id, "skipped": "zone_resolved"}
         awaiting_zone_response = True
 
@@ -452,6 +452,7 @@ def _generate_and_send_reply(
                 resolved_base_url,
                 resolved_secret,
                 store,
+                user_turn_created_at,
             ):
                 return {"ok": True, "chat_id": chat_id, "skipped": "authorization_link_sent"}
 

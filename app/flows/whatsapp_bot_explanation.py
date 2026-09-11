@@ -37,18 +37,23 @@ from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 
 if TYPE_CHECKING:
-    from app.flows.whatsapp_bot import ConversationStore
+    from app.flows.whatsapp_bot_conversation_store import ConversationStore
 
 
-def _send_voice_and_ask_acceptance(chat_id: str, session: str, waha_client: WahaClient, store: "ConversationStore") -> None:
+def _send_voice_and_ask_acceptance(chat_id: str, session: str, waha_client: WahaClient, store: "ConversationStore") -> bool:
+    """Manda la nota de voz (si hay) + la pregunta de aceptación. Retorna si la pregunta de
+    aceptación (el mensaje que de verdad importa para el flujo) se mandó — el caller solo debe
+    marcar la explicación como enviada si esto da `True`, para poder reintentar si Waha falla."""
     audio_base64 = process_explanation_voice_base64()
     if audio_base64 is not None:
-        waha_client.send_voice(chat_id, audio_base64, session=session)
-        store.add_turn(chat_id, "assistant", "[Nota de voz enviada: explicación del proceso de consignación]")
+        if waha_client.send_voice(chat_id, audio_base64, session=session):
+            store.add_turn(chat_id, "assistant", "[Nota de voz enviada: explicación del proceso de consignación]")
 
     ask_text = templates_store.get_template("whatsapp_ask_acceptance")
-    waha_client.send_text(chat_id, ask_text, session=session)
-    store.add_turn(chat_id, "assistant", ask_text)
+    sent = waha_client.send_text(chat_id, ask_text, session=session)
+    if sent:
+        store.add_turn(chat_id, "assistant", ask_text)
+    return sent
 
 
 def maybe_send_explanation(chat_id: str, session: str, waha_client: WahaClient, store: "ConversationStore") -> bool:
@@ -61,12 +66,11 @@ def maybe_send_explanation(chat_id: str, session: str, waha_client: WahaClient, 
         return False
 
     process_text = templates_store.get_template("whatsapp_process_explanation")
-    waha_client.send_text(chat_id, process_text, session=session)
-    store.add_turn(chat_id, "assistant", process_text)
+    if waha_client.send_text(chat_id, process_text, session=session):
+        store.add_turn(chat_id, "assistant", process_text)
 
-    _send_voice_and_ask_acceptance(chat_id, session, waha_client, store)
-
-    store.set_explanation_sent(chat_id)
+    if _send_voice_and_ask_acceptance(chat_id, session, waha_client, store):
+        store.set_explanation_sent(chat_id)
     return True
 
 
@@ -86,9 +90,8 @@ def maybe_handle_delayed_explanation_request(
     # El mensaje de la persona que pidió esto ya se registró en `process()`
     # (este helper se llama después del turno normal del LLM) — acá solo
     # falta registrar lo que el bot manda de más.
-    _send_voice_and_ask_acceptance(chat_id, session, waha_client, store)
-
-    store.set_explanation_sent(chat_id)
+    if _send_voice_and_ask_acceptance(chat_id, session, waha_client, store):
+        store.set_explanation_sent(chat_id)
     return True
 
 
@@ -102,6 +105,7 @@ def maybe_handle_acceptance(
     public_base_url: str,
     link_secret: str,
     store: "ConversationStore",
+    created_at: float | None = None,
 ) -> bool:
     """Si la persona ya vio la explicación y confirma, manda el link de Autorización.
 
@@ -135,7 +139,7 @@ def maybe_handle_acceptance(
 
     # Este turno se resuelve acá sin pasar por el LLM, así que hay que
     # registrar el mensaje de la persona a mano.
-    store.add_turn(chat_id, "user", text)
+    store.add_turn(chat_id, "user", text, created_at)
 
     result = process_welcome_and_authorization(
         deal_id, crm_client, waha_client, public_base_url, link_secret, session=session

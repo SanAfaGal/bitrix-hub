@@ -80,6 +80,7 @@ def test_marks_out_of_coverage_and_disables_bot_on_negation() -> None:
     assert store.get_zone_in_coverage("573001112233@c.us") is False
     assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_zone_out_of_coverage"]]
     assert store.get_bot_enabled("573001112233@c.us") is False
+    assert store.get_bot_enabled_reason("573001112233@c.us") == "zone_out_of_coverage"
     assert store.get_explanation_sent("573001112233@c.us") is False
 
 

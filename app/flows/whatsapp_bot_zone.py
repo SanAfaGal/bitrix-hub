@@ -25,7 +25,7 @@ from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 
 if TYPE_CHECKING:
-    from app.flows.whatsapp_bot import ConversationStore
+    from app.flows.whatsapp_bot_conversation_store import ConversationStore
 
 
 def maybe_ask_zone(chat_id: str, session: str, waha_client: WahaClient, store: "ConversationStore") -> bool:
@@ -40,13 +40,17 @@ def maybe_ask_zone(chat_id: str, session: str, waha_client: WahaClient, store: "
     text = templates_store.get_template("whatsapp_ask_zone")
     if waha_client.send_text(chat_id, text, session=session):
         store.add_turn(chat_id, "assistant", text)
-
-    store.set_zone_asked(chat_id)
+        store.set_zone_asked(chat_id)
     return True
 
 
 def maybe_handle_zone_response(
-    chat_id: str, text: str, waha_client: WahaClient, session: str, store: "ConversationStore"
+    chat_id: str,
+    text: str,
+    waha_client: WahaClient,
+    session: str,
+    store: "ConversationStore",
+    created_at: float | None = None,
 ) -> bool:
     """Si ya se preguntó la zona y sigue sin resolver, interpreta un sí/no claro y actúa.
 
@@ -63,18 +67,18 @@ def maybe_handle_zone_response(
     stripped = text.strip()
 
     if _AFFIRMATION_RE.match(stripped):
-        store.add_turn(chat_id, "user", text)
+        store.add_turn(chat_id, "user", text, created_at)
         store.set_zone_in_coverage(chat_id, True)
         maybe_send_explanation(chat_id, session, waha_client, store)
         return True
 
     if _NEGATION_RE.match(stripped):
-        store.add_turn(chat_id, "user", text)
+        store.add_turn(chat_id, "user", text, created_at)
         store.set_zone_in_coverage(chat_id, False)
         out_text = templates_store.get_template("whatsapp_zone_out_of_coverage")
         if waha_client.send_text(chat_id, out_text, session=session):
             store.add_turn(chat_id, "assistant", out_text)
-        store.set_bot_enabled(chat_id, False)
+        store.set_bot_enabled(chat_id, False, reason="zone_out_of_coverage")
         return True
 
     return False
