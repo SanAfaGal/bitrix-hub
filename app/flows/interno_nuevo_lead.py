@@ -9,7 +9,6 @@ regla de cobertura.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 
 from app.crm.protocol import CrmClient, PropertyListing
 from app.forms.coverage import check_coverage
@@ -76,8 +75,7 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
     if coverage.used_exception:
         crm_client.add_comment(
             deal_id,
-            f"Continuó fuera de cobertura (sector {payload.location_sector_code}) — "
-            f"autorizado por {staff_email} el {datetime.now().strftime('%Y-%m-%d %H:%M')}.",
+            f"Continuó fuera de cobertura (sector {payload.location_sector_code}) — autorizado por {staff_email}.",
         )
 
     return NuevoLeadResult(
