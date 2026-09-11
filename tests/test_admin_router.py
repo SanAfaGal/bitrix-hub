@@ -340,6 +340,7 @@ def test_activate_bot_seeds_history_and_enables_bot(client: TestClient, monkeypa
     assert response.status_code == 303
     assert response.headers["location"] == f"/admin/prospects/{chat_id}"
     assert store.get_bot_enabled(chat_id) is True
+    assert store.get_bot_enabled_reason(chat_id) == "admin_manual"
     assert len(seed_calls) == 1
     assert seed_calls[0][0] is store
     assert seed_calls[0][3] == chat_id

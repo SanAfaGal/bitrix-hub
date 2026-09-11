@@ -24,6 +24,7 @@ from app.admin.page import (
 from app.admin.prospects_page import render_prospects_html
 from app.crm.deps import get_crm_client
 from app.flows.whatsapp_bot import conversation_store, reply_after_activation
+from app.flows.whatsapp_bot_activation import activate_bot_for_chat
 from app.flows.whatsapp_bot_history_seed import seed_history_from_waha
 from app.llm.deps import get_llm_client
 from app.location_catalog import client as location_catalog_client
@@ -191,35 +192,15 @@ def post_delete_prospect(chat_id: str, username: str = Depends(require_login)) -
     summary="Activa el bot para un chat, importando su historial previo de WhatsApp si hace falta",
 )
 def post_activate_bot(chat_id: str, username: str = Depends(require_login)) -> RedirectResponse:
-    # Si ya estaba activo no reintenta el seed — evita reimportar/reanalizar
-    # de más ante un doble clic en "Activar" (ver nota de revisión de la Tarea 3).
-    if not conversation_store.get_bot_enabled(chat_id):
-        try:
-            waha_client = get_waha_client()
-            llm_client = get_llm_client()
-            # `chat_lock` acá evita la carrera con un mensaje real llegando al mismo tiempo por el
-            # webhook (`_process()` también toma este lock) — sin esto, `seed_history_from_waha`
-            # podía pisar (`clear_messages`) un mensaje recién guardado por el webhook, o al revés.
-            with conversation_store.chat_lock(chat_id):
-                seed_history_from_waha(conversation_store, waha_client, llm_client, chat_id)
-        except Exception:  # noqa: BLE001 — una integración mal configurada no debe romper el panel admin
-            logger.exception(
-                "No se pudo importar el historial de Waha al activar el bot para %s — se activa igual", chat_id
-            )
-        conversation_store.set_bot_enabled(chat_id, True)
-        try:
-            # Si el cliente tenía un mensaje sin responder (llegó mientras el chat estaba
-            # apagado), se contesta de una vez acá — sin esto, se queda sin respuesta hasta
-            # que el cliente escriba de nuevo, aunque el admin ya haya activado el bot mirando
-            # ese mismo mensaje. Try/except aparte del de arriba: que el seed haya fallado (o no)
-            # no debe impedir el intento de responder, y viceversa.
-            reply_after_activation(
-                chat_id, get_waha_client(), get_llm_client(), get_crm_client(), store=conversation_store
-            )
-        except Exception:  # noqa: BLE001 — una integración mal configurada no debe romper el panel admin
-            logger.exception(
-                "No se pudo responder el mensaje pendiente de %s al activar el bot", chat_id
-            )
+    activate_bot_for_chat(
+        chat_id,
+        conversation_store,
+        get_waha_client,
+        get_llm_client,
+        get_crm_client,
+        seed_history_from_waha,
+        reply_after_activation,
+    )
     return RedirectResponse(url=f"{PROSPECTS_PATH}/{chat_id}", status_code=303)
 
 
