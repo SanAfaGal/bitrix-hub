@@ -3,9 +3,9 @@
 Separado de `page.py` por tamaño (límite de 500 líneas del repo). Tres pasos
 antes de mostrar "Completa la información":
 
-1. Autorización (sí/no) — enlace a la Ley 1581 de 2012 en el portal oficial
-   de Función Pública, más un checkbox de "he leído y autorizo". Si dice que
-   no, el wizard se detiene ahí.
+1. Autorización (sí/no) — checkbox de "he leído y autorizo" el tratamiento
+   de datos, con enlace a la política de tratamiento de datos de
+   albertoalvarez.com. Si dice que no, el wizard se detiene ahí.
 2. Ubicación del inmueble — solo se pide el dato; la cobertura por zona
    (`app/forms/coverage.py`) es un chequeo aparte, todavía WIP y sin usar en
    este flujo.
@@ -26,23 +26,14 @@ _WIZARD_HTML = """<div class="card" id="wizard-step-authorization">
         <h2 class="card__title">Antes de empezar</h2>
         <p class="card__subtitle">Confírmanos esto para continuar.</p>
       </div>
-      <a class="wizard-law-link" href="https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=49981"
-         target="_blank" rel="noopener noreferrer">
-        Leer la Ley 1581 de 2012 en el portal oficial de Función Pública
-        <svg class="wizard-law-link__icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-             aria-hidden="true">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-          <polyline points="15 3 21 3 21 9"></polyline>
-          <line x1="10" y1="14" x2="21" y2="3"></line>
-        </svg>
-      </a>
       <label class="wizard-checkbox" for="wizard-data-consent">
         <input type="checkbox" id="wizard-data-consent" required>
         <span class="wizard-checkbox__text">
           He leído y autorizo el tratamiento de mis datos personales por parte de Alberto Álvarez
           Servicios Integrales Inmobiliarios, conforme a la Ley 1581 de 2012 y sus decretos
-          reglamentarios, para los fines del proceso de corretaje de mi inmueble.
+          reglamentarios y a nuestra
+          <a href="https://albertoalvarez.com/politica-privacidad" target="_blank" rel="noopener noreferrer">política de tratamiento de datos</a>,
+          para los fines del proceso de corretaje de mi inmueble.
           <span class="field__required">*</span>
         </span>
       </label>
@@ -211,22 +202,14 @@ WIZARD_STYLE = """<style>
   line-height: 1.5;
   color: var(--color-text-muted);
 }
+.wizard-checkbox__text a {
+  color: var(--color-teal);
+  font-weight: 600;
+  text-decoration: underline;
+}
 .wizard-checkbox input[type="checkbox"].field__input--invalid {
   outline: 1.5px solid var(--color-error);
   outline-offset: 2px;
-}
-.wizard-law-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-teal);
-  text-decoration: underline;
-  margin-bottom: var(--space-3);
-}
-.wizard-law-link__icon {
-  flex-shrink: 0;
 }
 .wizard-actions .btn {
   display: inline-flex;

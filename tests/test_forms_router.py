@@ -169,13 +169,13 @@ def test_get_form_requires_data_treatment_consent_checkbox():
     assert "Ley 1581 de 2012" in response.text
 
 
-def test_get_form_links_to_official_law_text():
+def test_get_form_links_to_privacy_policy():
     response = client.get("/formularios/autorizacion-de-corretaje")
 
     assert response.status_code == 200
-    assert 'href="https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=49981"' in response.text
+    assert 'href="https://albertoalvarez.com/politica-privacidad"' in response.text
     assert 'target="_blank"' in response.text
-    # La pregunta vieja ya no está: el enlace a la ley reemplaza la pregunta.
+    # La pregunta vieja ya no está: el checkbox de consentimiento reemplaza la pregunta.
     assert "¿Autorizas a Alberto Álvarez a representarte" not in response.text
 
 
