@@ -1,7 +1,7 @@
 """Prueba manual: crea un contacto simple (nombre + teléfono) en Bitrix.
 
 Uso:
-    uv run python scripts/test_create_contact.py
+    uv run python scripts/manual_create_contact.py
 
 Crea un contacto con NAME="[Test] CREACION DE CONTACTO" y
 PHONE=573167991132 vía `crm.contact.add`, para verificar que Bitrix

@@ -143,7 +143,7 @@ vez, justo al crear el lead por primera vez.
 que escribió y nunca le contestó nadie (se cayó, ningún asesor lo tocó) SÍ
 se auto-activa — ahí no hay nada humano que el bot interrumpa.
 
-**Por qué el límite de lectura es 10 y no 2:** antes del mensaje real,
+**Por qué el límite de lectura es 3 y no 2:** antes del mensaje real,
 WhatsApp manda un evento `e2e_notification`/`encrypt` (placeholder de
 intercambio de claves) que Waha guarda como mensaje del chat, con `id`
 propio y `body` vacío. Se descarta exigiendo `body` no vacío (no solo

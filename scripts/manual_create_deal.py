@@ -1,7 +1,7 @@
 """Prueba manual: crea una negociación (deal) de consignación para un contacto.
 
 Uso:
-    uv run python scripts/test_create_deal.py
+    uv run python scripts/manual_create_deal.py
 
 Usa el flujo real (`find_or_create_property_seller_contact` +
 `find_or_create_property_seller_deal`) con nombre/teléfono de prueba, sobre

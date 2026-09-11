@@ -36,7 +36,13 @@ services:
           memory: "${API_MEMORY_LIMIT:-512M}"
 
   waha:
-    image: devlikeapro/waha:latest
+    # Sin versión semántica publicada upstream (su propio label
+    # org.opencontainers.image.version dice "latest") — se fija por digest
+    # para que un `docker compose pull` no traiga un cambio breaking sin
+    # que nadie lo pida. Actualizar deliberadamente: `docker pull
+    # devlikeapro/waha:latest && docker inspect devlikeapro/waha:latest
+    # --format='{{index .RepoDigests 0}}'`.
+    image: devlikeapro/waha:latest@sha256:d52ad4f394d2e48eb92d58e0f04924ff6c7621a883d08ff64176479ecd77c9ca
     container_name: waha
     restart: unless-stopped
 
@@ -86,7 +92,11 @@ services:
           memory: "${WAHA_MEMORY_LIMIT:-2G}"
 
   whisper:
-    image: onerahmet/openai-whisper-asr-webservice:latest
+    # Mismo motivo que `waha` arriba: fijado por digest, no por tag `latest`.
+    # Actualizar deliberadamente: `docker pull
+    # onerahmet/openai-whisper-asr-webservice:latest && docker inspect
+    # onerahmet/openai-whisper-asr-webservice:latest --format='{{index .RepoDigests 0}}'`.
+    image: onerahmet/openai-whisper-asr-webservice:latest@sha256:0616c3d5fc6924e9d59aa8a7a3a944fbe8f3a5d701e5fc1fa2ce5b933dfecb73
     container_name: whisper
     restart: unless-stopped
 
