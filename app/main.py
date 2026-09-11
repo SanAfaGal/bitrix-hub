@@ -167,11 +167,14 @@ app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(interno_router)
 
+# CSS/JS propios de las páginas privadas de app/interno/ (HTML/CSS/JS sueltos,
+# ver app/interno/README.md). Debe montarse ANTES de "/static": Starlette
+# resuelve los Mount por prefijo en el orden en que se registran, así que si
+# "/static" fuera primero se quedaría con toda request bajo "/static/interno/..."
+# (prefix match) antes de que este mount más específico llegara a verla.
+app.mount("/static/interno", StaticFiles(directory="app/interno/static"), name="static-interno")
 # Assets de marca (favicon, logo) usados por app/forms y app/admin.
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-# CSS/JS propios de las páginas privadas de app/interno/ (HTML/CSS/JS sueltos,
-# ver app/interno/README.md).
-app.mount("/static/interno", StaticFiles(directory="app/interno/static"), name="static-interno")
 
 
 @app.get("/health", tags=["Salud"], summary="Estado del servicio")
