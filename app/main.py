@@ -140,16 +140,21 @@ app = FastAPI(
 # Firma la cookie de sesión de todo el staff (interno + admin, ver app/auth/).
 # `load_session_settings()` falla duro si falta SESSION_SECRET_KEY en .env — sin
 # esto, un despliegue mal configurado firmaría cookies con un secreto público y
-# permitiría forjar sesión sin login. `https_only`/`same_site="strict"` evitan que
-# la cookie viaje por HTTP o se filtre en una navegación cross-site (ver
-# SESSION_HTTPS_ONLY en app/auth/settings.py para el escape hatch de desarrollo
-# local sin TLS).
+# permitiría forjar sesión sin login. `https_only` evita que la cookie viaje por
+# HTTP (ver SESSION_HTTPS_ONLY en app/auth/settings.py para el escape hatch de
+# desarrollo local sin TLS). `same_site="lax"` (no "strict"): el callback de
+# Microsoft (`/auth/callback`) llega como una navegación top-level cross-site
+# iniciada desde login.microsoftonline.com — con "strict" el navegador no manda
+# la cookie ahí, `oauth_state` nunca llega y el login falla con 400 en todos los
+# intentos. "lax" sigue bloqueando la cookie en requests cross-site que no son
+# navegación top-level (POST/fetch/iframe), que es lo que de verdad protege
+# contra CSRF — mismo trade-off que usa flash-view para el mismo flujo.
 _session_settings = load_session_settings()
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_settings.secret,
     https_only=_session_settings.https_only,
-    same_site="strict",
+    same_site="lax",
 )
 
 app.include_router(xposure_router)
