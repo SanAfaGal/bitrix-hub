@@ -11,7 +11,23 @@ from typing import Any, Literal, Protocol
 
 AuthorizationStatus = Literal["pendiente_envio", "pendiente_firma", "firmada"]
 
-DealSource = Literal["whatsapp", "pagina_web", "interno"]
+DealSource = Literal[
+    "whatsapp", "pagina_web", "referido", "captacion", "email_marketing", "servicio_al_cliente", "redes_sociales_ads"
+]
+
+# Canales que un captador puede elegir a mano en el formulario interno (ver
+# app/interno/) — (identificador, label visible), mismo NAME/VALUE que el
+# picklist "Canal de origen" (UF_CRM_1787836749518) tiene en Bitrix.
+# "whatsapp" no aparece: ese origen lo asigna automáticamente el bot
+# (app/flows/whatsapp_bot_identity.py), no algo que se escoja a mano.
+SOURCE_CHANNELS: tuple[tuple[str, str], ...] = (
+    ("referido", "Referido"),
+    ("captacion", "Captación"),
+    ("pagina_web", "Página Web"),
+    ("email_marketing", "Email Marketing"),
+    ("servicio_al_cliente", "Servicio al cliente"),
+    ("redes_sociales_ads", "Redes Sociales Ads"),
+)
 
 
 @dataclass(frozen=True)

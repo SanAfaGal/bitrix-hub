@@ -298,6 +298,13 @@ NUEVO_LEAD_SCRIPT = (
   // elegida de la lista — igual criterio que el público
   // (app/forms/page_script_submit.py), pero sin fetch: si todo está bien,
   // deja que el <form> se mande solo.
+  // Spinner en el botón mientras se crea el contacto + deal en Bitrix — el
+  // POST es un submit normal de HTML (recarga de página, ver
+  // app/interno/router.py), así que esto no reemplaza el envío ni lo
+  // demora: solo se ve mientras el navegador espera la respuesta antes de
+  // navegar a /interno/lead/{id}.
+  var submitButton = document.getElementById('submit-button');
+  var submitButtonText = document.getElementById('submit-button-text');
   form.addEventListener('submit', function (evt) {
     var missingField = markMissingRequiredFields(form, 'Dato obligatorio para crear el lead.');
     var invalidLocation = !missingField ? validateLocationSelection() : null;
@@ -305,7 +312,10 @@ NUEVO_LEAD_SCRIPT = (
     if (firstInvalid) {
       evt.preventDefault();
       firstInvalid.focus();
+      return;
     }
+    submitButton.disabled = true;
+    submitButtonText.innerHTML = '<span class="status-loading"><span class="spinner"></span>Creando lead...</span>';
   });
 })();
 </script>"""

@@ -51,7 +51,7 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
         )
 
     deal_id = crm_client.find_or_create_property_seller_deal(
-        contact_id, title=f"Consignación - {payload.interested_party}", source="interno"
+        contact_id, title=f"Consignación - {payload.interested_party}", source=payload.source_channel
     )
     if not deal_id:
         return NuevoLeadResult(

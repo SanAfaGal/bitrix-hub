@@ -357,11 +357,68 @@ select.field__input {
   display: inline-block;
 }
 .btn--link:hover { color: var(--color-teal-hover); }
+.btn--primary:disabled { background: var(--color-text-faint); cursor: default; }
+
+.status-loading { display: inline-flex; align-items: center; gap: var(--space-2); }
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: var(--color-on-accent);
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 .alert { padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; }
 .alert--error { background: var(--color-error-bg); color: var(--color-error); }
 .alert--warning { background: var(--color-warning-bg); color: var(--color-warning); border: 1.5px solid var(--color-warning-border); }
 .alert--success { background: var(--color-success-bg); color: var(--color-success); }
+
+/* Aviso de cobertura (dirección fuera de la zona que atiende Alberto
+   Álvarez) — más presencia que un `.alert` genérico porque acá la persona
+   tiene que tomar una decisión (seguir igual o corregir la ubicación), no
+   solo leer un mensaje. */
+.coverage-warning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--color-warning-bg);
+  border: 1.5px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.coverage-warning__header { display: flex; align-items: center; gap: var(--space-2); }
+.coverage-warning__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-warning-border);
+  color: var(--color-warning);
+  flex-shrink: 0;
+}
+.coverage-warning__icon svg { width: 16px; height: 16px; }
+.coverage-warning__title { font-size: 14px; font-weight: 700; color: var(--color-warning); }
+.coverage-warning__message { margin: 0; font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--color-warning); }
+.coverage-warning__checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-warning-border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-warning);
+  cursor: pointer;
+}
+.coverage-warning__checkbox input { margin-top: 2px; accent-color: var(--color-warning); flex-shrink: 0; }
 
 .summary { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin: 0; }
 .summary dt { color: var(--color-text-muted); }

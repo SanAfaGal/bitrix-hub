@@ -42,6 +42,7 @@ def _form_data(**overrides) -> dict:
         location="El Poblado, Medellín",
         location_sector_code="00081",
         sale_price="",
+        source_channel="captacion",
         coverage_override="",
         idempotency_token="tok-1",
     )

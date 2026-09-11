@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, field_validator
 
+from app.crm.protocol import SOURCE_CHANNELS
 from app.forms.models import PropertyType
 from app.shared.field_specs import (
     PROPERTY_TYPES,
@@ -41,6 +42,7 @@ class NuevoLeadPayload(BaseModel):
     location: str
     location_sector_code: str
     sale_price: int = 0
+    source_channel: str
     coverage_override: bool = False
     idempotency_token: str
 
@@ -96,6 +98,14 @@ class NuevoLeadPayload(BaseModel):
     @classmethod
     def _validate_sale_price(cls, value: object) -> int:
         return validate_sale_price(value)
+
+    @field_validator("source_channel", mode="before")
+    @classmethod
+    def _validate_source_channel(cls, value: str) -> str:
+        valid = {identifier for identifier, _ in SOURCE_CHANNELS}
+        if value not in valid:
+            raise ValueError("Selecciona un canal de origen.")
+        return value
 
     @field_validator("idempotency_token", mode="before")
     @classmethod

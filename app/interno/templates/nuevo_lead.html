@@ -28,6 +28,23 @@
 
         <h3 class="form-section__title">
           <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m3 11 18-5v12L3 14v-3z"/>
+            <path d="M11.6 16.8a3 3 0 0 1-5.8-1.6"/>
+          </svg>
+          Origen del lead
+        </h3>
+
+        <div class="field">
+          <label class="field__label" for="source_channel">Canal de origen <span class="field__required">*</span></label>
+          <span class="field__hint">Cómo llegó este lead.</span>
+          <select class="field__input" id="source_channel" name="source_channel" required>
+            {{source_channel_options_html}}
+          </select>
+          <span class="field__error"></span>
+        </div>
+
+        <h3 class="form-section__title">
+          <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
             <circle cx="12" cy="7" r="4"/>
           </svg>
@@ -112,7 +129,9 @@
 
         {{coverage_warning_html}}
 
-        <button type="submit" class="btn btn--primary">Crear lead</button>
+        <button type="submit" class="btn btn--primary" id="submit-button">
+          <span id="submit-button-text">Crear lead</span>
+        </button>
       </form>
     </div>
   </div>

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 import app.flows.interno_nuevo_lead as flow_module
 from app.flows.interno_nuevo_lead import process_nuevo_lead
 from app.interno.models import NuevoLeadPayload
@@ -16,6 +19,7 @@ def _payload(**overrides) -> NuevoLeadPayload:
         location="El Poblado, Medellín",
         location_sector_code="00081",
         sale_price=0,
+        source_channel="captacion",
         coverage_override=False,
         idempotency_token="tok-1",
     )
@@ -94,6 +98,21 @@ def test_payload_falls_back_to_colombia_for_unknown_country_code() -> None:
     payload = _payload(phone_country_code="999")
 
     assert payload.phone_country_code == "57"
+
+
+def test_process_nuevo_lead_sends_selected_source_channel(monkeypatch) -> None:
+    monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
+    crm = FakeCrmClient()
+
+    process_nuevo_lead(_payload(source_channel="referido"), crm, "asesor@albertoalvarez.com")
+
+    _, _, source = crm.find_or_create_property_seller_deal_calls[0]
+    assert source == "referido"
+
+
+def test_payload_rejects_unknown_source_channel() -> None:
+    with pytest.raises(ValidationError):
+        _payload(source_channel="algo-inventado")
 
 
 def _covered_result():

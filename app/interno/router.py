@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.auth.deps import require_staff_user
 from app.crm.deps import get_crm_client
+from app.crm.protocol import SOURCE_CHANNELS
 from app.flows.interno_nuevo_lead import process_nuevo_lead
 from app.flows.settings import load_public_base_url
 from app.flows.welcome_authorization import process_welcome_and_authorization
@@ -92,6 +93,16 @@ def _property_type_options_html(selected: str | None) -> RawHTML:
     return RawHTML("".join(options))
 
 
+def _source_channel_options_html(selected: str | None) -> RawHTML:
+    from html import escape
+
+    options = ['<option value="" disabled selected>Selecciona…</option>' if not selected else ""]
+    for identifier, label in SOURCE_CHANNELS:
+        is_selected = " selected" if identifier == selected else ""
+        options.append(f'<option value="{escape(identifier)}"{is_selected}>{escape(label)}</option>')
+    return RawHTML("".join(options))
+
+
 def _phone_country_options_html(selected_code: str) -> RawHTML:
     from html import escape
 
@@ -125,9 +136,22 @@ def _coverage_warning_html(message: str | None) -> RawHTML:
     from html import escape
 
     return RawHTML(
-        f'<div class="alert alert--warning"><p>{escape(message)}</p>'
-        '<label class="field__checkbox"><input type="checkbox" name="coverage_override" value="true"> '
-        "Continuar de todas formas (queda registrado en el deal)</label></div>"
+        '<div class="coverage-warning">'
+        '<div class="coverage-warning__header">'
+        '<span class="coverage-warning__icon">'
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>'
+        '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
+        "</svg>"
+        "</span>"
+        '<span class="coverage-warning__title">Fuera de la zona de cobertura</span>'
+        "</div>"
+        f'<p class="coverage-warning__message">{escape(message)}</p>'
+        '<label class="coverage-warning__checkbox">'
+        '<input type="checkbox" name="coverage_override" value="true">'
+        "<span>Continuar de todas formas</span>"
+        "</label>"
+        "</div>"
     )
 
 
@@ -160,6 +184,7 @@ def _render_nuevo_lead(
     location: str = "",
     location_sector_code: str = "",
     sale_price: str = "",
+    source_channel: str | None = None,
 ) -> str:
     return render_template(
         _NUEVO_LEAD_PATH,
@@ -178,6 +203,7 @@ def _render_nuevo_lead(
         location=location,
         location_sector_code=location_sector_code,
         sale_price=sale_price,
+        source_channel_options_html=_source_channel_options_html(source_channel),
         coverage_warning_html=_coverage_warning_html(coverage_message),
         script_html=RawHTML(NUEVO_LEAD_SCRIPT),
         **_field_text_kwargs(),
@@ -201,6 +227,7 @@ def post_nuevo_lead(
     location: str = Form(...),
     location_sector_code: str = Form(...),
     sale_price: str = Form(default=""),
+    source_channel: str = Form(...),
     coverage_override: str = Form(default=""),
     idempotency_token: str = Form(...),
 ) -> HTMLResponse | RedirectResponse:
@@ -214,6 +241,7 @@ def post_nuevo_lead(
         location=location,
         location_sector_code=location_sector_code,
         sale_price=sale_price,
+        source_channel=source_channel,
     )
 
     try:
@@ -227,6 +255,7 @@ def post_nuevo_lead(
             location=location,
             location_sector_code=location_sector_code,
             sale_price=sale_price,
+            source_channel=source_channel,
             coverage_override=coverage_override == "true",
             idempotency_token=idempotency_token,
         )
