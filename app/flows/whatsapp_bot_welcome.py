@@ -17,12 +17,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.crm.protocol import CrmClient
+from app.flows.whatsapp_bot_identity import create_deal_from_confirmed_identity, resolve_phone
 from app.flows.whatsapp_bot_zone import maybe_ask_zone
 from app.message_templates import store as templates_store
 from app.waha.client import WahaClient
 
 if TYPE_CHECKING:
-    from app.flows.whatsapp_bot import ConversationStore
+    from app.flows.whatsapp_bot_conversation_store import ConversationStore
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,7 @@ def maybe_send_first_contact_welcome(
 
     Retorna True cuando este turno ya quedó resuelto con la bienvenida (el
     caller no debe invocar al LLM), False cuando el chat ya venía en curso
-    (turno normal, sigue el flujo del LLM). El teléfono se resuelve acá
-    mismo (import local para evitar el ciclo `whatsapp_bot` <-> este
-    módulo) — así un chat en curso no paga ese costo de más.
+    (turno normal, sigue el flujo del LLM).
 
     La freshness se decide con `store.has_assistant_turn` (¿el bot ya le
     contestó algo alguna vez a este chat?), NO con `store.get_history`
@@ -55,9 +54,7 @@ def maybe_send_first_contact_welcome(
     if store.has_assistant_turn(chat_id) or store.get_deal_id(chat_id) is not None:
         return False
 
-    from app.flows.whatsapp_bot import _resolve_phone  # noqa: PLC0415 — evita el ciclo de imports
-
-    phone, _ = _resolve_phone(chat_id, waha_client, session)
+    phone, _ = resolve_phone(chat_id, waha_client, session)
 
     contact = crm_client.find_contact_by_phone(phone) if phone else None
     name = crm_client.get_contact_full_name(contact) if contact else None
@@ -83,9 +80,7 @@ def maybe_send_first_contact_welcome(
         # pedírselo dos turnos después (visto en producción).
         if phone:
             store.set_confirmed_identity(chat_id, name, phone)
-            from app.flows.whatsapp_bot import _create_deal_from_confirmed_identity  # noqa: PLC0415
-
-            _create_deal_from_confirmed_identity(chat_id, crm_client, store)
+            create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
         maybe_ask_zone(chat_id, session, waha_client, store)
 

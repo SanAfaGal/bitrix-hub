@@ -18,8 +18,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.flows.whatsapp_bot import _normalize_phone, load_bot_config
+from app.flows.whatsapp_bot import load_bot_config
 from app.flows.whatsapp_bot_conversation_store import ConversationStore
+from app.flows.whatsapp_bot_identity import normalize_phone as _normalize_phone
 from app.flows.whatsapp_bot_llm import analyze_prior_history
 from app.llm.client import LlmClient
 from app.waha.client import WahaClient

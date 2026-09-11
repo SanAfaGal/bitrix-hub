@@ -100,9 +100,13 @@ from app.forms.settings import load_form_link_secret
 from app.llm.client import LlmClient
 from app.message_templates import store as templates_store
 from app.transcription.client import TranscriptionClient
+from app.flows.whatsapp_bot_identity import (
+    create_deal_from_confirmed_identity as _create_deal_from_confirmed_identity,
+    normalize_phone as _normalize_phone,
+    resolve_phone as _resolve_phone,
+)
 from app.waha.client import WahaClient
 from app.waha.inbound import InboundMessage
-from app.waha.phone import from_chat_id, lid_from_chat_id, to_chat_id
 
 logger = logging.getLogger(__name__)
 
@@ -160,56 +164,6 @@ def _resolve_authorization_link_config(
             )
             return None, None
     return resolved_base_url, resolved_secret
-
-
-def _resolve_phone(chat_id: str, waha_client: WahaClient, session: str) -> tuple[str | None, str | None]:
-    """Resuelve el teléfono real de un chat de WhatsApp, devuelve `(phone, username)`.
-
-    El identificador normal es el teléfono (`from_chat_id`). Si WhatsApp
-    oculta el número del remitente, el chat llega como `@lid` en vez de
-    `@c.us` — en ese caso primero se intenta resolver el teléfono real vía
-    `WahaClient.resolve_lid_to_phone` (Waha lo sabe si ya compartió un
-    grupo o chat directo con este número antes); si Waha tampoco lo sabe
-    todavía, se devuelve el identificador `@lid` como `username`
-    (`lid_from_chat_id`) y `phone=None`.
-    """
-    phone = from_chat_id(chat_id)
-    username = None
-
-    if phone is None:
-        username = lid_from_chat_id(chat_id)
-        if username is not None:
-            resolved_chat_id = waha_client.resolve_lid_to_phone(username, session=session)
-            if resolved_chat_id is not None:
-                phone = from_chat_id(resolved_chat_id)
-
-    return phone, username
-
-
-def _create_deal_from_confirmed_identity(
-    chat_id: str, crm_client: CrmClient, store: ConversationStore
-) -> str | None:
-    """Crea el contacto/deal de consignación en Bitrix si el store ya tiene nombre Y teléfono confirmados.
-
-    No crea nada con solo uno de los dos — evita negociaciones a medio
-    llenar visibles para un asesor. Se usa tanto para la primera creación
-    como para el self-heal cuando un asesor borró el deal manualmente (la
-    identidad ya confirmada sigue en el store, no hace falta volver a
-    pedirla).
-    """
-    confirmed_name, confirmed_phone = store.get_confirmed_identity(chat_id)
-    if confirmed_name is None or confirmed_phone is None:
-        return None
-
-    username = lid_from_chat_id(chat_id)
-    contact_id = crm_client.find_or_create_property_seller_contact(confirmed_phone, username, confirmed_name)
-    if contact_id is None:
-        return None
-
-    deal_id = crm_client.find_or_create_property_seller_deal(contact_id, source="whatsapp")
-    if deal_id is not None:
-        store.set_deal_id(chat_id, deal_id)
-    return deal_id
 
 
 def _resolve_text(
@@ -688,13 +642,6 @@ def reply_after_activation(
             persist_user_turn=False,
             history_override=history[:-1],
         )
-
-
-def _normalize_phone(raw: str | None) -> str | None:
-    if raw is None:
-        return None
-    chat_id_form = to_chat_id(raw)
-    return from_chat_id(chat_id_form) if chat_id_form else None
 
 
 def _apply_confirmed_identity(
