@@ -1,0 +1,48 @@
+/* Tokens y .topbar vienen de /static/interno/estilos.css — acá solo la grilla
+   de tarjetas propia de la página de inicio. */
+
+.frame--wide { max-width: 720px; }
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+
+.home-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  background: var(--color-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-6);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s var(--ease-standard), box-shadow 0.15s var(--ease-standard);
+}
+.home-card:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(4, 76, 124, 0.14); }
+
+.home-card--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transition: none;
+}
+.home-card--disabled:hover { transform: none; box-shadow: var(--shadow-card); }
+
+.home-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-info-bg);
+  color: var(--color-teal);
+  flex-shrink: 0;
+}
+.home-card__icon svg { width: 22px; height: 22px; }
+
+.home-card__body { display: flex; flex-direction: column; gap: 4px; }
+.home-card__title { font-size: 17px; font-weight: 700; color: var(--color-navy); }
+.home-card__subtitle { font-size: 13px; font-weight: 500; color: var(--color-text-muted); line-height: 1.4; }

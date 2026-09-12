@@ -14,12 +14,14 @@ from app.message_templates.store import (
     TEMPLATE_VARIABLES,
     TEMPLATE_WHEN_USED,
 )
+from app.shared.staff_nav import staff_fab_html
 
 FAVICON_URL = "/static/imgs/favicon.ico"
 LOGO_URL = "/static/imgs/logo_short.webp"
 
 # Login/logout viven en app/auth/ (cuenta corporativa, único para todo el staff).
 LOGOUT_PATH = "/auth/logout"
+ADMIN_ROOT_PATH = "/admin"
 TEMPLATES_PATH = "/admin/templates"
 CONFIG_PATH = "/admin/config"
 PROSPECTS_PATH = "/admin/prospects"
@@ -292,6 +294,7 @@ def render_app_shell(*, username: str, active_view: str, title: str, sidebar: st
   </div>
 </div>
 </div>
+{staff_fab_html(active="admin", is_admin=True)}
 {EDITOR_SCRIPT}
 </body>
 </html>

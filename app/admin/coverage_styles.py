@@ -3,7 +3,11 @@ porque ese archivo ya está en el tope de las 500 líneas por archivo (CLAUDE.md
 from __future__ import annotations
 
 COVERAGE_STYLE = """<style>
-  .coverage-layout { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--space-6) 32px; gap: var(--space-4); }
+  .coverage-layout {
+    flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: var(--space-4);
+    background: var(--color-card); border-radius: var(--radius-xl);
+    padding: var(--space-6) 32px;
+  }
 
   /* El <form> envuelve toolbar + tabla — sin display:flex acá, el table-wrap
      de adentro (flex:1 1 auto; min-height:0) no tiene una altura acotada

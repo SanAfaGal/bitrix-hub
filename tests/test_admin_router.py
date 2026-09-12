@@ -62,6 +62,31 @@ def test_templates_index_redirects_to_first_template_when_authenticated(client: 
     assert response.headers["location"] == f"/admin/templates/{_FIRST_TEMPLATE_KEY}"
 
 
+def test_admin_root_redirects_to_first_template_when_authenticated(client: TestClient) -> None:
+    _log_in()
+
+    response = client.get("/admin", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/admin/templates/{_FIRST_TEMPLATE_KEY}"
+
+
+def test_admin_unknown_path_redirects_to_admin_root_when_authenticated(client: TestClient) -> None:
+    _log_in()
+
+    response = client.get("/admin/no-existe", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin"
+
+
+def test_admin_unknown_path_redirects_to_login_when_not_authenticated(client: TestClient) -> None:
+    response = client.get("/admin/no-existe", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/login?next=/admin/no-existe"
+
+
 def test_template_editor_page_is_reachable(client: TestClient) -> None:
     _log_in()
 

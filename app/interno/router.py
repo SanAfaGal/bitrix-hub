@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 
-from app.auth.deps import require_staff_user
+from app.auth.deps import is_admin_email, require_staff_user
 from app.crm.deps import get_crm_client
 from app.crm.protocol import SOURCE_CHANNELS
 from app.flows.interno_nuevo_lead import process_nuevo_lead
@@ -26,6 +26,7 @@ from app.shared import idempotency
 from app.shared.field_specs import FIELD_SPECS
 from app.shared.html_templates import RawHTML, render_template
 from app.shared.phone_countries import DEFAULT_PHONE_COUNTRY_CODE, PHONE_COUNTRIES, phone_country_by_code
+from app.shared.staff_nav import staff_fab_html
 from app.waha.deps import get_waha_client
 
 logger = logging.getLogger(__name__)
@@ -172,6 +173,7 @@ def _field_text_kwargs() -> dict[str, str]:
 def _render_nuevo_lead(
     *,
     staff_name: str,
+    staff_email: str,
     flash: str | None = None,
     flash_error: bool = False,
     coverage_message: str | None = None,
@@ -190,6 +192,7 @@ def _render_nuevo_lead(
         _NUEVO_LEAD_PATH,
         staff_name=staff_name,
         header_html=_header_html(staff_name),
+        staff_fab_html=staff_fab_html(active="lead", is_admin=is_admin_email(staff_email)),
         flash_html=_flash_html(flash, error=flash_error),
         idempotency_token=idempotency.new_token(),
         interested_party=interested_party,
@@ -212,7 +215,7 @@ def _render_nuevo_lead(
 
 @router.get("/nuevo-lead", response_class=HTMLResponse, summary="Formulario interno para crear un lead")
 def get_nuevo_lead(staff_user: dict[str, str] = Depends(require_staff_user)) -> HTMLResponse:
-    return HTMLResponse(_render_nuevo_lead(staff_name=staff_user["name"]))
+    return HTMLResponse(_render_nuevo_lead(staff_name=staff_user["name"], staff_email=staff_user["email"]))
 
 
 @router.post("/nuevo-lead", summary="Crea el contacto y la negociación en Bitrix", response_model=None)
@@ -261,14 +264,14 @@ def post_nuevo_lead(
         )
     except ValidationError as exc:
         message = exc.errors()[0]["msg"] if exc.errors() else "Datos inválidos."
-        return HTMLResponse(_render_nuevo_lead(staff_name=staff_user["name"], flash=message, flash_error=True, **form_values))
+        return HTMLResponse(_render_nuevo_lead(staff_name=staff_user["name"], staff_email=staff_user["email"], flash=message, flash_error=True, **form_values))
 
     try:
         crm_client = get_crm_client()
     except (HTTPException, RuntimeError) as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         return HTMLResponse(
-            _render_nuevo_lead(staff_name=staff_user["name"], flash=str(detail), flash_error=True, **form_values)
+            _render_nuevo_lead(staff_name=staff_user["name"], staff_email=staff_user["email"], flash=str(detail), flash_error=True, **form_values)
         )
 
     result = process_nuevo_lead(payload, crm_client, staff_user["email"])
@@ -276,7 +279,7 @@ def post_nuevo_lead(
     if result.blocked:
         return HTMLResponse(
             _render_nuevo_lead(
-                staff_name=staff_user["name"],
+                staff_name=staff_user["name"], staff_email=staff_user["email"],
                 coverage_message=result.message,
                 **form_values,
             )
@@ -284,7 +287,7 @@ def post_nuevo_lead(
 
     if not result.ok:
         return HTMLResponse(
-            _render_nuevo_lead(staff_name=staff_user["name"], flash=result.message, flash_error=True, **form_values)
+            _render_nuevo_lead(staff_name=staff_user["name"], staff_email=staff_user["email"], flash=result.message, flash_error=True, **form_values)
         )
 
     if not idempotency.consume(payload.idempotency_token):
@@ -337,6 +340,7 @@ def get_lead_detail(
             _LEAD_DETAIL_PATH,
             staff_name=staff_user["name"],
             header_html=_header_html(staff_user["name"]),
+            staff_fab_html=staff_fab_html(active="lead", is_admin=is_admin_email(staff_user["email"])),
             deal_id=deal_id,
             flash_html=_flash_html(flash),
             owner_full_name=owner_full_name or "(sin nombre)",

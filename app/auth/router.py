@@ -26,9 +26,10 @@ router = APIRouter(prefix="/auth", tags=["Autenticación"])
 _LOGIN_RATE_LIMIT = {"max_requests": 10, "window_seconds": 60}
 _CALLBACK_RATE_LIMIT = {"max_requests": 10, "window_seconds": 60}
 
-# A dónde vuelve alguien que no vino de ningún /interno/... en particular
-# (ej. entró directo a /auth/login).
-_DEFAULT_NEXT = "/interno/nuevo-lead"
+# A dónde vuelve alguien que no vino de ninguna ruta protegida en particular
+# (ej. entró directo a /auth/login) — la página de inicio (app/home/), para
+# que decida a dónde ir.
+_DEFAULT_NEXT = "/"
 
 
 def _redirect_uri(public_base_url: str) -> str:

@@ -36,6 +36,20 @@ def require_staff_user(request: Request) -> dict[str, str]:
     return user
 
 
+def is_admin_email(email: str) -> bool:
+    """Chequeo sin levantar excepción, para decidir qué mostrar en la UI (ej. si
+    aparece el enlace al panel admin en la navegación) — a diferencia de
+    `require_admin`, que sí es la puerta que protege las rutas. `ADMIN_EMAILS`
+    puede no estar configurado en este despliegue; en ese caso, no admin."""
+    from app.auth.settings import load_microsoft_oauth_settings
+
+    try:
+        settings = load_microsoft_oauth_settings()
+    except RuntimeError:
+        return False
+    return email.lower() in settings.admin_emails
+
+
 def require_admin(request: Request) -> str:
     """Cuenta corporativa autenticada Y en `ADMIN_EMAILS` — reemplaza el login por
     credencial única que tenía el panel admin. Depende de `require_staff_user` (no

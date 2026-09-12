@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from app.admin.coverage_page import filter_by_estado, render_coverage_html
 from app.admin.models import TemplateUpdatePayload
 from app.admin.page import (
+    ADMIN_ROOT_PATH,
     CONFIG_PATH,
     COVERAGE_PATH,
     PROSPECTS_PATH,
@@ -42,6 +43,11 @@ def _template_keys() -> list[str]:
     for section in templates_store.TEMPLATE_SECTIONS:
         keys.extend(section["keys"])  # type: ignore[arg-type]
     return keys
+
+
+@router.get(ADMIN_ROOT_PATH, summary="Entrada única al panel — redirige a la primera plantilla")
+def get_admin_root(username: str = Depends(require_admin)) -> RedirectResponse:
+    return RedirectResponse(url=f"{TEMPLATES_PATH}/{_template_keys()[0]}", status_code=303)
 
 
 @router.get(TEMPLATES_PATH, summary="Redirige a la primera plantilla")
@@ -269,3 +275,15 @@ def post_coverage_batch(
     return HTMLResponse(
         render_coverage_html(username=username, sectors=sectors, estado=estado, flash=flash, flash_error=flash_error)
     )
+
+
+@router.get(
+    "/admin/{full_path:path}",
+    summary="Cualquier ruta de admin sin match cae acá — redirige a la entrada única",
+    include_in_schema=False,
+)
+def get_admin_catch_all(full_path: str, username: str = Depends(require_admin)) -> RedirectResponse:
+    """Registrada al final del router a propósito: FastAPI hace match en orden de
+    declaración, así que toda ruta específica de arriba (templates/config/prospects/
+    cobertura) se resuelve antes de llegar acá — esto solo atrapa lo que no matcheó."""
+    return RedirectResponse(url=ADMIN_ROOT_PATH, status_code=303)

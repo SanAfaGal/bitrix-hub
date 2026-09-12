@@ -20,6 +20,7 @@ from app.auth.settings import load_session_settings
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
 from app.graph.router import router as graph_router
+from app.home.router import router as home_router
 from app.interno.router import router as interno_router
 from app.location_catalog.router import router as location_catalog_router
 from app.message_templates import store as templates_store
@@ -86,6 +87,13 @@ tags_metadata = [
             "Páginas privadas para el staff (cuenta corporativa, sin ADMIN_EMAILS): "
             "crear un lead y, opcionalmente, iniciar de inmediato la Autorización de "
             "Corretaje — ver app/interno/."
+        ),
+    },
+    {
+        "name": "Inicio",
+        "description": (
+            "Página de inicio del staff en '/' — la única URL que hay que memorizar, "
+            "enlaza a Interno y (si aplica) al panel Admin — ver app/home/."
         ),
     },
 ]
@@ -166,13 +174,16 @@ app.include_router(location_catalog_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(interno_router)
+app.include_router(home_router)
 
-# CSS/JS propios de las páginas privadas de app/interno/ (HTML/CSS/JS sueltos,
-# ver app/interno/README.md). Debe montarse ANTES de "/static": Starlette
-# resuelve los Mount por prefijo en el orden en que se registran, así que si
-# "/static" fuera primero se quedaría con toda request bajo "/static/interno/..."
-# (prefix match) antes de que este mount más específico llegara a verla.
+# CSS/JS propios de las páginas privadas de app/interno/ y app/home/ (HTML/CSS/JS
+# sueltos, ver sus README). Deben montarse ANTES de "/static": Starlette resuelve
+# los Mount por prefijo en el orden en que se registran, así que si "/static"
+# fuera primero se quedaría con toda request bajo "/static/interno/..." o
+# "/static/home/..." (prefix match) antes de que estos mounts más específicos
+# llegaran a verla.
 app.mount("/static/interno", StaticFiles(directory="app/interno/static"), name="static-interno")
+app.mount("/static/home", StaticFiles(directory="app/home/static"), name="static-home")
 # Assets de marca (favicon, logo) usados por app/forms y app/admin.
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import app.auth.router as auth_router_module
 from app.auth import client as auth_client
-from app.auth.deps import current_staff_user, log_in, log_out, require_admin, require_staff_user
+from app.auth.deps import current_staff_user, is_admin_email, log_in, log_out, require_admin, require_staff_user
 from app.auth.settings import MicrosoftOAuthSettings
 from app.main import app
 
@@ -99,6 +99,27 @@ def test_require_admin_allowlist_is_case_insensitive(monkeypatch: pytest.MonkeyP
     request = _FakeSessionRequest(session={"staff_user": {"name": "Admin", "email": "ADMIN@albertoalvarez.com"}})
 
     assert require_admin(request) == "ADMIN@albertoalvarez.com"  # type: ignore[arg-type]
+
+
+def test_is_admin_email_true_for_allowlisted_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.auth.settings.load_microsoft_oauth_settings", lambda: _SETTINGS)
+
+    assert is_admin_email("ADMIN@albertoalvarez.com") is True
+
+
+def test_is_admin_email_false_for_non_allowlisted_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.auth.settings.load_microsoft_oauth_settings", lambda: _SETTINGS)
+
+    assert is_admin_email("ana@albertoalvarez.com") is False
+
+
+def test_is_admin_email_false_when_oauth_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise() -> None:
+        raise RuntimeError("Faltan variables de entorno")
+
+    monkeypatch.setattr("app.auth.settings.load_microsoft_oauth_settings", _raise)
+
+    assert is_admin_email("admin@albertoalvarez.com") is False
 
 
 # ── client.py ────────────────────────────────────────────────────────────

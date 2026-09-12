@@ -140,7 +140,15 @@ ADMIN_STYLE = """<style>
   .alert--error { background: var(--color-error-bg); color: var(--color-error); }
   .alert--info { background: var(--color-info-bg); color: var(--color-navy); }
 
-  /* ── App shell (plantillas / configuración) ─────────────────────────── */
+  /* ── App shell (plantillas / configuración) ─────────────────────────────
+     Sin caja envolvente: el topbar y el contenido flotan sobre --color-bg,
+     igual que en app/home/ y app/interno/ — cada panel (sidebar, contenido,
+     prospectos, cobertura) es su propia tarjeta blanca con sombra, no una
+     sección dentro de un único "app shell" con borde. `.page-outer` conserva
+     `height: 100vh` (no min-height) a propósito: es lo que le da altura fija
+     a `.app`/`.body`, de donde cuelga el scroll interno de sidebar/contenido
+     (y el textarea de configuración, que crece a ocupar todo el alto
+     disponible — ver el media query 901px más abajo). ─────────────────── */
 
   .page-outer {
     height: 100vh;
@@ -154,23 +162,18 @@ ADMIN_STYLE = """<style>
     max-width: 1560px;
     display: flex;
     flex-direction: column;
-    background: var(--color-card);
-    border-radius: var(--radius-xl);
-    border: 1px solid #e7e9ee;
-    box-shadow: var(--shadow-card);
-    overflow: hidden;
+    gap: var(--space-5);
+    min-height: 0;
   }
 
   .topbar {
-    height: 68px;
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-5) var(--space-6);
-    padding: var(--space-3) 32px;
-    background: var(--color-card);
-    border-bottom: 1px solid #e7e9ee;
+    padding: var(--space-2) 4px var(--space-3);
+    background: transparent;
   }
   .topbar__brand { display: flex; align-items: center; gap: var(--space-3); flex: 0 0 auto; }
   .topbar__mark { height: 36px; width: auto; flex: 0 0 auto; }
@@ -216,10 +219,11 @@ ADMIN_STYLE = """<style>
   }
   .logout-btn:hover { color: var(--color-navy); }
 
-  .body { flex: 1 1 auto; display: flex; min-height: 0; background: var(--color-bg); }
+  .body { flex: 1 1 auto; display: flex; gap: var(--space-5); min-height: 0; }
 
   .sidebar {
-    width: 312px; flex: 0 0 auto; background: var(--color-card); border-right: 1px solid #e7e9ee;
+    width: 312px; flex: 0 0 auto; background: var(--color-card);
+    border-radius: var(--radius-xl);
     padding: var(--space-6) var(--space-4); overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-6);
   }
   .sidebar::-webkit-scrollbar { width: 8px; }
@@ -248,7 +252,11 @@ ADMIN_STYLE = """<style>
   .sidebar__item:hover .sidebar__item-chevron { color: var(--color-teal); transform: translateX(2px); }
   .sidebar__item--active .sidebar__item-chevron { color: var(--color-teal); }
 
-  .content { flex: 1 1 auto; padding: var(--space-7) 40px; display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; overflow-y: auto; }
+  .content {
+    flex: 1 1 auto; min-width: 0; overflow-y: auto;
+    background: var(--color-card); border-radius: var(--radius-xl);
+    padding: var(--space-7) 40px; display: flex; flex-direction: column; gap: var(--space-5);
+  }
   .content--config { padding: var(--space-7) 48px; }
 
   .content__title-row { display: flex; align-items: baseline; gap: 10px; }
@@ -346,19 +354,20 @@ ADMIN_STYLE = """<style>
   }
 
   @media (max-width: 900px) {
-    .page-outer { padding: 0; }
-    .app { border-radius: 0; border: none; box-shadow: none; min-height: 100vh; }
-    .body { flex-direction: column; }
-    .sidebar {
-      width: 100%; max-height: 320px; border-right: none; border-bottom: 1px solid #e7e9ee;
-      padding: var(--space-4);
-    }
+    .page-outer { padding: var(--space-3); }
+    .app { gap: var(--space-4); }
+    .body { flex-direction: column; gap: var(--space-4); }
+    .sidebar { width: 100%; max-height: 320px; padding: var(--space-4); }
     .content, .content--config { padding: var(--space-6) var(--space-5); }
+    .prospects-layout, .coverage-layout { border-radius: var(--radius-lg); }
   }
 
   /* ── Prospectos (layout tipo WhatsApp Web: lista + hilo) ────────────── */
 
-  .prospects-layout { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
+  .prospects-layout {
+    flex: 1 1 auto; display: flex; min-width: 0; min-height: 0;
+    background: var(--color-card); border-radius: var(--radius-xl); overflow: hidden;
+  }
 
   .prospect-list-pane {
     width: 340px; flex: 0 0 auto; min-height: 0; background: var(--color-card); border-right: 1px solid #e7e9ee;
@@ -391,12 +400,21 @@ ADMIN_STYLE = """<style>
   .prospect-row__name { font-size: 14px; font-weight: 700; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prospect-row__name--muted { color: var(--color-text-faint); font-weight: 600; font-style: italic; }
   .prospect-row__time { flex: 0 0 auto; font-size: 11px; color: var(--color-text-faint); }
-  .prospect-row__bottom { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); }
+  .prospect-row__bottom { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-start; gap: 4px var(--space-2); }
   .prospect-row__phone { font-size: 11px; color: var(--color-text-faint); }
 
   .prospect-badge {
     flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
     padding: 2px 9px; border-radius: var(--radius-pill); white-space: nowrap;
+  }
+  /* Motivo del último cambio de estado del bot (ej. "(auto-activado (chat
+     nuevo))") — texto libre, no una pill como las demás badges: sin
+     `flex-wrap` en `.prospect-row__bottom` este span se apretaba en el
+     espacio sobrante de la fila y el navegador partía cada palabra en su
+     propia línea. */
+  .prospect-badge__reason {
+    flex: 1 1 auto; min-width: 120px; font-size: 10.5px; font-weight: 500;
+    text-transform: none; letter-spacing: normal; color: var(--color-text-faint); white-space: normal;
   }
   .prospect-badge--deal { background: #dcecf1; color: var(--color-teal); }
   .prospect-badge--nodeal { background: #f1f1f6; color: var(--color-text-faint); }
