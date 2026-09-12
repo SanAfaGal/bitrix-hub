@@ -7,13 +7,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.admin import router as admin_router
-from app.auth.deps import require_admin
+from app.auth.deps import require_admin, require_staff_user
 from app.location_catalog.client import Sector
 from app.main import app
 from app.message_templates import db as templates_db
 from app.message_templates.models import Base
 
 _ADMIN_EMAIL = "admin@albertoalvarez.com"
+_ADMIN_NAME = "Ana Admin"
 
 _SECTORS = [
     Sector(sector_code="001", sector="Centro", zona="Zona 1", ciudad="Bogotá", departamento="Cundinamarca", pais="Colombia", cobertura=True),
@@ -34,12 +35,22 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def _log_in(client: TestClient) -> None:
     app.dependency_overrides[require_admin] = lambda: _ADMIN_EMAIL
+    app.dependency_overrides[require_staff_user] = lambda: {"name": _ADMIN_NAME, "email": _ADMIN_EMAIL}
+
+
+def test_coverage_static_css_and_js_are_reachable(client: TestClient) -> None:
+    css = client.get("/static/admin/coverage.css")
+    js = client.get("/static/admin/coverage.js")
+
+    assert css.status_code == 200
+    assert js.status_code == 200
 
 
 @pytest.fixture(autouse=True)
 def _clear_override():
     yield
     app.dependency_overrides.pop(require_admin, None)
+    app.dependency_overrides.pop(require_staff_user, None)
 
 
 def test_coverage_page_requires_login(client: TestClient) -> None:

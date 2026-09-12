@@ -205,6 +205,12 @@ class ConversationStore:
         with self._SessionLocal() as session:
             return store_db.get_full_history(session, chat_id)
 
+    def get_chat_detail(self, chat_id: str, *, history_limit: int = 100) -> dict[str, Any] | None:
+        """Ver `whatsapp_bot_store.get_chat_detail` — usado por el panel admin (vista de
+        detalle de prospectos) para no abrir 5 sesiones por click, ver app/admin/router.py."""
+        with self._SessionLocal() as session:
+            return store_db.get_chat_detail(session, chat_id, history_limit=history_limit)
+
     def get_history_seeded(self, chat_id: str) -> bool:
         with self._SessionLocal() as session:
             return store_db.get_history_seeded(session, chat_id)

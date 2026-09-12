@@ -1,0 +1,25 @@
+<div class="coverage-layout">
+  <div style="display:flex;flex-direction:column;gap:6px;">
+    <h1 class="content__title">Cobertura de ventas por sector</h1>
+    <p class="content__desc">Marca qué sectores tiene cobertura el área de ventas. Filtra de país hasta sector, busca y aplica el cambio a varios sectores a la vez.</p>
+  </div>
+  {{flash_html}}
+  <form method="post" action="/admin/cobertura/batch" id="coverage-batch-form" class="coverage-form">
+    <input type="hidden" name="estado" value="{{estado}}">
+    <div class="coverage-toolbar">
+      {{cascade_selects_html}}
+      <input class="field__input coverage-toolbar__search" type="search" placeholder="Buscar sector, zona, ciudad..." data-coverage-search>
+      {{estado_select_html}}
+      <button type="button" class="btn btn--clear btn--sm" data-coverage-clear{{clear_hidden_attr}}>Borrar filtros</button>
+      <div class="coverage-toolbar__counts">
+        <span class="coverage-toolbar__count" data-coverage-visible-count>0 de 0</span>
+        <span class="coverage-toolbar__count" data-coverage-selected-count>0 seleccionados</span>
+      </div>
+      <div class="coverage-toolbar__actions">
+        <button type="submit" name="accion" value="activar" class="btn btn--primary btn--sm" data-coverage-action disabled>Activar cobertura</button>
+        <button type="submit" name="accion" value="desactivar" class="btn btn--outline btn--sm" data-coverage-action disabled>Desactivar cobertura</button>
+      </div>
+    </div>
+    {{table_html}}
+  </form>
+</div>

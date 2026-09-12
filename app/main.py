@@ -184,6 +184,7 @@ app.include_router(home_router)
 # llegaran a verla.
 app.mount("/static/interno", StaticFiles(directory="app/interno/static"), name="static-interno")
 app.mount("/static/home", StaticFiles(directory="app/home/static"), name="static-home")
+app.mount("/static/admin", StaticFiles(directory="app/admin/static"), name="static-admin")
 # Assets de marca (favicon, logo) usados por app/forms y app/admin.
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

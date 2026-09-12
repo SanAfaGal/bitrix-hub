@@ -1,11 +1,8 @@
-"""JS del panel admin: preview en vivo, contador de caracteres, insertar variable y aviso de cambios sin guardar.
-
-Vainilla, sin build step — mismo criterio que `app/forms/page_script.py`.
-No hace red ni nada async: todo el estado vive en el propio DOM.
-"""
-from __future__ import annotations
-
-EDITOR_SCRIPT = """<script>
+// Editor de plantillas/config: preview en vivo, contador de caracteres,
+// insertar variable y aviso de cambios sin guardar.
+//
+// Vainilla, sin build step. No hace red ni nada async: todo el estado vive
+// en el propio DOM.
 (function () {
   var textarea = document.querySelector('[data-editor]');
   if (!textarea) return;
@@ -69,4 +66,3 @@ EDITOR_SCRIPT = """<script>
     e.returnValue = '';
   });
 })();
-</script>"""

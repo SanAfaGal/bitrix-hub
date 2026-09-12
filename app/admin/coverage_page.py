@@ -1,18 +1,21 @@
-"""HTML de la vista de cobertura de ventas por sector — sigue el patrón de
-app/admin/prospects_page.py. Filtros en cascada (país→departamento→ciudad→
-zona→sector), texto libre y selección múltiple corren en el cliente (JS de
-coverage_script.py) sobre las filas ya renderizadas; el filtro por estado
+"""HTML de la vista de cobertura de ventas por sector — HTML sueltos en
+app/admin/templates/coverage.html + app/admin/static/(coverage.css/coverage.js),
+sigue el patrón de app/interno/. Filtros en cascada (país→departamento→ciudad→
+zona→sector), texto libre y selección múltiple corren en el cliente
+(coverage.js) sobre las filas ya renderizadas; el filtro por estado
 (con/sin cobertura) sí recarga la página vía querystring, porque cambia qué
 filas llegan del servidor."""
 from __future__ import annotations
 
 from html import escape
+from pathlib import Path
 
-from app.admin.coverage_script import COVERAGE_SCRIPT
-from app.admin.coverage_styles import COVERAGE_STYLE
 from app.admin.page import COVERAGE_PATH, render_app_shell
 from app.location_catalog.client import Sector
 from app.location_catalog.normalize import clean_location_part
+from app.shared.html_templates import RawHTML, render_template
+
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 _ESTADO_OPTIONS = [
     ("todos", "Todos"),
@@ -113,7 +116,7 @@ def _cascade_selects_html() -> str:
 
 def render_coverage_html(
     *,
-    username: str,
+    display_name: str,
     sectors: list[Sector],
     estado: str = "todos",
     flash: str | None = None,
@@ -150,32 +153,21 @@ def render_coverage_html(
         </div>
         """
 
-    body = f"""
-    {COVERAGE_STYLE}
-    <div class="coverage-layout">
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <h1 class="content__title">Cobertura de ventas por sector</h1>
-        <p class="content__desc">Marca qué sectores tiene cobertura el área de ventas. Filtra de país hasta sector, busca y aplica el cambio a varios sectores a la vez.</p>
-      </div>
-      {flash_html}
-      <form method="post" action="{COVERAGE_PATH}/batch" id="coverage-batch-form" class="coverage-form">
-        <input type="hidden" name="estado" value="{escape(estado)}">
-        <div class="coverage-toolbar">
-          {_cascade_selects_html()}
-          <input class="field__input coverage-toolbar__search" type="search" placeholder="Buscar sector, zona, ciudad..." data-coverage-search>
-          {_estado_select_html(estado)}
-          <button type="button" class="btn btn--clear btn--sm" data-coverage-clear{"" if estado != "todos" else " hidden"}>Borrar filtros</button>
-          <div class="coverage-toolbar__counts">
-            <span class="coverage-toolbar__count" data-coverage-visible-count>0 de 0</span>
-            <span class="coverage-toolbar__count" data-coverage-selected-count>0 seleccionados</span>
-          </div>
-          <div class="coverage-toolbar__actions">
-            <button type="submit" name="accion" value="activar" class="btn btn--primary btn--sm" data-coverage-action disabled>Activar cobertura</button>
-            <button type="submit" name="accion" value="desactivar" class="btn btn--outline btn--sm" data-coverage-action disabled>Desactivar cobertura</button>
-          </div>
-        </div>
-        {table_html}
-      </form>
-    </div>
-    """
-    return render_app_shell(username=username, active_view="cobertura", title="Cobertura de ventas", sidebar="", body=body + COVERAGE_SCRIPT)
+    body = render_template(
+        _TEMPLATES_DIR / "coverage.html",
+        flash_html=RawHTML(flash_html),
+        estado=estado,
+        cascade_selects_html=RawHTML(_cascade_selects_html()),
+        estado_select_html=RawHTML(_estado_select_html(estado)),
+        clear_hidden_attr=RawHTML("" if estado != "todos" else " hidden"),
+        table_html=RawHTML(table_html),
+    )
+    return render_app_shell(
+        display_name=display_name,
+        active_view="cobertura",
+        title="Cobertura de ventas",
+        sidebar="",
+        body=body,
+        extra_head_html=RawHTML('<link rel="stylesheet" href="/static/admin/coverage.css">'),
+        extra_body_html=RawHTML('<script src="/static/admin/coverage.js" defer></script>'),
+    )

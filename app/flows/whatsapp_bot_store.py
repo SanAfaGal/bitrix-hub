@@ -62,6 +62,36 @@ def get_history(session: Session, chat_id: str, limit: int) -> list[dict[str, st
     return [{"role": role, "content": content} for role, content in reversed(rows)]
 
 
+def get_chat_detail(session: Session, chat_id: str, *, history_limit: int = 100) -> dict[str, Any] | None:
+    """Identidad + deal + estado del bot + historial acotado de un chat, en UNA sola
+    consulta — reemplaza, para la vista de detalle del panel admin, las 5 llamadas sueltas
+    que antes hacía `get_confirmed_identity`/`get_deal_id`/`get_bot_enabled`/
+    `get_bot_enabled_reason`/`get_full_history` (cada una con su propia sesión, ver
+    `ConversationStore.get_chat_detail`). `None` si el chat no existe.
+
+    El historial va acotado a los últimos `history_limit` turnos (a diferencia de
+    `get_full_history`, sin límite) — un chat con miles de turnos no debe volver más
+    pesado cada vez que se abre en el panel."""
+    lead = _get_by_chat_id(session, chat_id)
+    if lead is None:
+        return None
+    rows = session.execute(
+        select(ConversationMessage.role, ConversationMessage.content, ConversationMessage.created_at)
+        .where(ConversationMessage.lead_id == lead.id)
+        .order_by(ConversationMessage.id.desc())
+        .limit(history_limit)
+    ).all()
+    messages = [{"role": role, "content": content, "created_at": created_at} for role, content, created_at in reversed(rows)]
+    return {
+        "name": lead.name,
+        "phone": lead.phone,
+        "deal_id": lead.deal_id,
+        "bot_enabled": bool(lead.bot_enabled),
+        "bot_enabled_reason": lead.bot_enabled_reason,
+        "messages": messages,
+    }
+
+
 def get_full_history(session: Session, chat_id: str) -> list[dict[str, str]]:
     """Todo el historial del chat (sin recorte), en orden cronológico — para la vista de detalle del panel admin."""
     lead = _get_by_chat_id(session, chat_id)

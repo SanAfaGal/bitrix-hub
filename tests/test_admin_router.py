@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.admin import router as admin_router
-from app.auth.deps import require_admin
+from app.auth.deps import require_admin, require_staff_user
 from app.flows.whatsapp_bot import ConversationStore
 from app.main import app
 from app.message_templates import db as templates_db
@@ -15,6 +15,7 @@ from app.message_templates import store as templates_store
 from app.message_templates.models import Base
 
 _ADMIN_EMAIL = "admin@albertoalvarez.com"
+_ADMIN_NAME = "Ana Admin"
 _FIRST_TEMPLATE_KEY = templates_store.TEMPLATE_SECTIONS[0]["keys"][0]
 
 
@@ -34,10 +35,12 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def _log_in() -> None:
     app.dependency_overrides[require_admin] = lambda: _ADMIN_EMAIL
+    app.dependency_overrides[require_staff_user] = lambda: {"name": _ADMIN_NAME, "email": _ADMIN_EMAIL}
 
 
 def _log_out() -> None:
     app.dependency_overrides.pop(require_admin, None)
+    app.dependency_overrides.pop(require_staff_user, None)
 
 
 @pytest.fixture(autouse=True)
@@ -192,6 +195,14 @@ def test_restore_config_resets_to_default(client: TestClient) -> None:
     assert templates_store.get_template(templates_store.CONFIG_KEY) == templates_store.DEFAULT_TEMPLATES[
         templates_store.CONFIG_KEY
     ]
+
+
+def test_admin_static_prospects_css_and_js_are_reachable(client: TestClient) -> None:
+    css = client.get("/static/admin/prospects.css")
+    js = client.get("/static/admin/prospects.js")
+
+    assert css.status_code == 200
+    assert js.status_code == 200
 
 
 def test_prospects_list_requires_login(client: TestClient) -> None:
@@ -429,6 +440,67 @@ def test_activate_bot_handles_misconfigured_integration_gracefully(
 
     assert response.status_code == 303
     assert store.get_bot_enabled(chat_id) is True
+
+
+def test_prospect_thread_fragment_requires_login(client: TestClient) -> None:
+    response = client.get("/admin/prospects/573001112233@c.us/detail", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/login?next=/admin/prospects/573001112233@c.us/detail"
+
+
+def test_prospect_thread_fragment_returns_only_the_thread_pane(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El endpoint AJAX que usa prospects.js al cambiar de chat no debe traer/redibujar
+    la lista completa (`list_chats`) — eso es justo lo que sobrecargaba el pool de conexiones
+    con clics rápidos."""
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    store.add_turn(chat_id, "user", "hola, quiero vender mi apto")
+    store.set_confirmed_identity(chat_id, "Ana", "573001112233")
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+    list_chats_calls: list = []
+    original_list_chats = store.list_chats
+    monkeypatch.setattr(store, "list_chats", lambda: list_chats_calls.append(1) or original_list_chats())
+
+    _log_in()
+    response = client.get(f"/admin/prospects/{chat_id}/detail")
+
+    assert response.status_code == 200
+    assert "Ana" in response.text
+    assert "hola, quiero vender mi apto" in response.text
+    assert "prospect-list-pane" not in response.text
+    assert list_chats_calls == []
+
+
+def test_prospect_thread_fragment_for_unknown_chat_shows_empty_thread(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(admin_router, "conversation_store", ConversationStore())
+
+    _log_in()
+    response = client.get("/admin/prospects/no-existe@c.us/detail")
+
+    assert response.status_code == 200
+    assert "Sin mensajes todavía." in response.text
+
+
+def test_prospect_detail_history_is_bounded(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`get_chat_detail` acota el historial (a diferencia del extinto uso de `get_full_history`
+    en esta vista) — un chat con muchos turnos no debe volver cada vez más pesado."""
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    for i in range(150):
+        store.add_turn(chat_id, "user", f"mensaje {i}")
+    monkeypatch.setattr(admin_router, "conversation_store", store)
+
+    _log_in()
+    response = client.get(f"/admin/prospects/{chat_id}")
+
+    assert response.status_code == 200
+    assert "mensaje 149" in response.text
+    assert "mensaje 0" not in response.text
 
 
 def test_deactivate_bot_disables_bot(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

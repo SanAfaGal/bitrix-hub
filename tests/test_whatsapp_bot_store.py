@@ -32,6 +32,35 @@ def test_get_full_history_returns_all_turns_in_order() -> None:
     assert all("created_at" in m for m in history)
 
 
+def test_get_chat_detail_combines_identity_deal_bot_state_and_bounded_history() -> None:
+    """`get_chat_detail` reemplaza, para la vista de detalle del panel admin, las 5 llamadas
+    sueltas que antes hacían `get_confirmed_identity`/`get_deal_id`/`get_bot_enabled`/
+    `get_bot_enabled_reason`/`get_full_history` — todo en una sola sesión."""
+    store = ConversationStore()
+    chat_id = "573001112233@c.us"
+    store.set_confirmed_identity(chat_id, "Ana", "573001112233")
+    store.set_deal_id(chat_id, "42")
+    store.set_bot_enabled(chat_id, True, reason="admin_manual")
+    for i in range(5):
+        store.add_turn(chat_id, "user", f"mensaje {i}")
+
+    detail = store.get_chat_detail(chat_id, history_limit=3)
+
+    assert detail is not None
+    assert detail["name"] == "Ana"
+    assert detail["phone"] == "573001112233"
+    assert detail["deal_id"] == "42"
+    assert detail["bot_enabled"] is True
+    assert detail["bot_enabled_reason"] == "admin_manual"
+    assert [m["content"] for m in detail["messages"]] == ["mensaje 2", "mensaje 3", "mensaje 4"]
+
+
+def test_get_chat_detail_returns_none_for_unknown_chat() -> None:
+    store = ConversationStore()
+
+    assert store.get_chat_detail("no-existe@c.us") is None
+
+
 def test_add_turn_uses_given_created_at_instead_of_current_time() -> None:
     """Permite pasar el `timestamp` real de Waha (ej. en el backfill de historial,
     `whatsapp_bot_history_seed.py`) en vez de siempre grabar el momento del insert."""

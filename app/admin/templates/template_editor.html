@@ -1,0 +1,40 @@
+<div class="content">
+  <div style="display:flex;flex-direction:column;gap:6px;">
+    <div class="content__title-row">
+      <h1 class="content__title">{{label}}</h1>
+      <span class="badge-unsaved" data-badge>Sin guardar</span>
+    </div>
+    <p class="content__desc">{{when_used}}</p>
+  </div>
+  {{flash_html}}
+  <div class="editor-grid">
+    <div class="editor-col">
+      <form method="post" action="{{action_url}}" style="display:flex;flex-direction:column;gap:var(--space-3)">
+        {{var_chips_html}}
+        <div class="editor-wrap">
+          <textarea class="editor-textarea" name="content" rows="11" data-editor data-var-samples='{{samples}}'>{{content}}</textarea>
+          <span class="char-count" data-char-count></span>
+        </div>
+        <div class="btn-row">
+          <button type="submit" class="btn btn--primary">Guardar</button>
+          <button type="submit" formaction="{{restore_url}}" class="btn btn--outline">Restaurar valor por defecto</button>
+          <span class="save-meta">Guardado</span>
+        </div>
+      </form>
+    </div>
+    <div class="side-col">
+      <div>
+        <div class="preview-label">Así lo ve el cliente</div>
+        <div class="chat-frame">
+          <div class="chat-bubble">
+            <div class="chat-bubble__text" data-preview-text>{{content}}</div>
+            <div class="chat-bubble__meta">
+              <span class="chat-bubble__time">9:41 a. m.</span>
+              <svg width="14" height="10" viewBox="0 0 16 11" fill="none"><path d="M1 5.5L4.5 9L11 1.5" stroke="#53bdeb" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 5.5L8.5 9L15 1.5" stroke="#53bdeb" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

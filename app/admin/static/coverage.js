@@ -1,16 +1,12 @@
-"""JS de la vista de cobertura de ventas: filtros en cascada (país→
-departamento→ciudad→zona→sector), búsqueda de texto, selección masiva
-(incluido clic en cualquier parte de la fila) y contadores — vainilla, sin
-build step, mismo criterio que page_script.py.
-
-Todo corre sobre las filas ya renderizadas por el servidor, sin red. Los
-datos de cada fila se leen del DOM una sola vez al cargar (`_buildRecords`)
-y se guardan en un arreglo plano — filtrar/recalcular cascada después solo
-toca ese arreglo en memoria, no vuelve a leer atributos del DOM fila por
-fila, que es lo que hacía pesado escribir en el buscador con ~2000 filas."""
-from __future__ import annotations
-
-COVERAGE_SCRIPT = """<script>
+// Filtros en cascada (país→departamento→ciudad→zona→sector), búsqueda de
+// texto, selección masiva (incluido clic en cualquier parte de la fila) y
+// contadores — vainilla, sin build step.
+//
+// Todo corre sobre las filas ya renderizadas por el servidor, sin red. Los
+// datos de cada fila se leen del DOM una sola vez al cargar (_buildRecords)
+// y se guardan en un arreglo plano — filtrar/recalcular cascada después solo
+// toca ese arreglo en memoria, no vuelve a leer atributos del DOM fila por
+// fila, que es lo que hacía pesado escribir en el buscador con ~2000 filas.
 (function () {
   var table = document.querySelector('[data-coverage-table]');
   if (!table) return;
@@ -188,4 +184,3 @@ COVERAGE_SCRIPT = """<script>
   applyFilters();
   updateSelectedCount();
 })();
-</script>"""

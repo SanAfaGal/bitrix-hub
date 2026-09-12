@@ -1,11 +1,15 @@
-"""HTML autocontenido del panel admin (sin dependencias externas) — sigue el patrón de app/forms/page.py."""
+"""Shell del panel admin (topbar, sidebar, editor de plantillas/config) — HTML sueltos
+en app/admin/templates/ + app/admin/static/, sigue el patrón de app/interno/.
+
+Cada vista (prospectos, cobertura) sigue armando su propio `body` (como RawHTML) y
+llama a `render_app_shell(...)` acá para envolverlo con topbar + head — ver
+app/admin/README.md sobre por qué el shell no se duplica por vista."""
 from __future__ import annotations
 
 import json
 from html import escape
+from pathlib import Path
 
-from app.admin.page_script import EDITOR_SCRIPT
-from app.admin.page_styles import ADMIN_STYLE
 from app.message_templates.store import (
     TEMPLATE_HINTS,
     TEMPLATE_LABELS,
@@ -14,7 +18,10 @@ from app.message_templates.store import (
     TEMPLATE_VARIABLES,
     TEMPLATE_WHEN_USED,
 )
+from app.shared.html_templates import RawHTML, render_template
 from app.shared.staff_nav import staff_fab_html
+
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 FAVICON_URL = "/static/imgs/favicon.ico"
 LOGO_URL = "/static/imgs/logo_short.webp"
@@ -28,17 +35,6 @@ PROSPECTS_PATH = "/admin/prospects"
 COVERAGE_PATH = "/admin/cobertura"
 
 _FIRST_TEMPLATE_KEY = TEMPLATE_SECTIONS[0]["keys"][0]  # type: ignore[index]
-
-
-def _head(title: str) -> str:
-    return f"""<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(title)} — Alberto Álvarez</title>
-<link rel="icon" href="{FAVICON_URL}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
-{ADMIN_STYLE}"""
 
 
 _NAVPILL_ICONS = {
@@ -72,7 +68,12 @@ _NAVPILL_ICONS = {
 }
 
 
-def _topbar(*, username: str, active_view: str) -> str:
+def _topbar(*, display_name: str, active_view: str) -> str:
+    """`display_name` es el nombre real de la cuenta corporativa (`staff_user["name"]`,
+    ver `app.auth.deps.require_staff_user`) — no el email que devuelve `require_admin`
+    (ese sigue siendo el identificador correcto para auditoría, ej. `updated_by` al
+    guardar una plantilla, pero no es lo que se le muestra a la persona). Mismo
+    dato/formato ("Sesión iniciada" + inicial) que ya usan `app/interno/` y `app/home/`."""
     def pill(view: str, label: str, href: str, *, has_unsaved_indicator: bool = False) -> str:
         active = " navpill--active" if view == active_view else ""
         dot = '<span class="navpill__dot" data-badge></span>' if has_unsaved_indicator and view == active_view else ""
@@ -82,6 +83,8 @@ def _topbar(*, username: str, active_view: str) -> str:
             f'{icon}<span class="navpill__label">{label}</span>{dot}</a>'
         )
 
+    initial = escape(display_name.strip()[:1].upper() or "?")
+    safe_name = escape(display_name)
     return f"""
     <div class="topbar">
       <div class="topbar__brand">
@@ -100,12 +103,19 @@ def _topbar(*, username: str, active_view: str) -> str:
       </div>
       <div class="topbar__user">
         <div class="userchip">
-          <span class="avatar">{escape(username[:2].upper())}</span>
-          {escape(username)}
+          <span class="avatar">{initial}</span>
+          <span class="userchip__text">
+            <span class="userchip__name">{safe_name}</span>
+            <span class="userchip__status">Sesión iniciada</span>
+          </span>
+          <form method="post" action="{LOGOUT_PATH}">
+            <button type="submit" class="logout-btn" aria-label="Cerrar sesión" title="Cerrar sesión">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
+          </form>
         </div>
-        <form method="post" action="{LOGOUT_PATH}">
-          <button type="submit" class="logout-btn">Cerrar sesión</button>
-        </form>
       </div>
     </div>
     """
@@ -160,7 +170,7 @@ def _var_chips(key: str) -> str:
 
 
 def render_template_editor_html(
-    *, username: str, key: str, content: str, flash: str | None = None, flash_error: bool = False
+    *, display_name: str, key: str, content: str, flash: str | None = None, flash_error: bool = False
 ) -> str:
     label = escape(TEMPLATE_LABELS.get(key, key))
     when_used = escape(TEMPLATE_WHEN_USED.get(key, ""))
@@ -170,54 +180,24 @@ def render_template_editor_html(
         kind = "alert--error" if flash_error else "alert--info"
         flash_html = f'<div class="alert {kind}">{escape(flash)}</div>'
 
-    body = f"""
-    <div class="content">
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <div class="content__title-row">
-          <h1 class="content__title">{label}</h1>
-          <span class="badge-unsaved" data-badge>Sin guardar</span>
-        </div>
-        <p class="content__desc">{when_used}</p>
-      </div>
-      {flash_html}
-      <div class="editor-grid">
-        <div class="editor-col">
-          <form method="post" action="{TEMPLATES_PATH}/{escape(key)}" style="display:flex;flex-direction:column;gap:var(--space-3)">
-            {_var_chips(key)}
-            <div class="editor-wrap">
-              <textarea class="editor-textarea" name="content" rows="11" data-editor data-var-samples='{samples}'>{escape(content)}</textarea>
-              <span class="char-count" data-char-count></span>
-            </div>
-            <div class="btn-row">
-              <button type="submit" class="btn btn--primary">Guardar</button>
-              <button type="submit" formaction="{TEMPLATES_PATH}/{escape(key)}/restore" class="btn btn--outline">Restaurar valor por defecto</button>
-              <span class="save-meta">Guardado</span>
-            </div>
-          </form>
-        </div>
-        <div class="side-col">
-          <div>
-            <div class="preview-label">Así lo ve el cliente</div>
-            <div class="chat-frame">
-              <div class="chat-bubble">
-                <div class="chat-bubble__text" data-preview-text>{escape(content)}</div>
-                <div class="chat-bubble__meta">
-                  <span class="chat-bubble__time">9:41 a. m.</span>
-                  <svg width="14" height="10" viewBox="0 0 16 11" fill="none"><path d="M1 5.5L4.5 9L11 1.5" stroke="#53bdeb" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 5.5L8.5 9L15 1.5" stroke="#53bdeb" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
+    action_url = RawHTML(f"{TEMPLATES_PATH}/{escape(key)}")
+    body = render_template(
+        _TEMPLATES_DIR / "template_editor.html",
+        label=RawHTML(label),
+        when_used=RawHTML(when_used),
+        flash_html=RawHTML(flash_html),
+        action_url=action_url,
+        restore_url=RawHTML(f"{action_url}/restore"),
+        var_chips_html=RawHTML(_var_chips(key)),
+        samples=RawHTML(samples),
+        content=content,
+    )
     return render_app_shell(
-        username=username, active_view="templates", title="Plantillas de WhatsApp", sidebar=_sidebar(selected_key=key), body=body
+        display_name=display_name, active_view="templates", title="Plantillas de WhatsApp", sidebar=_sidebar(selected_key=key), body=body
     )
 
 
-def render_config_html(*, username: str, content: str, flash: str | None = None, flash_error: bool = False) -> str:
+def render_config_html(*, display_name: str, content: str, flash: str | None = None, flash_error: bool = False) -> str:
     flash_html = ""
     if flash:
         kind = "alert--error" if flash_error else "alert--info"
@@ -235,67 +215,35 @@ def render_config_html(*, username: str, content: str, flash: str | None = None,
         for tip in tips
     )
 
-    body = f"""
-    <div class="content content--config">
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <div class="content__title-row">
-          <h1 class="content__title">Configuración del bot</h1>
-          <span class="badge-unsaved" data-badge>Sin guardar</span>
-        </div>
-        <p class="content__desc">Cómo se comporta el asistente en el resto de la conversación — no es un mensaje fijo, sino instrucciones que el bot sigue para responder.</p>
-      </div>
-      {flash_html}
-      <div class="editor-grid">
-        <div class="editor-col">
-          <form method="post" action="{CONFIG_PATH}" style="display:flex;flex-direction:column;gap:var(--space-3)">
-            <div class="editor-wrap">
-              <textarea class="editor-textarea" name="content" rows="16" data-editor data-var-samples='{{}}'>{escape(content)}</textarea>
-              <span class="char-count" data-char-count></span>
-            </div>
-            <div class="btn-row">
-              <button type="submit" class="btn btn--primary">Guardar</button>
-              <button type="submit" formaction="{CONFIG_PATH}/restore" class="btn btn--outline">Restaurar valor por defecto</button>
-              <span class="save-meta">Guardado</span>
-            </div>
-          </form>
-        </div>
-        <div class="side-col">
-          <div class="guide-card">
-            <div class="guide-card__title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0c688e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-              Guía rápida
-            </div>
-            {tips_html}
-          </div>
-          <div class="info-card">
-            <span class="info-card__label">Cuándo se usa</span>
-            <p class="info-card__text">Se aplica desde el segundo mensaje del cliente en adelante — el primer mensaje siempre lo manda una de las plantillas de bienvenida, sin pasar por acá.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-    return render_app_shell(username=username, active_view="config", title="Configuración del bot", sidebar="", body=body)
+    body = render_template(
+        _TEMPLATES_DIR / "config.html",
+        flash_html=RawHTML(flash_html),
+        content=content,
+        tips_html=RawHTML(tips_html),
+    )
+    return render_app_shell(display_name=display_name, active_view="config", title="Configuración del bot", sidebar="", body=body)
 
 
-def render_app_shell(*, username: str, active_view: str, title: str, sidebar: str, body: str) -> str:
-    return f"""<!doctype html>
-<html lang="es">
-<head>
-{_head(title)}
-</head>
-<body>
-<div class="page-outer">
-<div class="app">
-  {_topbar(username=username, active_view=active_view)}
-  <div class="body">
-    {sidebar}
-    {body}
-  </div>
-</div>
-</div>
-{staff_fab_html(active="admin", is_admin=True)}
-{EDITOR_SCRIPT}
-</body>
-</html>
-"""
+def render_app_shell(
+    *,
+    display_name: str,
+    active_view: str,
+    title: str,
+    sidebar: str,
+    body: str,
+    extra_head_html: str = "",
+    extra_body_html: str = "",
+) -> str:
+    """`extra_head_html`/`extra_body_html` son ganchos aditivos (default vacío) para que una
+    vista agregue su propio `<link rel="stylesheet">`/`<script>` sin tocar el shell — usado
+    por prospects_page.py para prospects.css/prospects.js, ver render_prospects_html."""
+    return render_template(
+        _TEMPLATES_DIR / "shell.html",
+        title=title,
+        topbar=RawHTML(_topbar(display_name=display_name, active_view=active_view)),
+        sidebar=RawHTML(sidebar),
+        body=RawHTML(body),
+        extra_head_html=RawHTML(extra_head_html),
+        extra_body_html=RawHTML(extra_body_html),
+        staff_fab_html=RawHTML(staff_fab_html(active="admin", is_admin=True)),
+    )

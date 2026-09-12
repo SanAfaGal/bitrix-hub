@@ -1,11 +1,14 @@
-"""HTML de la vista de prospectos/mensajes del bot de WhatsApp — sigue el patrón de app/admin/page.py.
+"""HTML de la vista de prospectos/mensajes del bot de WhatsApp — HTML sueltos en
+app/admin/templates/ + app/admin/static/ (prospects.css/prospects.js), sigue el
+patrón de app/interno/.
 
 Layout tipo WhatsApp Web: lista de chats a la izquierda, hilo del chat
-seleccionado a la derecha, las dos en una sola pantalla (`render_prospects_html`)
-— clic en un chat de la lista navega a `/admin/prospects/{chat_id}`, que
-vuelve a renderizar ambos paneles con ese chat activo. Sin JS/AJAX: sigue
-el resto del panel admin, que no tiene motor de templates ni framework de
-frontend.
+seleccionado a la derecha. La carga inicial (`render_prospects_html`) trae
+las dos en una sola pantalla; cambiar de chat después es AJAX
+(`prospects.js` hace fetch a `/admin/prospects/{key}/detail`, que devuelve
+solo `render_thread_pane_html(...)` — no vuelve a traer/renderizar la lista
+completa). El `<a href>` real de cada fila queda como fallback si JS está
+desactivado o para el primer load/navegación directa.
 """
 from __future__ import annotations
 
@@ -13,12 +16,15 @@ import os
 import time
 from datetime import datetime
 from html import escape
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.admin.page import PROSPECTS_PATH, render_app_shell
+from app.shared.html_templates import RawHTML, render_template
 
 _BOGOTA_TZ = ZoneInfo(os.environ.get("TZ", "America/Bogota"))
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def _format_datetime(ts: float | None) -> str:
@@ -161,9 +167,11 @@ def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str
             name_html = '<span class="prospect-row__name prospect-row__name--muted">Sin confirmar</span>'
         phone = _display_phone(chat.get("confirmed_phone")) or ""
         key = _row_key(chat)
+        channel = chat.get("channel", "whatsapp")
         active = " prospect-row--active" if key == selected_chat_id else ""
         rows.append(
-            f'<a class="prospect-row{active}" href="{PROSPECTS_PATH}/{escape(key or "")}">'
+            f'<a class="prospect-row{active}" href="{PROSPECTS_PATH}/{escape(key or "")}" '
+            f'data-row-key="{escape(key or "")}" data-channel="{escape(channel)}">'
             f'{_avatar_html(name, block="prospect-row__avatar")}'
             f'<div class="prospect-row__body">'
             f'<div class="prospect-row__top">'
@@ -198,16 +206,14 @@ def _delete_form_html(chat_id: str) -> str:
     """
 
 
-def _thread_pane(
-    *, chat_id: str | None, chat_meta: dict[str, Any] | None, messages: list[dict[str, Any]] | None
-) -> str:
-    if chat_id is None:
-        return (
-            '<div class="prospect-thread-pane prospect-thread-pane--empty">'
-            '<p class="prospect-empty">Selecciona un prospecto de la lista para ver la conversación.</p>'
-            "</div>"
-        )
+_EMPTY_THREAD_PANE_HTML = (
+    '<div class="prospect-thread-pane prospect-thread-pane--empty">'
+    '<p class="prospect-empty">Selecciona un prospecto de la lista para ver la conversación.</p>'
+    "</div>"
+)
 
+
+def _thread_header_html(*, chat_id: str, chat_meta: dict[str, Any] | None) -> RawHTML:
     name = chat_meta.get("confirmed_name") if chat_meta else None
     phone = chat_meta.get("confirmed_phone") if chat_meta else None
     deal_id = chat_meta.get("deal_id") if chat_meta else None
@@ -218,60 +224,84 @@ def _thread_pane(
     display_phone = _display_phone(phone)
     header_phone = escape(display_phone) if display_phone else escape(chat_id)
 
-    if not messages:
-        bubbles_html = '<div class="prospect-empty">Sin mensajes todavía.</div>'
-    else:
-        bubbles = []
-        for msg in messages:
-            variant = "assistant" if msg.get("role") == "assistant" else "user"
-            bubbles.append(
-                f'<div class="prospect-bubble prospect-bubble--{variant}">'
-                f'<div class="prospect-bubble__text">{escape(msg.get("content") or "")}</div>'
-                f'<span class="prospect-bubble__time">{escape(_format_datetime(msg.get("created_at")))}</span>'
-                f"</div>"
-            )
-        bubbles_html = "".join(bubbles)
-
-    return f"""
-    <div class="prospect-thread-pane">
-      <div class="prospect-header">
-        <a class="prospect-header__back" href="{PROSPECTS_PATH}" aria-label="Volver a la lista">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </a>
-        {_avatar_html(name, block="prospect-header__avatar")}
-        <div class="prospect-header__identity">
-          <h1 class="prospect-header__name">{header_name}</h1>
-          <span class="prospect-header__phone">{header_phone}</span>
-          <div class="prospect-header__meta">
-            {_channel_badge(channel)}
-            {_deal_badge(deal_id)}
-            {_bot_badge(bot_enabled, bot_enabled_reason)}
-          </div>
-        </div>
-        <div class="prospect-header__actions">
-          {_bot_toggle_form(chat_id, bot_enabled, css_class="prospect-header__bot-toggle") if channel == "whatsapp" else ""}
-          {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
+    return RawHTML(
+        f"""
+    <div class="prospect-header">
+      <a class="prospect-header__back" href="{PROSPECTS_PATH}" aria-label="Volver a la lista">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </a>
+      {_avatar_html(name, block="prospect-header__avatar")}
+      <div class="prospect-header__identity">
+        <h1 class="prospect-header__name">{header_name}</h1>
+        <span class="prospect-header__phone">{header_phone}</span>
+        <div class="prospect-header__meta">
+          {_channel_badge(channel)}
+          {_deal_badge(deal_id)}
+          {_bot_badge(bot_enabled, bot_enabled_reason)}
         </div>
       </div>
-      <div class="prospect-thread">{bubbles_html}</div>
+      <div class="prospect-header__actions">
+        {_bot_toggle_form(chat_id, bot_enabled, css_class="prospect-header__bot-toggle") if channel == "whatsapp" else ""}
+        {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
+      </div>
     </div>
     """
+    )
+
+
+def _bubbles_html(messages: list[dict[str, Any]] | None) -> RawHTML:
+    if not messages:
+        return RawHTML('<div class="prospect-empty">Sin mensajes todavía.</div>')
+    bubbles = []
+    for msg in messages:
+        variant = "assistant" if msg.get("role") == "assistant" else "user"
+        bubbles.append(
+            f'<div class="prospect-bubble prospect-bubble--{variant}">'
+            f'<div class="prospect-bubble__text">{escape(msg.get("content") or "")}</div>'
+            f'<span class="prospect-bubble__time">{escape(_format_datetime(msg.get("created_at")))}</span>'
+            f"</div>"
+        )
+    return RawHTML("".join(bubbles))
+
+
+def render_thread_pane_html(
+    *, chat_id: str | None, chat_meta: dict[str, Any] | None, messages: list[dict[str, Any]] | None
+) -> str:
+    """El panel de hilo solo (header + burbujas) — usado tanto en la página completa como
+    en la respuesta del endpoint AJAX `/admin/prospects/{key}/detail` (ver prospects.js)."""
+    if chat_id is None:
+        return _EMPTY_THREAD_PANE_HTML
+    return render_template(
+        _TEMPLATES_DIR / "prospects_thread_pane.html",
+        header_html=_thread_header_html(chat_id=chat_id, chat_meta=chat_meta),
+        bubbles_html=_bubbles_html(messages),
+    )
 
 
 def render_prospects_html(
     *,
-    username: str,
+    display_name: str,
     chats: list[dict[str, Any]],
     selected_chat_id: str | None = None,
     selected_meta: dict[str, Any] | None = None,
     selected_messages: list[dict[str, Any]] | None = None,
 ) -> str:
     layout_class = "prospects-layout prospects-layout--has-selection" if selected_chat_id else "prospects-layout"
-    body = f"""
-    <div class="{layout_class}">
-      {_list_pane(chats, selected_chat_id)}
-      {_thread_pane(chat_id=selected_chat_id, chat_meta=selected_meta, messages=selected_messages)}
-    </div>
-    """
-    return render_app_shell(username=username, active_view="prospects", title="Prospectos", sidebar="", body=body)
+    body = render_template(
+        _TEMPLATES_DIR / "prospects.html",
+        layout_class=layout_class,
+        list_pane_html=RawHTML(_list_pane(chats, selected_chat_id)),
+        thread_pane_html=RawHTML(
+            render_thread_pane_html(chat_id=selected_chat_id, chat_meta=selected_meta, messages=selected_messages)
+        ),
+    )
+    return render_app_shell(
+        display_name=display_name,
+        active_view="prospects",
+        title="Prospectos",
+        sidebar="",
+        body=body,
+        extra_head_html=RawHTML('<link rel="stylesheet" href="/static/admin/prospects.css">'),
+        extra_body_html=RawHTML('<script src="/static/admin/prospects.js" defer></script>'),
+    )

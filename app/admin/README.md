@@ -4,26 +4,22 @@ Plantillas de WhatsApp, comportamiento del bot, prospectos y cobertura de
 ventas — protegido con `Depends(require_admin)` (cuenta corporativa +
 `ADMIN_EMAILS`, ver `app/auth/`).
 
-## Estado actual del HTML (pendiente de migrar)
+## HTML/CSS/JS
 
-A diferencia de `app/interno/` (HTML/CSS/JS sueltos en `templates/`/`static/`,
-sin motor de templates), este paquete arma el marcado como f-strings de
-Python: `page.py` (shell + plantillas/config), `prospects_page.py`,
-`coverage_page.py`, más el CSS también como string Python en `page_styles.py`
-y `coverage_styles.py`. Es el patrón más viejo del repo acá y el más difícil
-de leer/editar de los dos.
+Sigue el patrón de `app/interno/`: HTML suelto con placeholders en
+`app/admin/templates/` vía `app/shared/html_templates.py::render_template`,
+CSS/JS sueltos en `app/admin/static/` servidos por `StaticFiles`
+(`app/main.py` monta `/static/admin`). Sin motor de templates ni framework
+de frontend — mismo criterio en todo el repo.
 
-**Pendiente:** migrar estas cuatro vistas (Plantillas, Configuración,
-Prospectos, Cobertura) + el shell compartido (topbar) al patrón de
-`app/interno/` — HTML suelto con placeholders vía
-`app/shared/html_templates.py::render_template`, CSS en un `.css` estático
-servido por `StaticFiles`. Se decidió NO hacerlo de una sola vez: son las
-vistas más complejas del repo (editor con preview en vivo y estado "sin
-guardar", layout tipo WhatsApp Web para prospectos, tabla con filtros/selección
-multi-fila en JS para cobertura), así que primero se migraría una sola vista
-como piloto (candidata: Configuración del bot, la más simple) para validar el
-patrón antes de tocar el resto.
+`page.py` arma el shell compartido (topbar, `render_app_shell`) sobre
+`templates/shell.html` + `static/admin.css` — lo reusan las cuatro vistas
+(Plantillas, Configuración, Prospectos, Cobertura). Cada vista después arma
+su propio `body` (funciones Python que devuelven `RawHTML`, igual que
+`app/interno/router.py`) y engancha su CSS/JS propio vía los parámetros
+`extra_head_html`/`extra_body_html` de `render_app_shell` — ver
+`prospects_page.py`/`coverage_page.py` para el ejemplo.
 
-Mientras tanto, seguir el estilo ya existente en `page.py` para cualquier
-cambio nuevo en estas vistas (no mezclar los dos patrones dentro de la misma
-vista).
+Prospectos además usa AJAX (`static/prospects.js`) para cambiar de chat sin
+recargar toda la página — ver el docstring de `prospects_page.py` y el
+endpoint `GET /admin/prospects/{key}/detail` en `router.py`.
