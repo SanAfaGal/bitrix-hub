@@ -67,11 +67,14 @@ class NuevoLeadPayload(BaseModel):
 
     @property
     def full_phone(self) -> str:
-        """Teléfono con indicativo de país listo para Bitrix — Colombia se
-        deja sin indicativo (`app/waha/phone.py::to_chat_id` ya lo asume
-        para un número de 10 dígitos), los demás países sí lo llevan."""
-        if self.phone_country_code == DEFAULT_PHONE_COUNTRY_CODE:
-            return self.owner_phone
+        """Teléfono con indicativo de país listo para Bitrix — siempre lo lleva, Colombia
+        incluida. `find_or_create_property_seller_contact` (`app.flows.interno_nuevo_lead`,
+        el único caller) lo pasa a `BitrixClient._create_contact`, que arma el valor final
+        con un `+` delante asumiendo que ya trae el indicativo completo — un bare "3xxxxxxxxx"
+        sin `57` queda como "+3xxxxxxxxx", que Bitrix interpreta como si `32` (u otro
+        indicativo real de 1-3 dígitos) fuera el código de país. No confundir con
+        `app/waha/phone.py::to_chat_id`, que sí asume Colombia para un número de 10
+        dígitos sin indicativo — es una función completamente distinta, no lee este campo."""
         return f"{self.phone_country_code}{self.owner_phone}"
 
     @field_validator("email", mode="before")
