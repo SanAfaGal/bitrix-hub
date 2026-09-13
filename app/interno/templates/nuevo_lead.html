@@ -23,115 +23,147 @@
 
       {{flash_html}}
 
-      <form method="post" action="/interno/nuevo-lead" class="form" novalidate>
+      <form method="post" action="/interno/nuevo-lead" class="form" novalidate data-start-step="{{start_step}}">
         <input type="hidden" name="idempotency_token" value="{{idempotency_token}}">
 
-        <h3 class="form-section__title">
-          <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m3 11 18-5v12L3 14v-3z"/>
-            <path d="M11.6 16.8a3 3 0 0 1-5.8-1.6"/>
-          </svg>
-          Origen del lead
-        </h3>
+        <div class="wizard-step" id="step-contacto" data-wizard-step="contacto">
+          <h3 class="form-section__title">
+            <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            Datos del propietario
+          </h3>
 
-        <div class="field">
-          <label class="field__label" for="source_channel">Canal de origen <span class="field__required">*</span></label>
-          <span class="field__hint">Cómo llegó este lead.</span>
-          <select class="field__input" id="source_channel" name="source_channel" required>
-            {{source_channel_options_html}}
-          </select>
-          <span class="field__error"></span>
-        </div>
+          <div class="field">
+            <label class="field__label" for="interested_party">{{label_interested_party}} <span class="field__required">*</span></label>
+            <span class="field__hint">Persona dueña del inmueble.</span>
+            <input class="field__input" id="interested_party" name="interested_party" type="text" required placeholder="{{placeholder_interested_party}}" value="{{interested_party}}">
+            <span class="field__error"></span>
+          </div>
 
-        <h3 class="form-section__title">
-          <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-          Datos del propietario
-        </h3>
-
-        <div class="field">
-          <label class="field__label" for="interested_party">{{label_interested_party}} <span class="field__required">*</span></label>
-          <span class="field__hint">Persona dueña del inmueble.</span>
-          <input class="field__input" id="interested_party" name="interested_party" type="text" required placeholder="{{placeholder_interested_party}}" value="{{interested_party}}">
-          <span class="field__error"></span>
-        </div>
-
-        <div class="field">
-          <label class="field__label" for="owner_phone">{{label_owner_phone}} <span class="field__required">*</span></label>
-          <span class="field__hint">Número de contacto del propietario.</span>
-          <div class="phone-group">
-            <button type="button" class="phone-group__code" id="phone-country-toggle" aria-haspopup="listbox" aria-expanded="false">
-              {{phone_badge_html}}
-              <svg class="phone-group__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </button>
-            <div class="phone-country-dropdown" id="phone-country-dropdown" hidden>
-              <input type="text" class="phone-country-search" id="phone-country-search" placeholder="Buscar país..." autocomplete="off">
-              <ul class="phone-country-list" id="phone-country-list" role="listbox">
-                {{phone_country_options_html}}
-              </ul>
+          <div class="field">
+            <label class="field__label" for="owner_phone">{{label_owner_phone}} <span class="field__required">*</span></label>
+            <span class="field__hint">Número de contacto del propietario.</span>
+            <div class="phone-group">
+              <button type="button" class="phone-group__code" id="phone-country-toggle" aria-haspopup="listbox" aria-expanded="false">
+                {{phone_badge_html}}
+                <svg class="phone-group__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+              <div class="phone-country-dropdown" id="phone-country-dropdown" hidden>
+                <input type="text" class="phone-country-search" id="phone-country-search" placeholder="Buscar país..." autocomplete="off">
+                <ul class="phone-country-list" id="phone-country-list" role="listbox">
+                  {{phone_country_options_html}}
+                </ul>
+              </div>
+              <input type="hidden" id="phone_country_code" name="phone_country_code" value="{{phone_country_code}}">
+              <input class="field__input phone-group__input" id="owner_phone" name="owner_phone" type="tel" required placeholder="{{placeholder_owner_phone}}" value="{{owner_phone}}">
             </div>
-            <input type="hidden" id="phone_country_code" name="phone_country_code" value="{{phone_country_code}}">
-            <input class="field__input phone-group__input" id="owner_phone" name="owner_phone" type="tel" required placeholder="{{placeholder_owner_phone}}" value="{{owner_phone}}">
+            <span class="field__error"></span>
           </div>
-          <span class="field__error"></span>
-        </div>
 
-        <div class="field">
-          <label class="field__label" for="email">{{label_email}}</label>
-          <span class="field__hint">Opcional — correo de contacto del propietario.</span>
-          <input class="field__input" id="email" name="email" type="email" placeholder="{{placeholder_email}}" value="{{email}}">
-        </div>
-
-        <h3 class="form-section__title">
-          <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 9.5 12 3l9 6.5"/>
-            <path d="M5 10v10h14V10"/>
-          </svg>
-          Datos del inmueble
-        </h3>
-
-        <div class="field">
-          <label class="field__label" for="property_type">{{label_property_type}} <span class="field__required">*</span></label>
-          <span class="field__hint">Categoría del inmueble que se va a promocionar.</span>
-          <select class="field__input" id="property_type" name="property_type" required>
-            {{property_type_options_html}}
-          </select>
-          <span class="field__error"></span>
-        </div>
-
-        <div class="field">
-          <label class="field__label" for="address">{{label_address}} <span class="field__required">*</span></label>
-          <span class="field__hint">Ubicación exacta del inmueble.</span>
-          <input class="field__input" id="address" name="address" type="text" required placeholder="{{placeholder_address}}" value="{{address}}">
-          <span class="field__error"></span>
-        </div>
-
-        <div class="field">
-          <label class="field__label" for="location">{{label_location}} <span class="field__required">*</span></label>
-          <span class="field__hint">Sector, ciudad y departamento donde está ubicado el inmueble.</span>
-          <div class="field__input-wrap">
-            <input class="field__input" id="location" name="location" type="text" required autocomplete="off" placeholder="{{placeholder_location}}" value="{{location}}">
-            <ul class="location-suggest" id="location-suggestions" hidden></ul>
+          <div class="field">
+            <label class="field__label" for="email">{{label_email}}</label>
+            <span class="field__hint">Opcional — correo de contacto del propietario.</span>
+            <input class="field__input" id="email" name="email" type="email" placeholder="{{placeholder_email}}" value="{{email}}">
           </div>
-          <input type="hidden" id="location_sector_code" name="location_sector_code" value="{{location_sector_code}}">
-          <span class="field__error"></span>
+
+          <div class="contact-lookup" id="contact-lookup-panel" hidden>
+            <div class="contact-lookup__header">
+              <span class="contact-lookup__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <path d="m17 11 2 2 4-4"/>
+                </svg>
+              </span>
+              <span class="contact-lookup__title">Ya existe un contacto con este teléfono</span>
+            </div>
+            <p class="contact-lookup__message">
+              <strong id="contact-lookup-name"></strong>
+              <a class="contact-lookup__deal-link" id="contact-lookup-deal-link" href="#" target="_blank" rel="noopener" hidden></a>
+            </p>
+            <label class="contact-lookup__checkbox">
+              <input type="checkbox" id="contact-lookup-confirm">
+              <span>Sí, es la misma persona, continuar</span>
+            </label>
+          </div>
+
+          <div class="wizard-actions">
+            <button type="button" class="btn btn--primary" id="step-contacto-next">Siguiente: datos del inmueble</button>
+          </div>
         </div>
 
-        <div class="field">
-          <label class="field__label" for="sale_price">{{label_sale_price}}</label>
-          <span class="field__hint">Opcional — precio en pesos colombianos, si ya se tiene.</span>
-          <input class="field__input" id="sale_price" name="sale_price" type="text" inputmode="numeric" placeholder="{{placeholder_sale_price}}" value="{{sale_price}}">
+        <div class="wizard-step" id="step-inmueble" data-wizard-step="inmueble" hidden>
+          <h3 class="form-section__title">
+            <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m3 11 18-5v12L3 14v-3z"/>
+              <path d="M11.6 16.8a3 3 0 0 1-5.8-1.6"/>
+            </svg>
+            Origen del lead
+          </h3>
+
+          <div class="field">
+            <label class="field__label" for="source_channel">Canal de origen <span class="field__required">*</span></label>
+            <span class="field__hint">Cómo llegó este lead.</span>
+            <select class="field__input" id="source_channel" name="source_channel" required>
+              {{source_channel_options_html}}
+            </select>
+            <span class="field__error"></span>
+          </div>
+
+          <h3 class="form-section__title">
+            <svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9.5 12 3l9 6.5"/>
+              <path d="M5 10v10h14V10"/>
+            </svg>
+            Datos del inmueble
+          </h3>
+
+          <div class="field">
+            <label class="field__label" for="property_type">{{label_property_type}} <span class="field__required">*</span></label>
+            <span class="field__hint">Categoría del inmueble que se va a promocionar.</span>
+            <select class="field__input" id="property_type" name="property_type" required>
+              {{property_type_options_html}}
+            </select>
+            <span class="field__error"></span>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="address">{{label_address}} <span class="field__required">*</span></label>
+            <span class="field__hint">Ubicación exacta del inmueble.</span>
+            <input class="field__input" id="address" name="address" type="text" required placeholder="{{placeholder_address}}" value="{{address}}">
+            <span class="field__error"></span>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="location">{{label_location}} <span class="field__required">*</span></label>
+            <span class="field__hint">Sector, ciudad y departamento donde está ubicado el inmueble.</span>
+            <div class="field__input-wrap">
+              <input class="field__input" id="location" name="location" type="text" required autocomplete="off" placeholder="{{placeholder_location}}" value="{{location}}">
+              <ul class="location-suggest" id="location-suggestions" hidden></ul>
+            </div>
+            <input type="hidden" id="location_sector_code" name="location_sector_code" value="{{location_sector_code}}">
+            <span class="field__error"></span>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="sale_price">{{label_sale_price}}</label>
+            <span class="field__hint">Opcional — precio en pesos colombianos, si ya se tiene.</span>
+            <input class="field__input" id="sale_price" name="sale_price" type="text" inputmode="numeric" placeholder="{{placeholder_sale_price}}" value="{{sale_price}}">
+          </div>
+
+          {{coverage_warning_html}}
+
+          <div class="wizard-actions">
+            <button type="button" class="btn btn--outline" id="step-inmueble-back">Atrás: datos del propietario</button>
+            <button type="submit" class="btn btn--primary" id="submit-button">
+              <span id="submit-button-text">Crear lead</span>
+            </button>
+          </div>
         </div>
-
-        {{coverage_warning_html}}
-
-        <button type="submit" class="btn btn--primary" id="submit-button">
-          <span id="submit-button-text">Crear lead</span>
-        </button>
       </form>
     </div>
   </div>

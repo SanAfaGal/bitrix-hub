@@ -420,6 +420,78 @@ select.field__input {
 }
 .coverage-warning__checkbox input { margin-top: 2px; accent-color: var(--color-warning); flex-shrink: 0; }
 
+/* Wizard de 2 pasos del formulario interno de nuevo lead (Contacto /
+   Inmueble) — ver app/interno/page_script.py, que muestra/oculta cada
+   `.wizard-step` con `hidden`. Sin indicador visual de paso aparte: el
+   texto de los botones ya dice a dónde se va. */
+.wizard-step { display: flex; flex-direction: column; gap: var(--space-4); }
+.wizard-step[hidden] { display: none; }
+.wizard-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-2); }
+.wizard-actions .btn { width: auto; flex: 1 1 200px; }
+
+/* Aviso de contacto existente (teléfono ya registrado) — mismo lenguaje
+   visual que .coverage-warning, pero informativo/neutro en vez de un
+   bloqueo. */
+.contact-lookup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--color-info-bg);
+  border: 1.5px solid var(--color-teal);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.contact-lookup[hidden] { display: none; }
+.contact-lookup__header { display: flex; align-items: center; gap: var(--space-2); }
+.contact-lookup__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--color-teal);
+  flex-shrink: 0;
+}
+.contact-lookup__icon svg { width: 16px; height: 16px; }
+.contact-lookup__title { font-size: 14px; font-weight: 700; color: var(--color-navy); }
+.contact-lookup__message {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-navy);
+}
+.contact-lookup__message strong { font-weight: 700; }
+.contact-lookup__deal-link {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-teal);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  text-decoration: none;
+}
+.contact-lookup__deal-link:hover { text-decoration: underline; }
+.contact-lookup__deal-link[hidden] { display: none; }
+.contact-lookup__checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-teal);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-navy);
+  cursor: pointer;
+}
+.contact-lookup__checkbox input { margin-top: 2px; accent-color: var(--color-teal); flex-shrink: 0; }
+
 .summary { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin: 0; }
 .summary dt { color: var(--color-text-muted); }
 .summary dd { margin: 0; }

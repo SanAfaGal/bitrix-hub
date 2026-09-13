@@ -294,6 +294,113 @@ NUEVO_LEAD_SCRIPT = (
     locationInput.addEventListener('blur', hideSuggestions);
   }
 
+  // Wizard de 2 pasos (Contacto / Inmueble) — ambos viven en el mismo <form>,
+  // solo se muestra/oculta con CSS; el POST final sigue mandando todos los
+  // campos juntos (ver app/interno/router.py). `data-start-step` decide en
+  // qué paso abre: "inmueble" si se está re-renderizando tras un intento de
+  // submit fallido (ver `_render_nuevo_lead`), "contacto" en un GET normal.
+  var stepContacto = document.getElementById('step-contacto');
+  var stepInmueble = document.getElementById('step-inmueble');
+  var nextButton = document.getElementById('step-contacto-next');
+  var backButton = document.getElementById('step-inmueble-back');
+
+  function showStep(name) {
+    stepContacto.hidden = name !== 'contacto';
+    stepInmueble.hidden = name !== 'inmueble';
+  }
+
+  showStep(form.getAttribute('data-start-step') === 'inmueble' ? 'inmueble' : 'contacto');
+
+  // Aviso de contacto existente: al salir del teléfono, consulta
+  // /interno/nuevo-lead/contacto (solo lectura, no crea nada) — si ya hay un
+  // contacto con ese teléfono, exige el check de confirmación antes de dejar
+  // avanzar al paso 2 (ver app/interno/router.py::get_nuevo_lead_contacto).
+  var lookupPanel = document.getElementById('contact-lookup-panel');
+  var lookupName = document.getElementById('contact-lookup-name');
+  var lookupDealLink = document.getElementById('contact-lookup-deal-link');
+  var lookupConfirm = document.getElementById('contact-lookup-confirm');
+  var lastLookedUpPhone = null;
+  var pendingLookupKey = null;
+  var pendingLookupPromise = null;
+  var contactExists = false;
+
+  function resetLookup() {
+    contactExists = false;
+    lookupPanel.hidden = true;
+    lookupConfirm.checked = false;
+  }
+
+  function lookupContact() {
+    var digits = (phoneInput ? phoneInput.value : '').trim();
+    if (!digits) { resetLookup(); lastLookedUpPhone = null; return Promise.resolve(); }
+    var countryCode = phoneCountryCodeInput ? phoneCountryCodeInput.value : '';
+    var cacheKey = countryCode + ':' + digits;
+    // Ya resuelto para este teléfono: no repetir el fetch.
+    if (cacheKey === lastLookedUpPhone) return Promise.resolve();
+    // Ya hay un fetch en curso para este mismo teléfono (ej. el del blur
+    // todavía no respondió cuando se hizo clic en "Siguiente") — reusar esa
+    // misma promesa en vez de marcar el caché de una, que dejaba avanzar con
+    // `contactExists` desactualizado antes de que llegara la respuesta real.
+    if (cacheKey === pendingLookupKey) return pendingLookupPromise;
+
+    var url = '/interno/nuevo-lead/contacto?phone=' + encodeURIComponent(digits)
+      + '&phone_country_code=' + encodeURIComponent(countryCode);
+    pendingLookupKey = cacheKey;
+    pendingLookupPromise = fetch(url)
+      .then(function (response) { return response.ok ? response.json() : { exists: false }; })
+      .then(function (data) {
+        lastLookedUpPhone = cacheKey;
+        contactExists = Boolean(data.exists);
+        if (!contactExists) { resetLookup(); return; }
+        lookupName.textContent = data.name || '(sin nombre en Bitrix)';
+        if (data.existing_deal_id) {
+          lookupDealLink.textContent = 'Deal anterior #' + data.existing_deal_id;
+          lookupDealLink.href = '/interno/lead/' + encodeURIComponent(data.existing_deal_id);
+          lookupDealLink.hidden = false;
+        } else {
+          lookupDealLink.hidden = true;
+        }
+        lookupPanel.hidden = false;
+        lookupConfirm.checked = false;
+      })
+      .catch(function () {
+        // Sin verificación (backend caído): no bloquea, se avanza igual.
+        lastLookedUpPhone = null;
+        resetLookup();
+      })
+      .then(function () {
+        pendingLookupKey = null;
+        pendingLookupPromise = null;
+      });
+    return pendingLookupPromise;
+  }
+
+  if (phoneInput) phoneInput.addEventListener('blur', lookupContact);
+
+  if (nextButton) {
+    nextButton.addEventListener('click', function () {
+      var missingField = markMissingRequiredFields(stepContacto, 'Dato obligatorio para crear el lead.');
+      if (missingField) { missingField.focus(); return; }
+      // Espera a que termine la verificación de contacto duplicado antes de decidir —
+      // si se hace clic justo después de escribir el teléfono, el fetch del blur puede
+      // seguir en curso; sin este await se podía avanzar de paso con `contactExists`
+      // todavía en su valor viejo (antes de que respondiera el backend).
+      nextButton.disabled = true;
+      lookupContact().then(function () {
+        nextButton.disabled = false;
+        if (contactExists && !lookupConfirm.checked) {
+          lookupConfirm.focus();
+          return;
+        }
+        showStep('inmueble');
+      });
+    });
+  }
+
+  if (backButton) {
+    backButton.addEventListener('click', function () { showStep('contacto'); });
+  }
+
   // Bloquea el envío nativo si falta algo obligatorio o la ubicación no fue
   // elegida de la lista — igual criterio que el público
   // (app/forms/page_script_submit.py), pero sin fetch: si todo está bien,

@@ -77,15 +77,15 @@ def test_post_nuevo_lead_creates_lead_and_redirects(client: TestClient, monkeypa
 
     assert response.status_code == 303
     assert response.headers["location"].startswith("/interno/lead/")
-    assert len(fake_crm.find_or_create_property_seller_deal_calls) == 1
+    assert len(fake_crm.create_property_seller_deal_calls) == 1
 
 
-def test_post_nuevo_lead_flashes_warning_when_deal_already_existed(
+def test_post_nuevo_lead_creates_new_deal_even_when_contact_already_had_one(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _log_in()
     fake_crm = FakeCrmClient()
-    fake_crm.contact_by_phone["3001112233"] = "5001"
+    fake_crm.contact_by_phone["573001112233"] = "5001"
     fake_crm.deal_by_contact["5001"] = "6001"
     monkeypatch.setattr(interno_router, "get_crm_client", lambda: fake_crm)
     monkeypatch.setattr("app.forms.coverage.get_sector_coverage", lambda sector_code: True)
@@ -94,8 +94,9 @@ def test_post_nuevo_lead_flashes_warning_when_deal_already_existed(
 
     assert response.status_code == 303
     location = response.headers["location"]
-    assert location.startswith("/interno/lead/6001?flash=")
-    assert "consignaci" in location
+    assert location.startswith("/interno/lead/")
+    assert not location.startswith("/interno/lead/6001")
+    assert "?flash=" not in location
 
 
 def test_post_nuevo_lead_uses_selected_phone_country_code(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,7 +138,7 @@ def test_post_nuevo_lead_blocked_by_coverage_shows_warning(client: TestClient, m
     assert response.status_code == 200
     assert "fuera de la zona de cobertura" in response.text
     assert 'name="coverage_override"' in response.text
-    assert fake_crm.find_or_create_property_seller_deal_calls == []
+    assert fake_crm.create_property_seller_deal_calls == []
 
 
 def test_post_nuevo_lead_with_override_creates_lead_and_records_exception(
@@ -166,7 +167,39 @@ def test_post_nuevo_lead_rejects_invalid_data(client: TestClient, monkeypatch: p
 
     assert response.status_code == 200
     assert "inválido" in response.text.lower()
-    assert fake_crm.find_or_create_property_seller_deal_calls == []
+    assert fake_crm.create_property_seller_deal_calls == []
+
+
+def test_get_nuevo_lead_contacto_reports_no_match(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _log_in()
+    fake_crm = FakeCrmClient()
+    monkeypatch.setattr(interno_router, "get_crm_client", lambda: fake_crm)
+
+    response = client.get("/interno/nuevo-lead/contacto", params={"phone": "3001112233"})
+
+    assert response.status_code == 200
+    assert response.json() == {"exists": False, "name": None, "existing_deal_id": None}
+
+
+def test_get_nuevo_lead_contacto_reports_existing_contact_with_previous_deal(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _log_in()
+    fake_crm = FakeCrmClient(contacts={"5001": {"ID": "5001", "NAME": "Ana", "LAST_NAME": "Pérez"}})
+    fake_crm.contact_by_phone["573001112233"] = "5001"
+    fake_crm.deal_by_contact["5001"] = "6001"
+    monkeypatch.setattr(interno_router, "get_crm_client", lambda: fake_crm)
+
+    response = client.get("/interno/nuevo-lead/contacto", params={"phone": "3001112233"})
+
+    assert response.status_code == 200
+    assert response.json() == {"exists": True, "name": "Ana Pérez", "existing_deal_id": "6001"}
+
+
+def test_get_nuevo_lead_contacto_requires_login(client: TestClient) -> None:
+    response = client.get("/interno/nuevo-lead/contacto", params={"phone": "3001112233"}, follow_redirects=False)
+
+    assert response.status_code == 303
 
 
 def test_get_lead_detail_shows_summary(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,7 +210,9 @@ def test_get_lead_detail_shows_summary(client: TestClient, monkeypatch: pytest.M
     )
     from app.crm.protocol import PropertyListing
 
-    fake_crm.property_listings["6000"] = PropertyListing(property_type="Apartamento", address="Calle 10 # 20-30")
+    fake_crm.property_listings["6000"] = PropertyListing(
+        property_type="Apartamento", address="Calle 10 # 20-30", location_label="El Poblado, Medellín"
+    )
     monkeypatch.setattr(interno_router, "get_crm_client", lambda: fake_crm)
 
     response = client.get("/interno/lead/6000")
@@ -185,6 +220,7 @@ def test_get_lead_detail_shows_summary(client: TestClient, monkeypatch: pytest.M
     assert response.status_code == 200
     assert "Ana Pérez" in response.text
     assert "Calle 10 # 20-30" in response.text
+    assert "El Poblado, Medellín" in response.text
 
 
 def test_get_lead_detail_404_when_deal_missing(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

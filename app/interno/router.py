@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import ValidationError
 
 from app.auth.deps import is_admin_email, require_staff_user
@@ -23,7 +23,7 @@ from app.forms.settings import load_form_link_secret
 from app.interno.models import NuevoLeadPayload
 from app.interno.page_script import NUEVO_LEAD_SCRIPT
 from app.shared import idempotency
-from app.shared.field_specs import FIELD_SPECS
+from app.shared.field_specs import FIELD_SPECS, validate_phone
 from app.shared.html_templates import RawHTML, render_template
 from app.shared.phone_countries import DEFAULT_PHONE_COUNTRY_CODE, PHONE_COUNTRIES, phone_country_by_code
 from app.shared.staff_nav import staff_fab_html
@@ -188,12 +188,18 @@ def _render_nuevo_lead(
     sale_price: str = "",
     source_channel: str | None = None,
 ) -> str:
+    # Al re-renderizar tras un intento de submit fallido (validación, cobertura
+    # bloqueada, error de Bitrix), el wizard debe abrir directo en el paso 2
+    # (Inmueble) — ese fue el paso que se estaba enviando cuando falló, y el
+    # paso 1 (Contacto) ya había sido completado y confirmado por el captador.
+    start_step = "inmueble" if (flash and flash_error) or coverage_message else "contacto"
     return render_template(
         _NUEVO_LEAD_PATH,
         staff_name=staff_name,
         header_html=_header_html(staff_name),
         staff_fab_html=staff_fab_html(active="lead", is_admin=is_admin_email(staff_email)),
         flash_html=_flash_html(flash, error=flash_error),
+        start_step=start_step,
         idempotency_token=idempotency.new_token(),
         interested_party=interested_party,
         owner_phone=owner_phone,
@@ -216,6 +222,50 @@ def _render_nuevo_lead(
 @router.get("/nuevo-lead", response_class=HTMLResponse, summary="Formulario interno para crear un lead")
 def get_nuevo_lead(staff_user: dict[str, str] = Depends(require_staff_user)) -> HTMLResponse:
     return HTMLResponse(_render_nuevo_lead(staff_name=staff_user["name"], staff_email=staff_user["email"]))
+
+
+@router.get(
+    "/nuevo-lead/contacto",
+    summary="Verifica si ya existe un contacto con este teléfono (paso 1 del wizard, solo lectura)",
+)
+def get_nuevo_lead_contacto(
+    phone: str,
+    phone_country_code: str = DEFAULT_PHONE_COUNTRY_CODE,
+    staff_user: dict[str, str] = Depends(require_staff_user),
+) -> JSONResponse:
+    """Usado por el paso 1 (Contacto) de `nuevo_lead.html` vía fetch, para avisar al
+    captador de que este teléfono ya tiene un contacto en Bitrix antes de seguir al
+    paso 2 (Inmueble). No crea nada — misma idea que `find_contact_by_phone` en el bot
+    de WhatsApp (cliente conocido vs. desconocido)."""
+    empty = {"exists": False, "name": None, "existing_deal_id": None}
+    try:
+        digits = validate_phone(phone)
+    except ValueError:
+        return JSONResponse(empty)
+
+    # Siempre con indicativo, Colombia incluida — mismo criterio que
+    # `NuevoLeadPayload.full_phone` (ver ahí por qué: un bare sin indicativo
+    # termina guardado mal en Bitrix si el caller lo usara para crear).
+    country = phone_country_by_code(phone_country_code)["code"]
+    full_phone = f"{country}{digits}"
+
+    try:
+        crm_client = get_crm_client()
+    except (HTTPException, RuntimeError):
+        return JSONResponse(empty)
+
+    contact = crm_client.find_contact_by_phone(full_phone)
+    if contact is None:
+        return JSONResponse(empty)
+
+    contact_id = contact.get("ID")
+    return JSONResponse(
+        {
+            "exists": True,
+            "name": crm_client.get_contact_full_name(contact),
+            "existing_deal_id": crm_client.find_property_seller_deal_id(str(contact_id)) if contact_id else None,
+        }
+    )
 
 
 @router.post("/nuevo-lead", summary="Crea el contacto y la negociación en Bitrix", response_model=None)
@@ -297,14 +347,7 @@ def post_nuevo_lead(
         # repetida en Bitrix.
         logger.info("Token de idempotencia ya usado para el lead recién creado %s, no se repite la escritura", result.deal_id)
 
-    redirect_url = f"/interno/lead/{result.deal_id}"
-    if result.reused_existing_deal:
-        # Este contacto ya tenía un deal de consignación abierto — no se creó uno
-        # nuevo, se reusó el existente, y update_property_listing acaba de pisar
-        # los datos de inmueble que ya tuviera cargados.
-        flash_message = "Este contacto ya tenía un lead de consignación — se actualizó el inmueble sobre ese lead existente."
-        redirect_url += f"?flash={quote(flash_message)}"
-    return RedirectResponse(url=redirect_url, status_code=303)
+    return RedirectResponse(url=f"/interno/lead/{result.deal_id}", status_code=303)
 
 
 @router.get("/lead/{deal_id}", response_class=HTMLResponse, summary="Resumen de un lead y siguientes pasos")
@@ -346,11 +389,7 @@ def get_lead_detail(
             owner_full_name=owner_full_name or "(sin nombre)",
             property_type=listing.property_type or "(pendiente)",
             address=listing.address or "(pendiente)",
-            # `PropertyListing` ya no trae un texto de ubicación legible: el
-            # deal solo guarda el vínculo al ítem del Smart Process de
-            # Sectores (ver app.bitrix.fields.FIELD_DEAL_UBICACION_SECTOR),
-            # no una copia de texto. Mostrar ese vínculo acá queda pendiente.
-            location="(pendiente)",
+            location=listing.location_label or "(pendiente)",
             public_form_url=public_form_url,
         )
     )
