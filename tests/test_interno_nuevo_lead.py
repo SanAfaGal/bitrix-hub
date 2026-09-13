@@ -38,33 +38,20 @@ def test_process_nuevo_lead_creates_contact_and_deal(monkeypatch) -> None:
     assert result.deal_id is not None
     assert result.contact_id is not None
     assert crm.property_listings[result.deal_id].address == "CALLE 10 # 20-30"
-    assert result.reused_existing_deal is False
 
 
-def test_process_nuevo_lead_flags_reused_deal_for_existing_contact(monkeypatch) -> None:
+def test_process_nuevo_lead_always_creates_new_deal_for_existing_contact(monkeypatch) -> None:
     monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
     crm = FakeCrmClient()
-    crm.contact_by_phone["3001112233"] = "5001"
+    crm.contact_by_phone["573001112233"] = "5001"
     crm.deal_by_contact["5001"] = "6001"
 
     result = process_nuevo_lead(_payload(), crm, "asesor@albertoalvarez.com")
 
     assert result.ok is True
     assert result.contact_id == "5001"
-    assert result.deal_id == "6001"
-    assert result.reused_existing_deal is True
-
-
-def test_process_nuevo_lead_does_not_flag_new_deal_for_existing_contact_without_deal(monkeypatch) -> None:
-    monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
-    crm = FakeCrmClient()
-    crm.contact_by_phone["3001112233"] = "5001"
-
-    result = process_nuevo_lead(_payload(), crm, "asesor@albertoalvarez.com")
-
-    assert result.ok is True
-    assert result.contact_id == "5001"
-    assert result.reused_existing_deal is False
+    assert result.deal_id != "6001"
+    assert result.deal_id is not None
 
 
 def test_process_nuevo_lead_blocked_does_not_touch_crm(monkeypatch) -> None:
@@ -83,14 +70,17 @@ def test_process_nuevo_lead_blocked_does_not_touch_crm(monkeypatch) -> None:
     assert crm.find_or_create_property_seller_contact_calls == []
 
 
-def test_process_nuevo_lead_sends_bare_phone_for_colombia(monkeypatch) -> None:
+def test_process_nuevo_lead_prefixes_phone_for_colombia(monkeypatch) -> None:
+    # Regresión: dejar el "57" afuera producía un +3001112233 en Bitrix —
+    # `_create_contact` le pega un "+" al valor tal cual, así que sin
+    # indicativo Bitrix lo reinterpreta con el código de otro país.
     monkeypatch.setattr(flow_module, "check_coverage", lambda *a, **k: _covered_result())
     crm = FakeCrmClient()
 
     process_nuevo_lead(_payload(owner_phone="3001112233", phone_country_code="57"), crm, "asesor@albertoalvarez.com")
 
     phone, *_ = crm.find_or_create_property_seller_contact_calls[0]
-    assert phone == "3001112233"
+    assert phone == "573001112233"
 
 
 def test_process_nuevo_lead_prefixes_phone_for_other_countries(monkeypatch) -> None:
@@ -133,7 +123,7 @@ def test_process_nuevo_lead_sends_selected_source_channel(monkeypatch) -> None:
 
     process_nuevo_lead(_payload(source_channel="referido"), crm, "asesor@albertoalvarez.com")
 
-    _, _, source = crm.find_or_create_property_seller_deal_calls[0]
+    _, _, source = crm.create_property_seller_deal_calls[0]
     assert source == "referido"
 
 

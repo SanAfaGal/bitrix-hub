@@ -213,7 +213,10 @@ def test_get_contact_phone_returns_none_when_no_phone() -> None:
 def test_find_or_create_property_seller_contact_returns_existing_match(monkeypatch, caplog) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         assert url.endswith("crm.duplicate.findbycomm.json")
-        assert json == {"type": "PHONE", "values": ["573001112233", "+573001112233", "3001112233"]}
+        assert json == {
+            "type": "PHONE",
+            "values": ["573001112233", "+573001112233", "3001112233", "+3001112233"],
+        }
         return FakeResponse({"result": {"CONTACT": [7, 9]}})
 
     monkeypatch.setattr("requests.post", fake_post)
@@ -221,8 +224,28 @@ def test_find_or_create_property_seller_contact_returns_existing_match(monkeypat
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("INFO"):
         assert client.find_or_create_property_seller_contact("573001112233") == "7"
-
     assert any("encontrado" in record.message and "id=7" in record.message for record in caplog.records)
+
+
+def test_find_or_create_property_seller_contact_matches_bare_local_phone_against_country_code_variants(
+    monkeypatch,
+) -> None:
+    """Un contacto puede llegar sin indicativo (ej. formulario interno, Colombia — ver
+    `NuevoLeadPayload.full_phone`) mientras que Bitrix ya tiene el contacto guardado con `57`
+    delante (ej. porque escribió primero por WhatsApp) — la búsqueda debe encontrarlo igual."""
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        assert url.endswith("crm.duplicate.findbycomm.json")
+        assert json == {
+            "type": "PHONE",
+            "values": ["3001112233", "+3001112233", "573001112233", "+573001112233"],
+        }
+        return FakeResponse({"result": {"CONTACT": [7]}})
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.find_or_create_property_seller_contact("3001112233") == "7"
 
 
 def test_create_contact_normalizes_display_name_casing(monkeypatch) -> None:
@@ -305,7 +328,7 @@ def test_find_or_create_property_seller_contact_returns_none_without_phone_or_us
 def test_find_or_create_property_seller_contact_falls_back_to_username_lookup(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         assert url.endswith("crm.contact.list.json")
-        assert json == {"filter": {"UF_CRM_1786458989056": "123456789012345"}, "select": ["ID"]}
+        assert json == {"filter": {"UF_CRM_1789150797407": "123456789012345"}, "select": ["ID"]}
         return FakeResponse({"result": [{"ID": "42"}]})
 
     monkeypatch.setattr("requests.post", fake_post)
@@ -382,19 +405,17 @@ def test_find_or_create_property_seller_contact_returns_none_on_username_lookup_
     assert client.find_or_create_property_seller_contact(None, "123456789012345") is None
 
 
-def test_find_or_create_property_seller_deal_returns_existing_match(monkeypatch, caplog) -> None:
+def test_create_property_seller_deal_always_creates(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
-        assert url.endswith("crm.deal.list.json")
-        assert json["filter"] == {"CONTACT_ID": "7", "CATEGORY_ID": 34}
-        return FakeResponse({"result": [{"ID": "123"}]})
+        assert url.endswith("crm.deal.add.json")
+        assert json["fields"]["CONTACT_ID"] == "7"
+        assert json["fields"]["CATEGORY_ID"] == 34
+        return FakeResponse({"result": 456})
 
     monkeypatch.setattr("requests.post", fake_post)
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
-    with caplog.at_level("INFO"):
-        assert client.find_or_create_property_seller_deal("7") == "123"
-
-    assert any("encontrado" in record.message and "id=123" in record.message for record in caplog.records)
+    assert client.create_property_seller_deal("7") == "456"
 
 
 def test_find_property_seller_deal_id_returns_existing_match(monkeypatch) -> None:
@@ -423,25 +444,6 @@ def test_find_property_seller_deal_id_returns_none_on_request_error(monkeypatch)
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_property_seller_deal_id("7") is None
-
-
-def test_find_or_create_property_seller_deal_creates_when_no_match(monkeypatch) -> None:
-    calls = []
-
-    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
-        calls.append((url, json))
-        if url.endswith("crm.deal.list.json"):
-            return FakeResponse({"result": []})
-        assert url.endswith("crm.deal.add.json")
-        assert json["fields"]["CONTACT_ID"] == "7"
-        assert json["fields"]["CATEGORY_ID"] == 34
-        return FakeResponse({"result": 456})
-
-    monkeypatch.setattr("requests.post", fake_post)
-
-    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
-    assert client.find_or_create_property_seller_deal("7") == "456"
-    assert len(calls) == 2
 
 
 def test_get_property_listing_reads_known_fields(monkeypatch) -> None:
@@ -474,6 +476,44 @@ def test_get_property_listing_returns_all_none_when_deal_empty(monkeypatch) -> N
     listing = client.get_property_listing("42")
 
     assert listing == PropertyListing()
+
+
+def test_get_property_listing_reads_location_label_from_linked_sector_item(monkeypatch) -> None:
+    def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
+        return FakeResponse({"result": {"UF_CRM_1789061336": "T440_50"}})
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        assert url.endswith("crm.item.get.json")
+        assert json == {"entityTypeId": 1088, "id": "50", "useOriginalUfNames": "Y"}
+        return FakeResponse({"result": {"item": {"UF_CRM_20_1789057091643": "El Poblado, Medellín, Antioquia"}}})
+
+    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    listing = client.get_property_listing("42")
+
+    assert listing.location_label == "El Poblado, Medellín, Antioquia"
+
+
+def test_get_property_listing_skips_location_lookup_without_sector_link(monkeypatch) -> None:
+    calls = []
+
+    def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
+        return FakeResponse({"result": {}})
+
+    def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
+        calls.append(url)
+        return FakeResponse({"result": {}})
+
+    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr("requests.post", fake_post)
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    listing = client.get_property_listing("42")
+
+    assert listing.location_label is None
+    assert calls == []  # no llama crm.item.get si el deal no tiene el vínculo
 
 
 def test_update_property_listing_only_writes_non_none_fields(monkeypatch) -> None:

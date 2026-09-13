@@ -49,8 +49,9 @@ Flujos reales existentes: `registry_duplicate_check.py` (CRM + Xposure),
 anteriores: no lo dispara un webhook de Bitrix sino uno de Waha (mensaje
 entrante de WhatsApp), así que su `process()` no recibe `deal_id` sino un
 `InboundMessage` ya parseado (`app/waha/inbound.py`) — el `deal_id` lo
-resuelve el propio flow, buscando/creando contacto y deal por teléfono
-(`CrmClient.find_or_create_property_seller_contact/_deal`). El endpoint
+resuelve el propio flow, buscando/creando el contacto por teléfono y
+creando el deal (`CrmClient.find_or_create_property_seller_contact` +
+`create_property_seller_deal`). El endpoint
 vive en `app/waha/router.py` en vez de `app/flows/router.py` porque el
 trigger es Waha, no Bitrix — pero la lógica sigue viviendo acá por
 combinar más de una integración. Ver la sección "Bot conversacional de

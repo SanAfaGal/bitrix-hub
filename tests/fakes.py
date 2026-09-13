@@ -37,7 +37,10 @@ class FakeCrmClient:
             tuple[str | None, str | None, str | None, str | None]
         ] = []
         self.deal_by_contact: dict[str, str] = {}
-        self.find_or_create_property_seller_deal_calls: list[tuple[str, str | None, str | None]] = []
+        """Deal más reciente por contacto — usado solo por `find_property_seller_deal_id`
+        (informativo). `create_property_seller_deal` lo sobreescribe con cada deal nuevo
+        que crea, pero nunca lo lee para decidir si reusar (ya no reusa)."""
+        self.create_property_seller_deal_calls: list[tuple[str, str | None, str | None]] = []
         self._next_contact_id = 5000
         self._next_deal_id = 6000
         self.contact_identity_updates: list[tuple[str, str | None, str | None]] = []
@@ -134,12 +137,10 @@ class FakeCrmClient:
     def find_property_seller_deal_id(self, contact_id: str) -> str | None:
         return self.deal_by_contact.get(contact_id)
 
-    def find_or_create_property_seller_deal(
+    def create_property_seller_deal(
         self, contact_id: str, title: str | None = None, source: str | None = None
     ) -> str | None:
-        self.find_or_create_property_seller_deal_calls.append((contact_id, title, source))
-        if contact_id in self.deal_by_contact:
-            return self.deal_by_contact[contact_id]
+        self.create_property_seller_deal_calls.append((contact_id, title, source))
         deal_id = str(self._next_deal_id)
         self._next_deal_id += 1
         self.deal_by_contact[contact_id] = deal_id

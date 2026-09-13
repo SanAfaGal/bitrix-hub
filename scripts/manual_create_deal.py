@@ -4,12 +4,11 @@ Uso:
     uv run python scripts/manual_create_deal.py
 
 Usa el flujo real (`find_or_create_property_seller_contact` +
-`find_or_create_property_seller_deal`) con nombre/teléfono de prueba, sobre
-el embudo de consignación (CATEGORY_ID=34, `app/bitrix/fields.py`). El deal
+`create_property_seller_deal`) con nombre/teléfono de prueba, sobre el
+embudo de consignación (CATEGORY_ID=34, `app/bitrix/fields.py`). El deal
 se crea sin STAGE_ID explícito — Bitrix lo deja en la primera etapa del
-embudo ("Nuevo"). Si ya existe un deal abierto para el contacto, lo
-devuelve en vez de crear otro. Todo queda en Bitrix real — borrar a mano
-después de probar.
+embudo ("Nuevo"). Siempre crea uno nuevo, aunque el contacto ya tenga otro
+deal abierto. Todo queda en Bitrix real — borrar a mano después de probar.
 """
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ def main() -> None:
         raise SystemExit(1)
     print(f"Contacto: ID={contact_id}")
 
-    deal_id = client.find_or_create_property_seller_deal(contact_id)
+    deal_id = client.create_property_seller_deal(contact_id)
     if deal_id is None:
         print("No se pudo obtener/crear el deal — ver logs arriba.")
         raise SystemExit(1)

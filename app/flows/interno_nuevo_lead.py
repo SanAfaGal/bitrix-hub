@@ -23,11 +23,6 @@ class NuevoLeadResult:
     blocked: bool
     message: str | None
     used_coverage_exception: bool
-    reused_existing_deal: bool = False
-    """True si ya existía un deal de consignación para este contacto y se
-    reusó (en vez de crear uno nuevo) — la actualización del inmueble pisó
-    lo que ya hubiera cargado ese deal. Ver app/interno/router.py, que
-    avisa de esto al captador con un flash."""
 
 
 def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_email: str) -> NuevoLeadResult:
@@ -54,9 +49,7 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
             used_coverage_exception=coverage.used_exception,
         )
 
-    existing_deal_id = crm_client.find_property_seller_deal_id(contact_id)
-
-    deal_id = crm_client.find_or_create_property_seller_deal(
+    deal_id = crm_client.create_property_seller_deal(
         contact_id, title=f"Consignación - {payload.interested_party}", source=payload.source_channel
     )
     if not deal_id:
@@ -92,5 +85,4 @@ def process_nuevo_lead(payload: NuevoLeadPayload, crm_client: CrmClient, staff_e
         blocked=False,
         message=None,
         used_coverage_exception=coverage.used_exception,
-        reused_existing_deal=existing_deal_id is not None,
     )

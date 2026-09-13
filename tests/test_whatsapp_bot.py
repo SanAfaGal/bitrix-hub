@@ -511,10 +511,11 @@ def test_process_does_nothing_without_client_full_name_or_client_phone_in_the_tu
     assert store.get_confirmed_identity("573001112233@c.us") == (None, None)
 
 
-def test_process_reuses_contact_already_linked_to_lid_username_when_identity_confirmed() -> None:
-    # Un asesor ya vinculó ese identificador @lid a un contacto real en
-    # Bitrix (con teléfono agregado a mano) — al confirmarse la identidad
-    # por el chat, se debe reusar ese contacto/deal, no crear otro.
+def test_process_reuses_contact_but_creates_new_deal_when_lid_username_already_linked() -> None:
+    # Un contacto ya vinculado al identificador @lid (el bot lo hizo en una
+    # conversación anterior) se reusa como contacto — pero el deal siempre se
+    # crea nuevo, un contacto puede tener varios deals de consignación a la
+    # vez (ver app.crm.protocol.CrmClient.create_property_seller_deal).
     waha = FakeWahaClient()
     llm = FakeLlmClient(
         reply_text=json.dumps(
@@ -523,12 +524,13 @@ def test_process_reuses_contact_already_linked_to_lid_username_when_identity_con
     )
     crm = FakeCrmClient()
     crm.contact_by_username["123456789012345"] = "5000"
-    crm.deal_by_contact["5000"] = "6000"
+    crm.deal_by_contact["5000"] = "9999"
     store = ConversationStore()
 
     process(_inbound(chat_id="123456789012345@lid"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
-    assert store.get_deal_id("123456789012345@lid") == "6000"
+    assert store.get_deal_id("123456789012345@lid") is not None
+    assert store.get_deal_id("123456789012345@lid") != "9999"
     assert crm.find_or_create_property_seller_contact_calls[-1] == (
         "573001112233",
         "123456789012345",
@@ -557,16 +559,16 @@ def test_process_reuses_cached_deal_id_without_hitting_crm_lookup_twice() -> Non
 
 def test_process_serializes_deal_creation_for_same_chat_to_prevent_duplicates() -> None:
     """Regresión de producción: dos mensajes casi simultáneos del mismo chat crearon dos deals
-    en Bitrix (race condition en `find_or_create_property_seller_deal`, sin lock). Ver el
+    en Bitrix (race condition en `create_property_seller_deal`, sin lock). Ver el
     docstring de `ConversationStore.chat_lock`."""
     intervals: list[tuple[float, float]] = []
     intervals_lock = threading.Lock()
 
     class SlowFakeCrmClient(FakeCrmClient):
-        def find_or_create_property_seller_deal(self, contact_id: str, title: str | None = None, source: str | None = None) -> str | None:
+        def create_property_seller_deal(self, contact_id: str, title: str | None = None, source: str | None = None) -> str | None:
             start = time.monotonic()
             time.sleep(0.05)
-            result = super().find_or_create_property_seller_deal(contact_id, title, source)
+            result = super().create_property_seller_deal(contact_id, title, source)
             with intervals_lock:
                 intervals.append((start, time.monotonic()))
             return result
@@ -595,7 +597,7 @@ def test_process_serializes_deal_creation_for_same_chat_to_prevent_duplicates() 
 
     # El chat_lock serializa los dos process(): para cuando el segundo hilo
     # entra, el primero ya dejó el deal_id cacheado en el store, así que ni
-    # siquiera vuelve a llamar a `find_or_create_property_seller_deal` — de
+    # siquiera vuelve a llamar a `create_property_seller_deal` — de
     # ahí que `intervals` tenga un solo registro en vez de dos que se
     # solapan (que es justo el bug que reproducía el race condition).
     assert len(crm.deal_by_contact) == 1
@@ -604,11 +606,12 @@ def test_process_serializes_deal_creation_for_same_chat_to_prevent_duplicates() 
 
 def test_process_recreates_deal_when_cached_deal_was_deleted_in_bitrix() -> None:
     # Identidad ya confirmada de antes (conversación previa) — el self-heal
-    # no debe tener que pedirla de nuevo, solo recrear el deal.
+    # no debe tener que pedirla de nuevo, solo recrear el deal. Siempre crea
+    # uno nuevo (no busca otro deal preexistente del contacto para reusar —
+    # ver app.crm.protocol.CrmClient.create_property_seller_deal).
     waha = FakeWahaClient()
     llm = FakeLlmClient(reply_text=_plain_reply("hola!"))
     crm = FakeCrmClient()
-    crm.deal_by_contact["5000"] = "6000"
     crm.contact_by_phone["573001112233"] = "5000"
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "40510")  # deal cacheado que ya no existe
@@ -618,8 +621,10 @@ def test_process_recreates_deal_when_cached_deal_was_deleted_in_bitrix() -> None
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     # El deal viejo (borrado) no se vuelve a consultar como si existiera; se
-    # resuelve/crea uno nuevo para el contacto y el cache se actualiza.
-    assert store.get_deal_id("573001112233@c.us") == "6000"
+    # crea uno nuevo para el contacto y el cache se actualiza.
+    new_deal_id = store.get_deal_id("573001112233@c.us")
+    assert new_deal_id is not None
+    assert new_deal_id != "40510"
 
 
 # ── Candidatos de identidad (nombre de perfil / teléfono del chat) ──────

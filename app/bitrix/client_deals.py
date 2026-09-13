@@ -101,15 +101,12 @@ class DealsMixin:
         )
 
     def find_property_seller_deal_id(self, contact_id: str) -> str | None:
-        """Busca (sin crear) un deal de consignación ya existente para el contacto.
+        """Busca (sin crear) el deal de consignación más reciente del contacto, si tiene alguno.
 
-        Misma búsqueda que hace `find_or_create_property_seller_deal` antes
-        de decidir si crea uno — separada acá para poder preguntar de
-        antemano "¿esto va a reusar un deal existente?" (ver
-        `app.flows.interno_nuevo_lead`) sin duplicar el resto de esa lógica.
-        Ante un error de red, retorna `None` igual que "no encontrado" — el
-        caller de todos modos vuelve a intentar la búsqueda real dentro de
-        `find_or_create_property_seller_deal`.
+        Puramente informativo (ver docstring en `app.crm.protocol.CrmClient`)
+        — usado en el formulario interno para avisar de un deal anterior del
+        mismo contacto. Ante un error de red, retorna `None` igual que "no
+        encontrado".
         """
         try:
             response = requests.post(
@@ -137,39 +134,10 @@ class DealsMixin:
             )
         return None
 
-    def find_or_create_property_seller_deal(
+    def create_property_seller_deal(
         self, contact_id: str, title: str | None = None, source: DealSource | None = None
     ) -> str | None:
-        """Busca un deal de consignación abierto para el contacto; si no existe, lo crea."""
-        try:
-            response = requests.post(
-                f"{self.webhook_url}crm.deal.list.json",
-                json={
-                    "filter": {"CONTACT_ID": contact_id, "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID},
-                    "select": ["ID"],
-                    "order": {"ID": "DESC"},
-                },
-                timeout=REQUEST_TIMEOUT,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            result = payload.get("result") if isinstance(payload, dict) else None
-            if isinstance(result, list) and result:
-                deal_id = result[0].get("ID")
-                if deal_id:
-                    logger.info(
-                        "Deal de consignación encontrado en Bitrix para contacto %s (id=%s)", contact_id, deal_id
-                    )
-                    return str(deal_id)
-        except (requests.exceptions.RequestException, ValueError) as exc:
-            logger.error(
-                "Error buscando deal de consignación para contacto %s en Bitrix: %s%s",
-                contact_id,
-                exc,
-                error_detail(exc),
-            )
-            return None
-
+        """Crea un deal de consignación nuevo para el contacto. Siempre crea (ver docstring en `CrmClient`)."""
         deal_fields: dict[str, Any] = {
             "CONTACT_ID": contact_id,
             "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID,
@@ -213,7 +181,18 @@ class DealsMixin:
             address=self._as_text(deal.get(fields.FIELD_ADDRESS.uf_crm)),
             expected_sale_price=self._as_int(deal.get(fields.FIELD_EXPECTED_SALE_PRICE.uf_crm)),
             registration_number=self.get_matricula(deal),
+            location_label=self._get_location_label(deal),
         )
+
+    def _get_location_label(self, deal: dict[str, Any]) -> str | None:
+        """Resuelve el texto legible de ubicación siguiendo el vínculo del deal al
+        Smart Process de Sectores (`FIELD_DEAL_UBICACION_SECTOR` -> ítem -> `FIELD_SECTOR_UBICACION`).
+        `None` si el deal no tiene vínculo, o si el ítem no tiene la etiqueta."""
+        item_id = fields.sector_item_id_from_crm_link_value(deal.get(fields.FIELD_DEAL_UBICACION_SECTOR.uf_crm))
+        if item_id is None:
+            return None
+        item = self.get_sector_item(item_id)
+        return self._as_text(item.get(fields.FIELD_SECTOR_UBICACION.uf_crm))
 
     def update_property_listing(self, deal_id: str, listing: PropertyListing) -> None:
         """Actualiza en el deal solo los campos de `listing` que no son None."""

@@ -26,5 +26,5 @@ real — no se puede adivinar. `PROPERTY_TYPE_VALUE_BY_NAME` y
 instalación; si Bitrix agrega una opción nueva a cualquiera de los dos
 picklists, hay que volver a correr el script y agregar la entrada acá —
 mientras un nombre no tenga VALUE ID mapeado, `update_property_listing`/
-`find_or_create_property_seller_deal` lo omiten en silencio (loguean un
+`create_property_seller_deal` lo omiten en silencio (loguean un
 warning) en vez de fallar.

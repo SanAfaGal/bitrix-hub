@@ -40,7 +40,7 @@ def test_creates_contact_and_deal_for_vender_lead() -> None:
         "Diana Herrera",
         "dianahg.seo@gmail.com",
     )
-    assert crm.find_or_create_property_seller_deal_calls[-1][1] == "Consignación Web - Diana Herrera"
+    assert crm.create_property_seller_deal_calls[-1][1] == "Consignación Web - Diana Herrera"
     listing = crm.property_listings[result.deal_id]
     assert listing.property_type == "Apartamento"
     assert listing.expected_sale_price == 6500000

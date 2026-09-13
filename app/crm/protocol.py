@@ -47,6 +47,11 @@ class PropertyListing:
     catálogo de app.location_catalog) — no un id interno de Bitrix. Cada CRM
     resuelve internamente cómo vincular esto a su propio modelo de datos;
     ver BitrixClient.update_property_listing/find_sector_item_id_by_code."""
+    location_label: str | None = None
+    """Texto legible de la ubicación (ej. "El Poblado, Medellín, Antioquia"),
+    solo de lectura — `update_property_listing` lo ignora, siempre escribe a
+    partir de `location_sector_code`. Se resuelve siguiendo el vínculo al
+    Smart Process de Sectores (ver BitrixClient.get_property_listing)."""
 
 
 class CrmClient(Protocol):
@@ -92,11 +97,13 @@ class CrmClient(Protocol):
         ...
 
     def find_property_seller_deal_id(self, contact_id: str) -> str | None:
-        """Busca (sin crear) un deal de consignación ya existente para el contacto.
+        """Busca (sin crear) el deal de consignación más reciente del contacto, si tiene alguno.
 
-        A diferencia de `find_or_create_property_seller_deal`, nunca crea
-        nada — usado para saber de antemano si un lead nuevo en realidad
-        va a reusar un deal existente (ver `app.flows.interno_nuevo_lead`).
+        Nunca crea nada. Un contacto puede tener varios deals de
+        consignación abiertos a la vez (varias propiedades) — esto es
+        puramente informativo, usado para avisarle al captador en el
+        formulario interno que este contacto ya tiene un deal anterior
+        (ver `app.interno.router`), no para decidir si reusar un deal.
         """
         ...
 
@@ -153,19 +160,20 @@ class CrmClient(Protocol):
         """
         ...
 
-    def find_or_create_property_seller_deal(
+    def create_property_seller_deal(
         self, contact_id: str, title: str | None = None, source: DealSource | None = None
     ) -> str | None:
-        """Busca un deal de consignación abierto para el contacto; si no existe, lo crea. Retorna el deal_id, o None si falla.
+        """Crea un deal de consignación nuevo para el contacto. Retorna el deal_id, o None si falla.
 
-        `title`, si se pasa, se usa como título del deal nuevo en vez del
-        default (pensado para orígenes distintos a WhatsApp, ej. leads de
-        formulario web) — no tiene efecto si el deal ya existía.
+        Siempre crea — un contacto puede tener varios deals de consignación
+        abiertos a la vez (varias propiedades distintas), así que esto ya
+        no busca uno existente para reusar. Los 3 callers (formulario
+        interno, intake de email, bot de WhatsApp) ya tienen su propia
+        guarda contra reprocesar el mismo envío dos veces, así que llamar
+        esto no arriesga duplicar por un reintento.
 
-        `source`, si se pasa, marca el canal de origen del deal nuevo —
-        tampoco tiene efecto si el deal ya existía, porque el canal de
-        origen es propio del primer contacto, no se reescribe en cada
-        reintento.
+        `title`, si se pasa, se usa como título del deal en vez del default.
+        `source`, si se pasa, marca el canal de origen del deal.
         """
         ...
 
