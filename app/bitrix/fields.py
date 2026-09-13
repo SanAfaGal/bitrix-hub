@@ -13,6 +13,7 @@ los call sites usan `fields.FIELD_X.uf_crm` como key/valor de la API.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 FIELD_CONTACT_ID = "CONTACT_ID"
 
@@ -105,11 +106,13 @@ FIELD_FIRST_CONTACT = FieldSpec(
 )
 
 # Identificador de respaldo cuando WhatsApp oculta el teléfono del remitente
-# (chat "@lid" en vez de "@c.us" — ver app.waha.phone.lid_from_chat_id).
-FIELD_USERNAME = FieldSpec(
-    uf_crm="UF_CRM_1786458989056",
-    label="Username",
-    entity="deal",
+# (chat "@lid" en vez de "@c.us" — ver app.waha.phone.lid_from_chat_id). Campo
+# dedicado en Bitrix ("Link ID") — antes se guardaba en "Nombre de Usuario"
+# (UF_CRM_1786458989056), ya no se usa para esto.
+FIELD_LINK_ID = FieldSpec(
+    uf_crm="UF_CRM_1789150797407",
+    label="Link ID",
+    entity="contact",
     pipeline=None,
     field_type="string",
     description="Identificador de WhatsApp (@lid) cuando Bitrix no puede resolver el teléfono real del remitente.",
@@ -119,7 +122,7 @@ FIELD_USERNAME = FieldSpec(
 CONSIGNACION_CATEGORY_ID = 34
 
 # Canal de origen del deal, obligatorio en Bitrix — ver
-# BitrixClient.find_or_create_property_seller_deal. El bot de WhatsApp y
+# BitrixClient.create_property_seller_deal. El bot de WhatsApp y
 # graph_lead_intake.py asignan el suyo fijo; el formulario interno lo deja
 # elegir al captador (ver app.crm.protocol.SOURCE_CHANNELS). El resto del
 # picklist que no aparece acá ("Aviso", etc.) se asigna a mano en Bitrix.
@@ -209,6 +212,20 @@ def sector_crm_link_value(item_id: str) -> str:
     otras instancias — acá `isMultiple=False`, va como string plano.
     """
     return f"T{SECTOR_ENTITY_TYPE_ID:x}_{item_id}"
+
+
+def sector_item_id_from_crm_link_value(value: Any) -> str | None:
+    """Inverso de `sector_crm_link_value`: de `"T{hex(entityTypeId)}_{id}"` (lo
+    que devuelve Bitrix al leer `FIELD_DEAL_UBICACION_SECTOR`) extrae el `id`
+    del ítem del Smart Process de Sectores. `None` si `value` no viene en ese
+    formato (campo vacío, u otro tipo de vínculo)."""
+    if not isinstance(value, str):
+        return None
+    prefix = f"T{SECTOR_ENTITY_TYPE_ID:x}_"
+    if not value.startswith(prefix):
+        return None
+    item_id = value[len(prefix) :]
+    return item_id or None
 FIELD_SECTOR_UBICACION = FieldSpec(
     uf_crm="UF_CRM_20_1789057091643",
     label="Ubicación",

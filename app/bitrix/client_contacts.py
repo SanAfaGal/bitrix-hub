@@ -13,11 +13,21 @@ import requests
 
 from app.bitrix import fields
 from app.bitrix._shared import REQUEST_TIMEOUT, BitrixLookupError, error_detail, normalize_person_name
+from app.shared.phone_countries import PHONE_COUNTRIES
 
 logger = logging.getLogger(__name__)
 
 # Tipos de teléfono de Bitrix, en orden de preferencia para notificar por WhatsApp.
 _PREFERRED_PHONE_TYPES = ("MOBILE", "WORK", "HOME", "OTHER")
+
+# Indicativos conocidos (`app.shared.phone_countries`, dataset de `phonenumbers`),
+# del más largo al más corto — usado en `_find_duplicates_by_phone` para
+# reconocer con cuál indicativo empieza un teléfono, sin importar el país
+# (antes solo se reconocía "57"). Se prueba el más largo primero para no
+# recortar de más con uno más corto que también matchee el prefijo (ej. "1").
+_KNOWN_CALLING_CODES: tuple[str, ...] = tuple(
+    sorted({country["code"] for country in PHONE_COUNTRIES}, key=len, reverse=True)
+)
 
 
 class ContactsMixin:
@@ -102,7 +112,7 @@ class ContactsMixin:
 
         `username` cubre el caso de un remitente de WhatsApp con el número
         oculto (chat `@lid`, ver `app.waha.phone.lid_from_chat_id`) — se
-        guarda en `fields.FIELD_USERNAME`, no reemplaza al teléfono. El
+        guarda en `fields.FIELD_LINK_ID`, no reemplaza al teléfono. El
         nombre real del contacto lo completa el asesor después si no se
         pasa `display_name` — acá solo importa no perder el hilo con un
         cliente que ya escribió antes.
@@ -166,15 +176,37 @@ class ContactsMixin:
         `crm.duplicate.findbycomm` compara el valor tal cual está guardado —
         no normaliza. Los contactos nuevos se guardan con `+` delante
         (`_create_contact`) y hay contactos viejos guardados en formato
-        local (sin `57`) o sin `+`, así que se manda el teléfono completo,
-        con `+` y la variante local (últimos 10 dígitos) cuando aplica; si
-        no, un contacto con alguno de esos formatos no aparece acá, Bitrix
-        lo crea igual y su propio control de duplicados (que sí normaliza)
-        lo borra después.
+        local (sin indicativo) o sin `+`; y el propio `phone` que llega acá
+        puede venir con indicativo (WhatsApp, vía `to_chat_id`) o sin él
+        (formulario interno, que para Colombia lo manda sin `57` a propósito
+        — ver `NuevoLeadPayload.full_phone`). El indicativo de por medio no
+        es solo el de Colombia — cualquier contacto, de cualquier país,
+        puede estar guardado con o sin el suyo — así que si `phone` empieza
+        con alguno de los indicativos conocidos (`_KNOWN_CALLING_CODES`), se
+        agrega también la variante local (indicativo quitado); si no trae
+        ninguno y tiene pinta de número local (10 dígitos, la mayoría de
+        leads son de Colombia), se prueba además con `57` delante. Ninguna
+        combinación cubre el 100% de los casos (un contacto de otro país
+        guardado en formato local, sin indicativo, no se detecta) — si no,
+        un contacto con alguno de esos formatos no aparece acá, Bitrix lo
+        crea igual y su propio control de duplicados (que sí normaliza) lo
+        borra después.
         """
         values = [phone, f"+{phone}"]
-        if phone.startswith("57") and len(phone) > 10:
-            values.append(phone[-10:])
+        # `len(phone) > 10` (no solo `> len(code)`) importa: un número local de
+        # Colombia de 10 dígitos empieza casi siempre por "3xx" (celular), que
+        # por pura coincidencia de dígitos matchea el indicativo real de varios
+        # países (30=Grecia, 34=España, ...) — sin este piso, un bare local
+        # cualquiera se leería como si trajera indicativo y se le recortarían
+        # mal los primeros dígitos.
+        matched_code = next(
+            (code for code in _KNOWN_CALLING_CODES if phone.startswith(code) and len(phone) > 10), None
+        )
+        if matched_code is not None:
+            local = phone[len(matched_code) :]
+            values += [local, f"+{local}"]
+        elif len(phone) == 10:
+            values += [f"57{phone}", f"+57{phone}"]
 
         try:
             response = requests.post(
@@ -208,7 +240,7 @@ class ContactsMixin:
         try:
             response = requests.post(
                 f"{self.webhook_url}crm.contact.list.json",
-                json={"filter": {fields.FIELD_USERNAME.uf_crm: username}, "select": ["ID"]},
+                json={"filter": {fields.FIELD_LINK_ID.uf_crm: username}, "select": ["ID"]},
                 timeout=REQUEST_TIMEOUT,
             )
             response.raise_for_status()
@@ -234,7 +266,7 @@ class ContactsMixin:
             phone_value = phone if phone.startswith("+") else f"+{phone}"
             contact_fields["PHONE"] = [{"VALUE": phone_value, "VALUE_TYPE": "MOBILE"}]
         if username:
-            contact_fields[fields.FIELD_USERNAME.uf_crm] = username
+            contact_fields[fields.FIELD_LINK_ID.uf_crm] = username
         if email:
             contact_fields["EMAIL"] = [{"VALUE": email, "VALUE_TYPE": "WORK"}]
 

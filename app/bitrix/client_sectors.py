@@ -125,6 +125,27 @@ class SectorsMixin:
             start = next_start
         return items_by_code
 
+    def get_sector_item(self, item_id: str) -> dict[str, Any]:
+        """Obtiene un ítem del Smart Process de Sectores por su id de Bitrix. Retorna {} si falla o no existe.
+
+        Usado para mostrar la ubicación legible de un deal (ver
+        `DealsMixin.get_property_listing`) — el deal solo guarda el vínculo
+        (`FIELD_DEAL_UBICACION_SECTOR`), no una copia del texto.
+        """
+        try:
+            response = requests.post(
+                f"{self.webhook_url}crm.item.get.json",
+                json={"entityTypeId": fields.SECTOR_ENTITY_TYPE_ID, "id": item_id, "useOriginalUfNames": "Y"},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            item = payload.get("result", {}).get("item") if isinstance(payload, dict) else None
+            return item if isinstance(item, dict) else {}
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.error("Error consultando ítem %s del Smart Process de sectores: %s%s", item_id, exc, error_detail(exc))
+            return {}
+
     def find_sector_item_id_by_code(self, sector_code: str) -> str | None:
         """Busca el id de Bitrix de un ítem del Smart Process de Sectores por
         `sector_code` de Mobilia — un solo ítem vía `filter`, no trae los

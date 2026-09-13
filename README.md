@@ -434,9 +434,9 @@ ya lo aprendió (compartió un grupo o chat directo con ese número antes)
 (ver siguiente párrafo); nunca se usa solo para crear nada en Bitrix. Al
 confirmar la identidad en un chat `@lid`, se busca — antes de crear —
 un contacto ya existente vinculado a ese identificador
-(`fields.FIELD_USERNAME`, `UF_CRM_1786458989056`,
-`app.waha.phone.lid_from_chat_id`), para no duplicar un contacto que un
-asesor ya vinculó a mano.
+(`fields.FIELD_LINK_ID`, `UF_CRM_1789150797407`,
+`app.waha.phone.lid_from_chat_id`), para no duplicar un contacto que el
+bot ya haya vinculado en una conversación anterior.
 
 **Candidatos de identidad sin confirmar**: para no interrogar de cero,
 el system prompt del LLM incluye — mientras el deal no exista — el
