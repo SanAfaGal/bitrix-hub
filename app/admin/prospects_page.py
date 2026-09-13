@@ -60,12 +60,20 @@ def _deal_badge(deal_id: str | None) -> str:
 
 
 _BOT_REASON_LABELS = {
-    "auto_new_chat": "auto-activado (chat nuevo)",
-    "auto_pending_review": "pendiente de revisión",
-    "admin_manual": "manual",
-    "handoff_requested": "pidió asesor",
-    "authorization_signed": "autorización firmada",
-    "zone_out_of_coverage": "fuera de cobertura",
+    "auto_new_chat": "se activó solo — chat nuevo",
+    "auto_pending_review": "en espera de revisión — ya tenía historial",
+    "handoff_requested": "el cliente pidió un asesor",
+    "authorization_signed": "autorización ya firmada",
+    "zone_out_of_coverage": "fuera de zona de cobertura",
+}
+
+# "admin_manual" se guarda igual al prender y al apagar el bot a mano
+# (`app.admin.router.post_activate_bot`/`post_deactivate_bot`) — el label acá
+# sí distingue, según el estado actual (`bot_enabled`), para no mostrar el
+# mismo "(manual)" ambiguo en los dos casos.
+_BOT_REASON_LABELS_BY_ENABLED = {
+    True: "activado a mano",
+    False: "desactivado a mano",
 }
 
 
@@ -78,7 +86,10 @@ def _bot_badge(bot_enabled: bool | None, reason: str | None = None) -> str:
     ese estado."""
     if bot_enabled is None:
         return ""
-    label = _BOT_REASON_LABELS.get(reason or "")
+    if reason == "admin_manual":
+        label = _BOT_REASON_LABELS_BY_ENABLED[bot_enabled]
+    else:
+        label = _BOT_REASON_LABELS.get(reason or "")
     suffix = f" <span class=\"prospect-badge__reason\">({escape(label)})</span>" if label else ""
     if bot_enabled:
         return f'<span class="prospect-badge prospect-badge--bot-on">Bot: ON</span>{suffix}'
