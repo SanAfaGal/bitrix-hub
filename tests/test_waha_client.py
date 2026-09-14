@@ -29,7 +29,7 @@ def test_send_text_posts_expected_payload_and_returns_true(monkeypatch) -> None:
         captured["headers"] = headers
         return FakeResponse()
 
-    monkeypatch.setattr("app.waha.client.requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
     client = WahaClient(settings)
@@ -51,7 +51,7 @@ def test_send_text_overrides_default_session_when_given(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse()
 
-    monkeypatch.setattr("app.waha.client.requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -67,7 +67,7 @@ def test_send_text_omits_api_key_header_when_not_set(monkeypatch) -> None:
         captured["headers"] = headers
         return FakeResponse()
 
-    monkeypatch.setattr("app.waha.client.requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -80,7 +80,7 @@ def test_send_text_returns_false_on_request_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, headers: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("app.waha.client.requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -92,7 +92,7 @@ def test_send_text_returns_false_on_http_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, headers: dict, timeout: int) -> FakeResponse:
         return FakeResponse(status_code=500)
 
-    monkeypatch.setattr("app.waha.client.requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -105,8 +105,9 @@ def test_send_text_simulates_seen_typing_and_delay_by_default(monkeypatch) -> No
     sleeps = []
 
     monkeypatch.setattr(
-        "app.waha.client.requests.post",
-        lambda url, json, headers, timeout: posted_urls.append(url) or FakeResponse(),
+        requests.Session,
+        "post",
+        staticmethod(lambda url, json, headers, timeout: posted_urls.append(url) or FakeResponse()),
     )
     monkeypatch.setattr("app.waha.client.time.sleep", lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr("app.waha.client.random.uniform", lambda lo, hi: 7.5)
@@ -131,7 +132,7 @@ def test_mark_seen_start_typing_stop_typing_post_expected_payload(monkeypatch) -
         captured.append((url, json))
         return FakeResponse()
 
-    monkeypatch.setattr("app.waha.client.requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
     client = WahaClient(settings)
@@ -150,7 +151,7 @@ def test_mark_seen_returns_false_on_request_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, headers: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("app.waha.client.requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -165,7 +166,7 @@ def test_resolve_lid_to_phone_returns_pn_when_mapped(monkeypatch) -> None:
         captured["url"] = url
         return FakeResponse(json_data={"lid": "123456789012345@lid", "pn": "573001112233@c.us"})
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -181,7 +182,7 @@ def test_resolve_lid_to_phone_uses_given_session_over_default(monkeypatch) -> No
         captured["url"] = url
         return FakeResponse(json_data={"pn": None})
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -192,7 +193,7 @@ def test_resolve_lid_to_phone_uses_given_session_over_default(monkeypatch) -> No
 
 def test_resolve_lid_to_phone_returns_none_when_not_mapped_yet(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.waha.client.requests.get", lambda url, headers, timeout: FakeResponse(json_data={"pn": None})
+        requests.Session, "get", staticmethod(lambda url, headers, timeout: FakeResponse(json_data={"pn": None}))
     )
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
@@ -205,7 +206,7 @@ def test_resolve_lid_to_phone_returns_none_on_request_error(monkeypatch) -> None
     def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -220,7 +221,7 @@ def test_download_media_returns_bytes_on_success(monkeypatch) -> None:
         captured["url"] = url
         return FakeResponse(content=b"audio-bytes")
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -233,7 +234,7 @@ def test_download_media_returns_none_on_request_error(monkeypatch) -> None:
     def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -242,7 +243,9 @@ def test_download_media_returns_none_on_request_error(monkeypatch) -> None:
 
 
 def test_download_media_returns_none_on_http_error(monkeypatch) -> None:
-    monkeypatch.setattr("app.waha.client.requests.get", lambda url, headers, timeout: FakeResponse(status_code=404))
+    monkeypatch.setattr(
+        requests.Session, "get", staticmethod(lambda url, headers, timeout: FakeResponse(status_code=404))
+    )
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -262,7 +265,7 @@ def test_get_chat_messages_returns_list_with_expected_url_and_params(monkeypatch
         captured["params"] = params
         return FakeResponse(json_data=messages)  # type: ignore[arg-type]
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
     client = WahaClient(settings)
@@ -281,7 +284,7 @@ def test_get_chat_messages_sends_from_me_filter_when_given(monkeypatch) -> None:
         captured["params"] = params
         return FakeResponse(json_data=[])
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -300,7 +303,7 @@ def test_get_chat_messages_omits_from_me_filter_when_not_given(monkeypatch) -> N
         captured["params"] = params
         return FakeResponse(json_data=[])
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -316,7 +319,7 @@ def test_get_chat_messages_uses_given_session_over_default(monkeypatch) -> None:
         captured["url"] = url
         return FakeResponse(json_data=[])
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -329,7 +332,7 @@ def test_get_chat_messages_returns_none_on_request_error(monkeypatch) -> None:
     def fake_get(url: str, params: dict, headers: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("app.waha.client.requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
     client = WahaClient(settings)
@@ -339,7 +342,9 @@ def test_get_chat_messages_returns_none_on_request_error(monkeypatch) -> None:
 
 def test_get_chat_messages_returns_none_when_response_is_not_a_list(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.waha.client.requests.get", lambda url, params, headers, timeout: FakeResponse(json_data={"error": "x"})
+        requests.Session,
+        "get",
+        staticmethod(lambda url, params, headers, timeout: FakeResponse(json_data={"error": "x"})),
     )
 
     settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")

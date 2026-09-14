@@ -25,7 +25,7 @@ class DealsMixin:
     def get_deal(self, deal_id: str) -> dict[str, Any]:
         """Obtiene los campos de un deal de Bitrix. Retorna {} si la llamada falla."""
         try:
-            response = requests.get(
+            response = self.session.get(
                 f"{self.webhook_url}crm.deal.get.json",
                 params={"id": deal_id},
                 timeout=REQUEST_TIMEOUT,
@@ -50,7 +50,7 @@ class DealsMixin:
         falla transitoria.
         """
         try:
-            response = requests.get(
+            response = self.session.get(
                 f"{self.webhook_url}crm.deal.get.json",
                 params={"id": deal_id},
                 timeout=REQUEST_TIMEOUT,
@@ -109,7 +109,7 @@ class DealsMixin:
         encontrado".
         """
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.deal.list.json",
                 json={
                     "filter": {"CONTACT_ID": contact_id, "CATEGORY_ID": fields.CONSIGNACION_CATEGORY_ID},
@@ -152,7 +152,7 @@ class DealsMixin:
                 deal_fields[fields.FIELD_SOURCE.uf_crm] = source_value
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.deal.add.json",
                 json={"fields": deal_fields},
                 timeout=REQUEST_TIMEOUT,
@@ -277,7 +277,7 @@ class DealsMixin:
         en realidad no aplicó.
         """
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.deal.update.json",
                 json={"id": deal_id, "fields": fields},
                 timeout=REQUEST_TIMEOUT,

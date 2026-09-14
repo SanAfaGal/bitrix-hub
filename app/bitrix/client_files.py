@@ -28,7 +28,7 @@ class FilesMixin:
         Retorna el ID del comentario creado, o None si la llamada falla.
         """
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.timeline.comment.add.json",
                 json={
                     "fields": {
@@ -52,7 +52,7 @@ class FilesMixin:
     def pin_comment(self, comment_id: int, deal_id: str) -> None:
         """Fija un comentario del timeline en el deal (máx. 3 fijados por entidad). No lanza si falla."""
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.timeline.item.pin.json",
                 json={"id": comment_id, "ownerTypeId": _CRM_ENTITY_TYPE_DEAL, "ownerId": deal_id},
                 timeout=REQUEST_TIMEOUT,
@@ -69,7 +69,7 @@ class FilesMixin:
         None si falla.
         """
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}disk.folder.uploadfile.json",
                 # generateUniqueName evita el error DISK_OBJ_22000 si ya existe un
                 # archivo con el mismo nombre (Bitrix le agrega un sufijo " (1)").
@@ -83,7 +83,7 @@ class FilesMixin:
                 logger.error("Bitrix no devolvió uploadUrl para la carpeta %s", folder_id)
                 return None
 
-            upload_response = requests.post(
+            upload_response = self.session.post(
                 upload_url,
                 files={"file": (filename, content)},
                 timeout=REQUEST_TIMEOUT,

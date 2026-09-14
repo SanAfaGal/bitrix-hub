@@ -46,7 +46,7 @@ def test_list_sector_items_returns_items_indexed_by_business_key(monkeypatch) ->
             }
         )
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     result = _client().list_sector_items()
 
@@ -71,7 +71,7 @@ def test_list_sector_items_follows_pagination(monkeypatch) -> None:
             )
         return FakeResponse({"result": {"items": [{"id": "2", "title": "B", fields.FIELD_SECTOR_CODE.uf_crm: "2"}]}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     result = _client().list_sector_items()
 
@@ -83,7 +83,7 @@ def test_list_sector_items_returns_none_on_request_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     assert _client().list_sector_items() is None
 
@@ -92,7 +92,7 @@ def test_list_sector_items_returns_empty_dict_when_no_items(monkeypatch) -> None
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         return FakeResponse({"result": {"items": []}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     assert _client().list_sector_items() == {}
 
@@ -110,7 +110,7 @@ def test_list_sector_items_skips_items_missing_business_key(monkeypatch) -> None
             }
         )
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     result = _client().list_sector_items()
 
@@ -125,7 +125,7 @@ def test_create_sector_item_returns_new_id(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse({"result": {"item": {"id": "99"}}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     item_id = _client().create_sector_item({"TITLE": "El Poblado", fields.FIELD_SECTOR_CODE.uf_crm: "382"})
 
@@ -139,7 +139,7 @@ def test_create_sector_item_returns_none_on_request_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     assert _client().create_sector_item({"TITLE": "El Poblado"}) is None
 
@@ -151,7 +151,7 @@ def test_update_sector_item_returns_true_on_success(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse({"result": {"item": {"id": "99"}}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     assert _client().update_sector_item("99", {"TITLE": "Nuevo nombre"}) is True
     assert captured["json"]["id"] == "99"
@@ -162,7 +162,7 @@ def test_update_sector_item_returns_false_on_request_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     assert _client().update_sector_item("99", {"TITLE": "Nuevo nombre"}) is False
 
@@ -185,7 +185,7 @@ def test_batch_upsert_sector_items_sends_expected_cmd_and_parses_success(monkeyp
             }
         )
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     result = _client().batch_upsert_sector_items(
         creates={"create_382": {"TITLE": "El Poblado"}},
@@ -211,7 +211,7 @@ def test_batch_upsert_sector_items_chunks_at_fifty(monkeypatch) -> None:
         keys = list(json["cmd"])
         return FakeResponse({"result": {"result": {key: {"item": {"id": key}} for key in keys}, "result_error": {}}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     creates = {f"create_{i}": {"TITLE": f"Sector {i}"} for i in range(60)}
 
@@ -234,7 +234,7 @@ def test_batch_upsert_sector_items_reports_partial_failure(monkeypatch) -> None:
             }
         )
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     result = _client().batch_upsert_sector_items(
         creates={"create_382": {"TITLE": "El Poblado"}, "create_999": {}},
@@ -249,7 +249,7 @@ def test_batch_upsert_sector_items_returns_empty_result_without_calling_bitrix(m
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise AssertionError("no debería llamar a Bitrix si no hay cambios")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     result = _client().batch_upsert_sector_items(creates={}, updates={})
 
@@ -266,7 +266,7 @@ def test_find_sector_item_id_by_code_returns_id_when_found(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse({"result": {"items": [{"id": "50", "title": "El Poblado"}]}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     item_id = _client().find_sector_item_id_by_code("382")
 
@@ -277,7 +277,9 @@ def test_find_sector_item_id_by_code_returns_id_when_found(monkeypatch) -> None:
 
 
 def test_find_sector_item_id_by_code_returns_none_when_not_found(monkeypatch) -> None:
-    monkeypatch.setattr("requests.post", lambda url, json, timeout: FakeResponse({"result": {"items": []}}))
+    monkeypatch.setattr(
+        requests.Session, "post", staticmethod(lambda url, json, timeout: FakeResponse({"result": {"items": []}}))
+    )
 
     assert _client().find_sector_item_id_by_code("no-existe") is None
 
@@ -286,6 +288,6 @@ def test_find_sector_item_id_by_code_returns_none_on_request_error(monkeypatch) 
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     assert _client().find_sector_item_id_by_code("382") is None

@@ -25,6 +25,10 @@ class WahaClient:
         self.base_url = settings.base_url.rstrip("/")
         self.session = settings.session
         self._headers = {"X-Api-Key": settings.api_key} if settings.api_key else {}
+        # Nombre `_http` (no `session`) porque `self.session` ya es el nombre de la
+        # sesión de Waha (línea/número de WhatsApp) — evita conexión TCP/TLS nueva
+        # en cada llamada, reutilizándola entre requests de la misma instancia.
+        self._http = requests.Session()
 
     def mark_seen(self, chat_id: str, session: str | None = None) -> bool:
         """Marca como visto el último mensaje de un chat (`POST /api/sendSeen`). No lanza si falla.
@@ -35,7 +39,7 @@ class WahaClient:
         debe bloquear el envío real.
         """
         try:
-            response = requests.post(
+            response = self._http.post(
                 f"{self.base_url}/api/sendSeen",
                 json={"chatId": chat_id, "session": session or self.session},
                 headers=self._headers,
@@ -50,7 +54,7 @@ class WahaClient:
     def start_typing(self, chat_id: str, session: str | None = None) -> bool:
         """Activa el indicador "escribiendo..." en un chat (`POST /api/startTyping`). No lanza si falla."""
         try:
-            response = requests.post(
+            response = self._http.post(
                 f"{self.base_url}/api/startTyping",
                 json={"chatId": chat_id, "session": session or self.session},
                 headers=self._headers,
@@ -65,7 +69,7 @@ class WahaClient:
     def stop_typing(self, chat_id: str, session: str | None = None) -> bool:
         """Desactiva el indicador "escribiendo..." en un chat (`POST /api/stopTyping`). No lanza si falla."""
         try:
-            response = requests.post(
+            response = self._http.post(
                 f"{self.base_url}/api/stopTyping",
                 json={"chatId": chat_id, "session": session or self.session},
                 headers=self._headers,
@@ -111,7 +115,7 @@ class WahaClient:
         if simulate_typing:
             self._simulate_human_pacing(chat_id, session)
         try:
-            response = requests.post(
+            response = self._http.post(
                 f"{self.base_url}/api/sendText",
                 json={"chatId": chat_id, "text": text, "session": session or self.session},
                 headers=self._headers,
@@ -146,7 +150,7 @@ class WahaClient:
         if simulate_typing:
             self._simulate_human_pacing(chat_id, session)
         try:
-            response = requests.post(
+            response = self._http.post(
                 f"{self.base_url}/api/sendVoice",
                 json={
                     "chatId": chat_id,
@@ -175,7 +179,7 @@ class WahaClient:
         llamada.
         """
         try:
-            response = requests.get(
+            response = self._http.get(
                 f"{self.base_url}/api/{session or self.session}/lids/{lid}",
                 headers=self._headers,
                 timeout=REQUEST_TIMEOUT,
@@ -211,7 +215,7 @@ class WahaClient:
         if from_me is not None:
             params["filter.fromMe"] = "true" if from_me else "false"
         try:
-            response = requests.get(
+            response = self._http.get(
                 f"{self.base_url}/api/{session or self.session}/chats/{chat_id}/messages",
                 params=params,
                 headers=self._headers,
@@ -234,7 +238,7 @@ class WahaClient:
         desde acá. No lanza si falla, retorna `None`.
         """
         try:
-            response = requests.get(
+            response = self._http.get(
                 f"{self.base_url}{media_path}",
                 headers=self._headers,
                 timeout=MEDIA_DOWNLOAD_TIMEOUT,

@@ -94,7 +94,7 @@ class SectorsMixin:
                 # repetido en la query string (`select=a&select=b`) lo
                 # rechaza este portal: "Should be value of type array"
                 # (confirmado contra Bitrix real, no es solo teórico).
-                response = requests.post(
+                response = self.session.post(
                     f"{self.webhook_url}crm.item.list.json",
                     json=request_body,
                     timeout=REQUEST_TIMEOUT,
@@ -133,7 +133,7 @@ class SectorsMixin:
         (`FIELD_DEAL_UBICACION_SECTOR`), no una copia del texto.
         """
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.item.get.json",
                 json={"entityTypeId": fields.SECTOR_ENTITY_TYPE_ID, "id": item_id, "useOriginalUfNames": "Y"},
                 timeout=REQUEST_TIMEOUT,
@@ -153,7 +153,7 @@ class SectorsMixin:
         "[Ventas] Ubicación" (`FIELD_DEAL_UBICACION_SECTOR`) del deal.
         """
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.item.list.json",
                 json={
                     "entityTypeId": fields.SECTOR_ENTITY_TYPE_ID,
@@ -178,7 +178,7 @@ class SectorsMixin:
     def create_sector_item(self, item_fields: dict[str, Any]) -> str | None:
         """Crea un ítem del Smart Process de sectores. Retorna el nuevo id o None si falla."""
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.item.add.json",
                 json={
                     "entityTypeId": fields.SECTOR_ENTITY_TYPE_ID,
@@ -199,7 +199,7 @@ class SectorsMixin:
     def update_sector_item(self, item_id: str, item_fields: dict[str, Any]) -> bool:
         """Actualiza un ítem del Smart Process de sectores. Retorna False si falla."""
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.item.update.json",
                 json={
                     "entityTypeId": fields.SECTOR_ENTITY_TYPE_ID,
@@ -255,7 +255,7 @@ class SectorsMixin:
             chunk_keys = cmd_keys[start : start + _BATCH_CHUNK_SIZE]
             chunk_cmds = {key: cmds[key] for key in chunk_keys}
             try:
-                response = requests.post(
+                response = self.session.post(
                     f"{self.webhook_url}batch.json",
                     json={"halt": 0, "cmd": chunk_cmds},
                     timeout=REQUEST_TIMEOUT,

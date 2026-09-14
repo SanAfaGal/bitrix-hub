@@ -60,6 +60,12 @@ def _ca_bundle_with_xposure_fix() -> str:
     return tmp.name
 
 
+class XposureSessionExpiredError(RuntimeError):
+    """La sesión cacheada de Xposure caducó (Xposure redirigió a /Login) — quien
+    llama debe descartar el cliente (ver `app.xposure.deps.reset_xposure_client`)
+    y reintentar con uno nuevo."""
+
+
 class XposureClient:
     """Encapsula el login y la búsqueda de inmuebles en el portal Xposure."""
 
@@ -183,6 +189,8 @@ class XposureClient:
             headers={"Referer": urljoin(self.base_url, "/portal/colombia/MlsFullSearch")},
         )
         response.raise_for_status()
+        if "/Login" in response.url:
+            raise XposureSessionExpiredError("La sesión de Xposure caducó")
 
         soup = BeautifulSoup(response.text, "html.parser")
         total = self._parse_total_listings(soup)

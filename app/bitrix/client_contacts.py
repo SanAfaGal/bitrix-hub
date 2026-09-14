@@ -36,7 +36,7 @@ class ContactsMixin:
     def get_contact(self, contact_id: str) -> dict[str, Any]:
         """Obtiene los campos de un contacto de Bitrix. Retorna {} si la llamada falla."""
         try:
-            response = requests.get(
+            response = self.session.get(
                 f"{self.webhook_url}crm.contact.get.json",
                 params={"id": contact_id},
                 timeout=REQUEST_TIMEOUT,
@@ -227,7 +227,7 @@ class ContactsMixin:
             values += [f"57{phone}", f"+57{phone}"]
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.duplicate.findbycomm.json",
                 json={"type": "PHONE", "values": values},
                 timeout=REQUEST_TIMEOUT,
@@ -256,7 +256,7 @@ class ContactsMixin:
     def _find_contact_by_username(self, username: str) -> str | None:
         """Retorna el contact_id si hay match, o None si no hay ninguno. Lanza `BitrixLookupError` si falla la llamada."""
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.contact.list.json",
                 json={"filter": {fields.FIELD_LINK_ID.uf_crm: username}, "select": ["ID"]},
                 timeout=REQUEST_TIMEOUT,
@@ -289,7 +289,7 @@ class ContactsMixin:
             contact_fields["EMAIL"] = [{"VALUE": email, "VALUE_TYPE": "WORK"}]
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.contact.add.json",
                 json={"fields": contact_fields},
                 timeout=REQUEST_TIMEOUT,
@@ -323,7 +323,7 @@ class ContactsMixin:
     def update_contact(self, contact_id: str, fields: dict[str, Any]) -> None:
         """Actualiza campos de un contacto de Bitrix. No lanza si falla."""
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.webhook_url}crm.contact.update.json",
                 json={"id": contact_id, "fields": fields},
                 timeout=REQUEST_TIMEOUT,

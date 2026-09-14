@@ -105,7 +105,7 @@ async def webhook_deal_event(
         logger.info("Evento de deal recibido: %s", deal_id)
 
         crm_client = get_crm_client()
-        return process_deal_event(deal_id, crm_client, get_xposure_client)
+        return await asyncio.to_thread(process_deal_event, deal_id, crm_client, get_xposure_client)
     except HTTPException as exc:
         logger.exception("Error procesando evento de deal")
         return {"ok": False, "error": str(exc.detail)}
@@ -169,7 +169,9 @@ async def webhook_deal_notify_test(
         logger.error("Evento de deal-notify-test %s no se pudo procesar: %s", deal_id, exc.detail)
         return {"ok": False, "error": str(exc.detail)}
 
-    return process_notify_contact(deal_id, text, crm_client, waha_client, session=session)
+    return await asyncio.to_thread(
+        process_notify_contact, deal_id, text, crm_client, waha_client, session=session
+    )
 
 
 @router.post(

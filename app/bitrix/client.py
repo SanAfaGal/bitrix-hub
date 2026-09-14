@@ -17,6 +17,8 @@ importa fuera de este paquete).
 """
 from __future__ import annotations
 
+import requests
+
 from app.bitrix.client_contacts import ContactsMixin
 from app.bitrix.client_deals import DealsMixin
 from app.bitrix.client_files import FilesMixin
@@ -28,3 +30,4 @@ class BitrixClient(DealsMixin, ContactsMixin, FilesMixin, SectorsMixin):
 
     def __init__(self, webhook_url: str) -> None:
         self.webhook_url = webhook_url.rstrip("/") + "/"
+        self.session = requests.Session()

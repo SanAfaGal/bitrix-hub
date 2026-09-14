@@ -33,7 +33,7 @@ def test_get_deal_returns_result(monkeypatch) -> None:
         captured["params"] = params
         return FakeResponse({"result": {"ID": "42"}})
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     deal = client.get_deal("42")
@@ -47,7 +47,7 @@ def test_get_deal_returns_empty_dict_on_request_error(monkeypatch) -> None:
     def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.get_deal("42") == {}
@@ -57,7 +57,7 @@ def test_deal_exists_returns_true_when_deal_found(monkeypatch) -> None:
     def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
         return FakeResponse({"result": {"ID": "42"}})
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.deal_exists("42") is True
@@ -69,7 +69,7 @@ def test_deal_exists_returns_false_when_bitrix_confirms_not_found(monkeypatch) -
             {"error": "", "error_description": "Not found"}, status_code=400
         )
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.deal_exists("40510") is False
@@ -82,7 +82,7 @@ def test_deal_exists_returns_true_on_ambiguous_error(monkeypatch) -> None:
     def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.deal_exists("42") is True
@@ -96,7 +96,7 @@ def test_get_contact_returns_result(monkeypatch) -> None:
         captured["params"] = params
         return FakeResponse({"result": {"ID": "7", "PHONE": [{"VALUE": "3001112233", "VALUE_TYPE": "MOBILE"}]}})
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     contact = client.get_contact("7")
@@ -110,7 +110,7 @@ def test_get_contact_returns_empty_dict_on_request_error(monkeypatch) -> None:
     def fake_get(url: str, params: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.get_contact("7") == {}
@@ -124,7 +124,7 @@ def test_add_comment_posts_expected_payload_and_returns_id(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse({"result": 999})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     comment_id = client.add_comment("42", "hola")
@@ -142,7 +142,7 @@ def test_pin_comment_posts_expected_payload(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.pin_comment(999, "42")
@@ -155,7 +155,7 @@ def test_update_deal_does_not_raise_on_request_error(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_deal("42", {"SOME_FIELD": "value"})  # no debe lanzar
@@ -165,7 +165,7 @@ def test_update_deal_logs_error_when_bitrix_returns_200_with_error_body(monkeypa
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         return FakeResponse({"error": "ERROR_CORE", "error_description": "Bad field value UF_CRM_1773864282733"})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("ERROR"):
@@ -219,7 +219,7 @@ def test_find_or_create_property_seller_contact_returns_existing_match(monkeypat
         }
         return FakeResponse({"result": {"CONTACT": [7, 9]}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("INFO"):
@@ -242,7 +242,7 @@ def test_find_or_create_property_seller_contact_matches_bare_local_phone_against
         }
         return FakeResponse({"result": {"CONTACT": [7]}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_or_create_property_seller_contact("3001112233") == "7"
@@ -259,7 +259,7 @@ def test_create_contact_normalizes_display_name_casing(monkeypatch) -> None:
         assert json["fields"]["NAME"] == "Diana Herrera Gómez"
         return FakeResponse({"result": 55})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
     monkeypatch.setattr("app.bitrix.client.BitrixClient.get_contact", lambda self, cid: {"ID": cid})
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
@@ -281,9 +281,9 @@ def test_find_or_create_property_seller_contact_creates_when_no_match(monkeypatc
         }
         return FakeResponse({"result": 55})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
     monkeypatch.setattr(
-        "requests.get", lambda url, params, timeout: FakeResponse({"result": {"ID": "55"}})
+        requests.Session, "get", staticmethod(lambda url, params, timeout: FakeResponse({"result": {"ID": "55"}}))
     )
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
@@ -300,7 +300,7 @@ def test_find_or_create_property_seller_contact_logs_bitrix_error_body_on_create
             status_code=400,
         )
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("ERROR"):
@@ -314,7 +314,7 @@ def test_find_or_create_property_seller_contact_returns_none_on_lookup_error(mon
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_or_create_property_seller_contact("573001112233") is None
@@ -331,7 +331,7 @@ def test_find_or_create_property_seller_contact_falls_back_to_username_lookup(mo
         assert json == {"filter": {"UF_CRM_1789150797407": "123456789012345"}, "select": ["ID"]}
         return FakeResponse({"result": [{"ID": "42"}]})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_or_create_property_seller_contact(None, "123456789012345") == "42"
@@ -348,7 +348,7 @@ def test_find_or_create_property_seller_contact_does_not_create_without_phone(mo
         assert url.endswith("crm.contact.list.json")
         return FakeResponse({"result": []})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_or_create_property_seller_contact(None, "123456789012345") is None
@@ -362,9 +362,9 @@ def test_find_or_create_property_seller_contact_uses_display_name_when_creating(
         assert json["fields"]["NAME"] == "Juan Pérez"
         return FakeResponse({"result": 88})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
     monkeypatch.setattr(
-        "requests.get", lambda url, params, timeout: FakeResponse({"result": {"ID": "88"}})
+        requests.Session, "get", staticmethod(lambda url, params, timeout: FakeResponse({"result": {"ID": "88"}}))
     )
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
@@ -384,7 +384,7 @@ def test_find_or_create_property_seller_contact_does_not_create_when_phone_match
         assert url.endswith("crm.duplicate.findbycomm.json")
         return FakeResponse({"result": {"CONTACT": [], "LEAD": [175278]}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("WARNING"):
@@ -399,7 +399,7 @@ def test_find_or_create_property_seller_contact_returns_none_on_username_lookup_
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_or_create_property_seller_contact(None, "123456789012345") is None
@@ -412,7 +412,7 @@ def test_create_property_seller_deal_always_creates(monkeypatch) -> None:
         assert json["fields"]["CATEGORY_ID"] == 34
         return FakeResponse({"result": 456})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.create_property_seller_deal("7") == "456"
@@ -423,14 +423,16 @@ def test_find_property_seller_deal_id_returns_existing_match(monkeypatch) -> Non
         assert url.endswith("crm.deal.list.json")
         return FakeResponse({"result": [{"ID": "123"}]})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_property_seller_deal_id("7") == "123"
 
 
 def test_find_property_seller_deal_id_returns_none_when_no_match(monkeypatch) -> None:
-    monkeypatch.setattr("requests.post", lambda url, json, timeout: FakeResponse({"result": []}))
+    monkeypatch.setattr(
+        requests.Session, "post", staticmethod(lambda url, json, timeout: FakeResponse({"result": []}))
+    )
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_property_seller_deal_id("7") is None
@@ -440,7 +442,7 @@ def test_find_property_seller_deal_id_returns_none_on_request_error(monkeypatch)
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_property_seller_deal_id("7") is None
@@ -458,7 +460,7 @@ def test_get_property_listing_reads_known_fields(monkeypatch) -> None:
             }
         )
 
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     listing = client.get_property_listing("42")
@@ -473,8 +475,9 @@ def test_get_property_listing_parses_money_field_with_currency_suffix(monkeypatc
     """Bitrix devuelve los campos tipo "money" como "350000000.00|COP" (monto|moneda),
     no un número plano — ver FIELD_EXPECTED_SALE_PRICE.field_type."""
     monkeypatch.setattr(
-        "requests.get",
-        lambda url, params, timeout: FakeResponse({"result": {"UF_CRM_1773861238965": "350000000.00|COP"}}),
+        requests.Session,
+        "get",
+        staticmethod(lambda url, params, timeout: FakeResponse({"result": {"UF_CRM_1773861238965": "350000000.00|COP"}})),
     )
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
@@ -484,7 +487,9 @@ def test_get_property_listing_parses_money_field_with_currency_suffix(monkeypatc
 
 
 def test_get_property_listing_returns_all_none_when_deal_empty(monkeypatch) -> None:
-    monkeypatch.setattr("requests.get", lambda url, params, timeout: FakeResponse({"result": {}}))
+    monkeypatch.setattr(
+        requests.Session, "get", staticmethod(lambda url, params, timeout: FakeResponse({"result": {}}))
+    )
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     listing = client.get_property_listing("42")
@@ -510,8 +515,8 @@ def test_get_property_listing_reads_location_label_from_linked_sector_item(monke
             }
         )
 
-    monkeypatch.setattr("requests.get", fake_get)
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     listing = client.get_property_listing("42")
@@ -530,8 +535,8 @@ def test_get_property_listing_skips_location_lookup_without_sector_link(monkeypa
         calls.append(url)
         return FakeResponse({"result": {}})
 
-    monkeypatch.setattr("requests.get", fake_get)
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     listing = client.get_property_listing("42")
@@ -548,7 +553,7 @@ def test_update_property_listing_only_writes_non_none_fields(monkeypatch) -> Non
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_property_listing(
@@ -566,7 +571,7 @@ def test_update_property_listing_does_nothing_when_all_none(monkeypatch) -> None
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise AssertionError("no debería llamar a Bitrix si no hay nada que actualizar")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_property_listing("42", PropertyListing())  # no debe lanzar ni llamar a Bitrix
@@ -579,7 +584,7 @@ def test_update_property_listing_writes_mapped_property_type(monkeypatch) -> Non
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_property_listing("42", PropertyListing(property_type="Apartamento"))
@@ -589,7 +594,9 @@ def test_update_property_listing_writes_mapped_property_type(monkeypatch) -> Non
 
 def test_get_property_listing_reads_mapped_property_type(monkeypatch) -> None:
     monkeypatch.setattr(
-        "requests.get", lambda url, params, timeout: FakeResponse({"result": {"UF_CRM_1773860139420": 93176}})
+        requests.Session,
+        "get",
+        staticmethod(lambda url, params, timeout: FakeResponse({"result": {"UF_CRM_1773860139420": 93176}})),
     )
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
@@ -602,7 +609,7 @@ def test_update_property_listing_skips_property_type_without_value_mapping(monke
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("WARNING"):
@@ -620,7 +627,7 @@ def test_update_property_listing_links_sector_item_when_code_resolves(monkeypatc
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_property_listing("42", PropertyListing(location_sector_code="382"))
@@ -636,7 +643,7 @@ def test_update_property_listing_skips_ubicacion_when_sector_code_not_found(monk
             return FakeResponse({"result": {"items": []}})
         raise AssertionError("no debería llamar a crm.deal.update si no hay nada que actualizar")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     with caplog.at_level("WARNING"):
@@ -672,7 +679,7 @@ def test_upload_file_returns_detail_url(monkeypatch) -> None:
             }
         )
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     result = client.upload_file("595608", "Autorizacion_42.pdf", b"%PDF-1.4 contenido")
@@ -690,7 +697,7 @@ def test_upload_file_returns_none_on_request_error(monkeypatch) -> None:
     def fake_post(url: str, timeout: int, data: dict | None = None, files: dict | None = None) -> FakeResponse:
         raise requests.exceptions.ConnectionError("boom")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.upload_file("595608", "Autorizacion_42.pdf", b"contenido") is None
@@ -700,7 +707,7 @@ def test_upload_file_returns_none_when_upload_url_missing(monkeypatch) -> None:
     def fake_post(url: str, timeout: int, data: dict | None = None, files: dict | None = None) -> FakeResponse:
         return FakeResponse({"result": {}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.upload_file("595608", "Autorizacion_42.pdf", b"contenido") is None
@@ -712,7 +719,7 @@ def test_upload_file_returns_none_when_detail_url_missing(monkeypatch) -> None:
             return FakeResponse({"result": {"uploadUrl": "https://example.bitrix24.com/upload/?token=abc"}})
         return FakeResponse({"result": {"ID": 1}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.upload_file("595608", "Autorizacion_42.pdf", b"contenido") is None
@@ -726,7 +733,7 @@ def test_update_contact_identity_splits_full_name_into_name_and_last_name(monkey
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_contact_identity("42", full_name="Juan Pérez Gómez")
@@ -742,7 +749,7 @@ def test_update_contact_identity_normalizes_full_name_casing(monkeypatch) -> Non
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_contact_identity("42", full_name="JUAN pérez GÓMEZ")
@@ -757,7 +764,7 @@ def test_update_contact_identity_sets_phone_field(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_contact_identity("42", phone="573001112233")
@@ -769,7 +776,7 @@ def test_update_contact_identity_does_nothing_when_both_none(monkeypatch) -> Non
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         raise AssertionError("no debería llamar a Bitrix si no hay nada que actualizar")
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_contact_identity("42")  # no debe lanzar ni llamar a Bitrix
@@ -782,7 +789,7 @@ def test_update_contact_identity_single_word_name_sets_only_name(monkeypatch) ->
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.update_contact_identity("42", full_name="Juan")
@@ -797,7 +804,7 @@ def test_set_duplicado_status_updates_custom_field(monkeypatch) -> None:
         captured["json"] = json
         return FakeResponse({"result": True})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     client.set_duplicado_status("42", has_duplicate=True)
@@ -819,8 +826,8 @@ def test_find_contact_by_phone_returns_contact_when_match(monkeypatch) -> None:
         assert params == {"id": "7"}
         return FakeResponse({"result": {"ID": "7", "NAME": "Juan"}})
 
-    monkeypatch.setattr("requests.post", fake_post)
-    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_contact_by_phone("573001112233") == {"ID": "7", "NAME": "Juan"}
@@ -830,7 +837,7 @@ def test_find_contact_by_phone_returns_none_when_no_match(monkeypatch) -> None:
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         return FakeResponse({"result": {"CONTACT": []}})
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_contact_by_phone("573001112233") is None
@@ -840,7 +847,7 @@ def test_find_contact_by_phone_returns_none_on_lookup_error(monkeypatch) -> None
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         return FakeResponse(status_code=500)
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
 
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.find_contact_by_phone("573001112233") is None
