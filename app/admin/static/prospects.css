@@ -34,7 +34,7 @@
 
 .prospect-row__body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .prospect-row__top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
-.prospect-row__name { font-size: 14px; font-weight: 700; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prospect-row__name { font-size: 14px; font-weight: 700; color: var(--color-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 2px; }
 .prospect-row__name--muted { color: var(--color-text-faint); font-weight: 600; font-style: italic; }
 .prospect-row__time { flex: 0 0 auto; font-size: 11px; color: var(--color-text-faint); }
 .prospect-row__bottom { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-start; gap: 4px var(--space-2); }
