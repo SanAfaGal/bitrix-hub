@@ -60,7 +60,15 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
   }
   ['field-sale_price', 'field-outstanding_debt'].forEach(function (id) {
     var el = document.getElementById(id);
-    if (el) formatAsCurrency(el);
+    if (!el) return;
+    formatAsCurrency(el);
+    // El valor inicial (prefill del deal, ver app/forms/router.py) llega en
+    // dígitos crudos — sin esto se ve "500000000" en vez de "$ 500.000.000"
+    // hasta que la persona toque el campo.
+    if (el.value) {
+      var initialDigits = el.value.replace(/[^0-9]/g, '');
+      el.value = initialDigits ? '$ ' + Number(initialDigits).toLocaleString('es-CO') : '';
+    }
   });
 
   // Solo letras en el nombre — bloquea números y símbolos al escribir, en
