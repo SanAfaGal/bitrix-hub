@@ -56,6 +56,161 @@ def test_is_reachable_returns_false_when_request_fails(monkeypatch) -> None:
     assert client.is_reachable() is False
 
 
+def test_get_session_status_returns_full_payload(monkeypatch) -> None:
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        assert url == "http://localhost:3000/api/sessions/default"
+        return FakeResponse(json_data={"status": "WORKING", "name": "default", "me": {"pushName": "Ventas"}})
+
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
+    client = WahaClient(settings)
+
+    assert client.get_session_status() == {"status": "WORKING", "name": "default", "me": {"pushName": "Ventas"}}
+
+
+def test_get_session_status_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.get_session_status() is None
+
+
+def test_start_session_posts_to_start_endpoint_and_returns_true(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse()
+
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.start_session() is True
+    assert captured["url"] == "http://localhost:3000/api/sessions/default/start"
+
+
+def test_start_session_uses_given_session_over_default(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse()
+
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+    client.start_session(session="linea-ventas")
+
+    assert captured["url"] == "http://localhost:3000/api/sessions/linea-ventas/start"
+
+
+def test_start_session_returns_false_on_request_error(monkeypatch) -> None:
+    def fake_post(url: str, headers: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.start_session() is False
+
+
+def test_stop_session_posts_to_stop_endpoint_and_returns_true(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse()
+
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.stop_session() is True
+    assert captured["url"] == "http://localhost:3000/api/sessions/default/stop"
+
+
+def test_logout_session_posts_to_logout_endpoint_and_returns_true(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse()
+
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.logout_session() is True
+    assert captured["url"] == "http://localhost:3000/api/sessions/default/logout"
+
+
+def test_logout_session_returns_false_on_http_error(monkeypatch) -> None:
+    monkeypatch.setattr(
+        requests.Session, "post", staticmethod(lambda url, headers, timeout: FakeResponse(status_code=500))
+    )
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.logout_session() is False
+
+
+def test_get_qr_code_returns_data_url(monkeypatch) -> None:
+    captured = {}
+
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse(content=b"fake-png-bytes")
+
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    qr = client.get_qr_code()
+
+    # A diferencia de start/stop/logout/status, el endpoint de QR no lleva el
+    # segmento "sessions" — inconsistencia real de la REST API de Waha.
+    assert captured["url"] == "http://localhost:3000/api/default/auth/qr"
+    assert qr == "data:image/png;base64,ZmFrZS1wbmctYnl0ZXM="
+
+
+def test_get_qr_code_returns_none_when_session_has_no_qr_to_give(monkeypatch) -> None:
+    monkeypatch.setattr(
+        requests.Session, "get", staticmethod(lambda url, headers, timeout: FakeResponse(status_code=422))
+    )
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.get_qr_code() is None
+
+
+def test_get_qr_code_returns_none_on_request_error(monkeypatch) -> None:
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.get_qr_code() is None
+
+
 def test_send_text_posts_expected_payload_and_returns_true(monkeypatch) -> None:
     captured = {}
 

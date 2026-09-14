@@ -1,6 +1,7 @@
 """Cliente HTTP mínimo para la REST API de Waha (WhatsApp HTTP API)."""
 from __future__ import annotations
 
+import base64
 import logging
 import random
 import time
@@ -51,6 +52,99 @@ class WahaClient:
         except (requests.exceptions.RequestException, ValueError) as exc:
             logger.warning("Waha no está respondiendo (chequeo de disponibilidad): %s", exc)
             return False
+
+    def get_session_status(self, session: str | None = None) -> dict | None:
+        """Trae el payload completo de `GET /api/sessions/{session}` (status, name, me, ...).
+
+        A diferencia de `is_reachable` (que solo devuelve el bool de si está
+        "WORKING"), esto se usa en el panel admin de gestión de sesión (ver
+        `app.admin.waha_session_page`) para saber en qué estado exacto está
+        (STOPPED, STARTING, SCAN_QR_CODE, FAILED, ...) y decidir qué mostrar.
+        No lanza: loguea y devuelve None si falla.
+        """
+        try:
+            response = self._http.get(
+                f"{self.base_url}/api/sessions/{session or self.session}",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return payload if isinstance(payload, dict) else None
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error consultando el estado de la sesión de Waha: %s", exc)
+            return None
+
+    def start_session(self, session: str | None = None) -> bool:
+        """Arranca la sesión (`POST /api/sessions/{session}/start`) — idempotente, no lanza."""
+        try:
+            response = self._http.post(
+                f"{self.base_url}/api/sessions/{session or self.session}/start",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error arrancando la sesión de Waha: %s", exc)
+            return False
+
+    def stop_session(self, session: str | None = None) -> bool:
+        """Detiene la sesión (`POST /api/sessions/{session}/stop`) sin borrar la autenticación —
+        el número sigue vinculado, listo para arrancar de nuevo con `start_session`. No libera
+        el número para escanear uno distinto (ver `logout_session`). No lanza."""
+        try:
+            response = self._http.post(
+                f"{self.base_url}/api/sessions/{session or self.session}/stop",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error deteniendo la sesión de Waha: %s", exc)
+            return False
+
+    def logout_session(self, session: str | None = None) -> bool:
+        """Desvincula el número actual (`POST /api/sessions/{session}/logout`) — Waha la deja
+        lista en SCAN_QR_CODE para que un teléfono distinto escanee. Es la acción detrás del
+        botón "Desactivar sesión" del panel admin, no `stop_session`. No lanza."""
+        try:
+            response = self._http.post(
+                f"{self.base_url}/api/sessions/{session or self.session}/logout",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error desloguendo la sesión de Waha: %s", exc)
+            return False
+
+    def get_qr_code(self, session: str | None = None) -> str | None:
+        """Pide el QR de autenticación (`GET /api/{session}/auth/qr`, sin el segmento "sessions" —
+        inconsistencia real de la REST API de Waha frente a start/stop/logout/status, oculta acá
+        detrás de un nombre de método consistente con los demás).
+
+        Devuelve un data URL listo para `<img src>` (`data:image/png;base64,...`). Waha responde
+        error (ej. 422/500) si la sesión no está en un estado que tenga QR para dar (ya
+        autenticada, o aún arrancando) — se captura como cualquier otra falla y devuelve None.
+        El primer QR expira a los 60s, los siguientes a los 20s (ver `app.admin.static.whatsapp.js`,
+        que por eso pide uno nuevo cada ~15-18s mientras la sesión esté en SCAN_QR_CODE).
+        """
+        try:
+            response = self._http.get(
+                f"{self.base_url}/api/{session or self.session}/auth/qr",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            if not response.content:
+                return None
+            return f"data:image/png;base64,{base64.b64encode(response.content).decode('ascii')}"
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error pidiendo el QR de la sesión de Waha: %s", exc)
+            return None
 
     def mark_seen(self, chat_id: str, session: str | None = None) -> bool:
         """Marca como visto el último mensaje de un chat (`POST /api/sendSeen`). No lanza si falla.

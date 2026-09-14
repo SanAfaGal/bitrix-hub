@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import ValidationError
 
 from app.admin.coverage_page import filter_by_estado, render_coverage_html
@@ -19,10 +19,12 @@ from app.admin.page import (
     COVERAGE_PATH,
     PROSPECTS_PATH,
     TEMPLATES_PATH,
+    WHATSAPP_PATH,
     render_config_html,
     render_template_editor_html,
 )
 from app.admin.prospects_page import render_prospects_html, render_thread_pane_html
+from app.admin.waha_session_page import render_whatsapp_html, render_whatsapp_status_fragment_html
 from app.auth.deps import require_admin, require_staff_user
 from app.crm.deps import get_crm_client
 from app.flows.whatsapp_bot import conversation_store, reply_after_activation
@@ -338,6 +340,42 @@ def post_coverage_batch(
             display_name=staff_user["name"], sectors=sectors, estado=estado, flash=flash, flash_error=flash_error
         )
     )
+
+
+@router.get(WHATSAPP_PATH, response_class=HTMLResponse, summary="Estado de la sesión de WhatsApp (Waha) y QR para vincularla")
+def get_whatsapp(username: str = Depends(require_admin), staff_user: dict = Depends(require_staff_user)) -> HTMLResponse:
+    status_payload = get_waha_client().get_session_status()
+    return HTMLResponse(render_whatsapp_html(display_name=staff_user["name"], status_payload=status_payload))
+
+
+@router.get(
+    f"{WHATSAPP_PATH}/status",
+    response_class=HTMLResponse,
+    summary="Fragmento AJAX del estado de la sesión de WhatsApp — usado por whatsapp.js para el poll periódico",
+)
+def get_whatsapp_status(username: str = Depends(require_admin)) -> HTMLResponse:
+    status_payload = get_waha_client().get_session_status()
+    return HTMLResponse(render_whatsapp_status_fragment_html(status_payload=status_payload))
+
+
+@router.get(
+    f"{WHATSAPP_PATH}/qr",
+    summary="QR de autenticación de la sesión de WhatsApp, como JSON — whatsapp.js lo pide aparte del estado",
+)
+def get_whatsapp_qr(username: str = Depends(require_admin)) -> JSONResponse:
+    return JSONResponse({"qr": get_waha_client().get_qr_code()})
+
+
+@router.post(f"{WHATSAPP_PATH}/start", summary="Arranca la sesión de WhatsApp")
+def post_whatsapp_start(username: str = Depends(require_admin)) -> RedirectResponse:
+    get_waha_client().start_session()
+    return RedirectResponse(url=WHATSAPP_PATH, status_code=303)
+
+
+@router.post(f"{WHATSAPP_PATH}/logout", summary="Desactiva la sesión de WhatsApp para vincular otro número")
+def post_whatsapp_logout(username: str = Depends(require_admin)) -> RedirectResponse:
+    get_waha_client().logout_session()
+    return RedirectResponse(url=WHATSAPP_PATH, status_code=303)
 
 
 @router.get(

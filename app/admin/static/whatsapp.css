@@ -1,0 +1,22 @@
+.content--whatsapp .whatsapp-status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 420px;
+}
+
+.whatsapp-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.whatsapp-qr__img {
+  width: 260px;
+  height: 260px;
+  border-radius: 8px;
+  background: var(--color-info-bg);
+  object-fit: contain;
+}

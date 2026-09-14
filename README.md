@@ -668,6 +668,42 @@ depende de una revisión nueva, correrla a mano:
 docker compose -f docker-compose.yml exec api alembic upgrade head
 ```
 
+### Panel admin: sesión de WhatsApp (Waha)
+
+`GET /admin/whatsapp` (mismo `Depends(require_admin)` de arriba) muestra el
+estado de la sesión de WhatsApp conectada al bot y deja escanear un QR o
+desactivar la sesión sin entrar al dashboard propio de Waha
+(`WAHA_DASHBOARD_ENABLED`). Pensado para el cambio del WhatsApp personal
+usado hoy a un número dedicado de producción: se desactiva la sesión actual
+(desvincula el número, `POST /api/sessions/{session}/logout`) y desde el
+mismo panel se escanea el QR del número nuevo — sin tocar `.env` ni
+redeployar.
+
+La página hace polling del estado (`GET /admin/whatsapp/status`, fragmento
+AJAX) mientras la sesión esté en un estado transitorio
+(`STARTING`/`SCAN_QR_CODE`/`PASSKEY_*`), y del QR por separado (`GET
+/admin/whatsapp/qr`, JSON) cada ~15-18s mientras espera un escaneo — el QR
+de Waha expira a los 20s. Ver `app/admin/waha_session_page.py` y
+`app/admin/static/whatsapp.js`.
+
+Endpoints de la REST API de Waha usados por el cliente
+(`app/waha/client.py`), agregados a los ya existentes (`GET
+/api/{session}/lids/{lid}` para resolver `@lid`, ver arriba):
+
+| Método Python | Endpoint de Waha |
+|---|---|
+| `get_session_status` | `GET /api/sessions/{session}` |
+| `start_session` | `POST /api/sessions/{session}/start` |
+| `stop_session` | `POST /api/sessions/{session}/stop` |
+| `logout_session` | `POST /api/sessions/{session}/logout` |
+| `get_qr_code` | `GET /api/{session}/auth/qr` |
+
+Solo una sesión (`WAHA_SESSION`) por ahora — no hay selector de línea en la
+UI. Todos los métodos del cliente ya reciben un `session` opcional, así que
+una segunda línea de WhatsApp en el futuro sería una segunda instancia de
+`WahaSettings`/`WahaClient` con su propio `session`, no un rediseño de este
+panel.
+
 ### Cambio de etapa de deal -> bienvenida + Autorización de Corretaje por WhatsApp
 
 Apuntar acá la regla de automatización de Bitrix de la etapa que dispara el

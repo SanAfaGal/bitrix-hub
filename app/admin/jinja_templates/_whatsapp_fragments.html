@@ -1,0 +1,45 @@
+{# Fragmentos de la vista de WhatsApp (sesión de Waha) — ver app/admin/waha_session_page.py.
+Solo macros acá, nada a nivel superior. Cada macro devuelve el mismo wrapper
+".whatsapp-status-panel" con "data-status" (lo que lee whatsapp.js para decidir si
+sigue el polling) envolviendo el contenido propio de cada estado. #}
+
+{% macro error_panel(whatsapp_path) -%}
+<div class="whatsapp-status-panel" data-status="">
+  <div class="alert alert--error">No se pudo consultar el estado de WhatsApp — Waha no respondió.</div>
+  <form method="post" action="{{ whatsapp_path }}/start">
+    <button type="submit" class="btn btn--outline">Reintentar</button>
+  </form>
+</div>
+{%- endmacro %}
+
+{% macro stopped_panel(whatsapp_path) -%}
+<div class="whatsapp-status-panel" data-status="STOPPED">
+  <div class="alert alert--info">La sesión de WhatsApp está detenida.</div>
+  <form method="post" action="{{ whatsapp_path }}/start">
+    <button type="submit" class="btn btn--primary">Iniciar sesión</button>
+  </form>
+</div>
+{%- endmacro %}
+
+{% macro qr_panel(whatsapp_path, status) -%}
+<div class="whatsapp-status-panel" data-status="{{ status }}">
+  {% if status == "STARTING" %}
+  <div class="alert alert--info">Iniciando sesión…</div>
+  {% else %}
+  <div class="whatsapp-qr">
+    <img class="whatsapp-qr__img" data-whatsapp-qr src="" alt="Código QR para vincular WhatsApp">
+    <p class="content__desc">Abre WhatsApp en el teléfono que quieres vincular → Dispositivos vinculados → Vincular dispositivo, y escanea este código. Se renueva solo cada pocos segundos.</p>
+  </div>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro connected_panel(whatsapp_path, phone) -%}
+<div class="whatsapp-status-panel" data-status="WORKING">
+  <div class="alert alert--info">WhatsApp conectado{{ ' — ' + phone if phone else '' }}.</div>
+  <form method="post" action="{{ whatsapp_path }}/logout"
+    onsubmit="return confirm('¿Desactivar esta sesión de WhatsApp? El número quedará desvinculado y habrá que escanear un QR de nuevo (del mismo número o de uno distinto).')">
+    <button type="submit" class="btn btn--outline">Desactivar sesión</button>
+  </form>
+</div>
+{%- endmacro %}

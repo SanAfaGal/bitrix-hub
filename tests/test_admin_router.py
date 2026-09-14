@@ -516,3 +516,116 @@ def test_deactivate_bot_disables_bot(client: TestClient, monkeypatch: pytest.Mon
     assert response.headers["location"] == f"/admin/prospects/{chat_id}"
     assert store.get_bot_enabled(chat_id) is False
     assert store.get_bot_enabled_reason(chat_id) == "admin_manual"
+
+
+class FakeWahaClient:
+    def __init__(self, status_payload: dict | None, qr: str | None = None) -> None:
+        self.status_payload = status_payload
+        self.qr = qr
+        self.start_calls = 0
+        self.logout_calls = 0
+
+    def get_session_status(self) -> dict | None:
+        return self.status_payload
+
+    def get_qr_code(self) -> str | None:
+        return self.qr
+
+    def start_session(self) -> bool:
+        self.start_calls += 1
+        return True
+
+    def logout_session(self) -> bool:
+        self.logout_calls += 1
+        return True
+
+
+def test_whatsapp_page_requires_login(client: TestClient) -> None:
+    response = client.get("/admin/whatsapp", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/login?next=/admin/whatsapp"
+
+
+def test_whatsapp_page_shows_connected_state(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeWahaClient(status_payload={"status": "WORKING", "me": {"pushName": "Ventas"}})
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.get("/admin/whatsapp")
+
+    assert response.status_code == 200
+    assert "Desactivar sesión" in response.text
+    assert "Ventas" in response.text
+
+
+def test_whatsapp_page_shows_qr_when_scanning(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeWahaClient(status_payload={"status": "SCAN_QR_CODE"})
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.get("/admin/whatsapp")
+
+    assert response.status_code == 200
+    assert 'data-status="SCAN_QR_CODE"' in response.text
+    assert "data-whatsapp-qr" in response.text
+
+
+def test_whatsapp_page_shows_error_when_waha_unreachable(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeWahaClient(status_payload=None)
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.get("/admin/whatsapp")
+
+    assert response.status_code == 200
+    assert "No se pudo consultar el estado de WhatsApp" in response.text
+
+
+def test_whatsapp_status_fragment_requires_login(client: TestClient) -> None:
+    response = client.get("/admin/whatsapp/status", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/login?next=/admin/whatsapp/status"
+
+
+def test_whatsapp_qr_endpoint_returns_qr_json(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeWahaClient(status_payload={"status": "SCAN_QR_CODE"}, qr="data:image/png;base64,abc")
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.get("/admin/whatsapp/qr")
+
+    assert response.status_code == 200
+    assert response.json() == {"qr": "data:image/png;base64,abc"}
+
+
+def test_whatsapp_start_calls_start_session_and_redirects(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeWahaClient(status_payload={"status": "STOPPED"})
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.post("/admin/whatsapp/start", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/whatsapp"
+    assert fake.start_calls == 1
+
+
+def test_whatsapp_logout_calls_logout_session_and_redirects(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeWahaClient(status_payload={"status": "WORKING"})
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.post("/admin/whatsapp/logout", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/whatsapp"
+    assert fake.logout_calls == 1
+
+
+def test_whatsapp_logout_requires_login(client: TestClient) -> None:
+    response = client.post("/admin/whatsapp/logout", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/auth/login")
