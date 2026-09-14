@@ -176,23 +176,28 @@ class DealsMixin:
     def get_property_listing(self, deal_id: str) -> PropertyListing:
         """Lee los datos del inmueble ya guardados en el deal (lo que falta queda en None)."""
         deal = self.get_deal(deal_id)
+        location_label, location_sector_code = self._get_location_label_and_sector_code(deal)
         return PropertyListing(
             property_type=self._property_type_name(deal.get(fields.FIELD_PROPERTY_TYPE.uf_crm)),
             address=self._as_text(deal.get(fields.FIELD_ADDRESS.uf_crm)),
-            expected_sale_price=self._as_int(deal.get(fields.FIELD_EXPECTED_SALE_PRICE.uf_crm)),
+            expected_sale_price=self._as_money_int(deal.get(fields.FIELD_EXPECTED_SALE_PRICE.uf_crm)),
             registration_number=self.get_matricula(deal),
-            location_label=self._get_location_label(deal),
+            location_label=location_label,
+            location_sector_code=location_sector_code,
         )
 
-    def _get_location_label(self, deal: dict[str, Any]) -> str | None:
-        """Resuelve el texto legible de ubicación siguiendo el vínculo del deal al
-        Smart Process de Sectores (`FIELD_DEAL_UBICACION_SECTOR` -> ítem -> `FIELD_SECTOR_UBICACION`).
-        `None` si el deal no tiene vínculo, o si el ítem no tiene la etiqueta."""
+    def _get_location_label_and_sector_code(self, deal: dict[str, Any]) -> tuple[str | None, str | None]:
+        """Resuelve la ubicación siguiendo el vínculo del deal al Smart Process de Sectores
+        (`FIELD_DEAL_UBICACION_SECTOR` -> ítem -> `FIELD_SECTOR_UBICACION`/`FIELD_SECTOR_CODE`).
+        `(None, None)` si el deal no tiene vínculo — una sola llamada a `get_sector_item`
+        para los dos valores, en vez de resolver el ítem dos veces."""
         item_id = fields.sector_item_id_from_crm_link_value(deal.get(fields.FIELD_DEAL_UBICACION_SECTOR.uf_crm))
         if item_id is None:
-            return None
+            return None, None
         item = self.get_sector_item(item_id)
-        return self._as_text(item.get(fields.FIELD_SECTOR_UBICACION.uf_crm))
+        location_label = self._as_text(item.get(fields.FIELD_SECTOR_UBICACION.uf_crm))
+        location_sector_code = self._as_text(item.get(fields.FIELD_SECTOR_CODE.uf_crm))
+        return location_label, location_sector_code
 
     def update_property_listing(self, deal_id: str, listing: PropertyListing) -> None:
         """Actualiza en el deal solo los campos de `listing` que no son None."""
@@ -236,6 +241,19 @@ class DealsMixin:
     def _as_int(value: Any) -> int | None:
         try:
             return int(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _as_money_int(value: Any) -> int | None:
+        """Campos tipo "money" (ver FieldSpec.field_type) los devuelve Bitrix como
+        `"350000000.00|COP"` (monto|moneda), no un número plano — a diferencia de
+        `_as_int`, acá hay que descartar el sufijo de moneda antes de convertir."""
+        if value in (None, ""):
+            return None
+        amount = str(value).split("|", 1)[0]
+        try:
+            return int(float(amount))
         except (TypeError, ValueError):
             return None
 

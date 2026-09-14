@@ -469,6 +469,20 @@ def test_get_property_listing_reads_known_fields(monkeypatch) -> None:
     assert listing.registration_number == "50C-1945945"
 
 
+def test_get_property_listing_parses_money_field_with_currency_suffix(monkeypatch) -> None:
+    """Bitrix devuelve los campos tipo "money" como "350000000.00|COP" (monto|moneda),
+    no un número plano — ver FIELD_EXPECTED_SALE_PRICE.field_type."""
+    monkeypatch.setattr(
+        "requests.get",
+        lambda url, params, timeout: FakeResponse({"result": {"UF_CRM_1773861238965": "350000000.00|COP"}}),
+    )
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    listing = client.get_property_listing("42")
+
+    assert listing.expected_sale_price == 350000000
+
+
 def test_get_property_listing_returns_all_none_when_deal_empty(monkeypatch) -> None:
     monkeypatch.setattr("requests.get", lambda url, params, timeout: FakeResponse({"result": {}}))
 
@@ -485,7 +499,16 @@ def test_get_property_listing_reads_location_label_from_linked_sector_item(monke
     def fake_post(url: str, json: dict, timeout: int) -> FakeResponse:
         assert url.endswith("crm.item.get.json")
         assert json == {"entityTypeId": 1088, "id": "50", "useOriginalUfNames": "Y"}
-        return FakeResponse({"result": {"item": {"UF_CRM_20_1789057091643": "El Poblado, Medellín, Antioquia"}}})
+        return FakeResponse(
+            {
+                "result": {
+                    "item": {
+                        "UF_CRM_20_1789057091643": "El Poblado, Medellín, Antioquia",
+                        "UF_CRM_20_1789060466273": "41001",
+                    }
+                }
+            }
+        )
 
     monkeypatch.setattr("requests.get", fake_get)
     monkeypatch.setattr("requests.post", fake_post)
@@ -494,6 +517,7 @@ def test_get_property_listing_reads_location_label_from_linked_sector_item(monke
     listing = client.get_property_listing("42")
 
     assert listing.location_label == "El Poblado, Medellín, Antioquia"
+    assert listing.location_sector_code == "41001"
 
 
 def test_get_property_listing_skips_location_lookup_without_sector_link(monkeypatch) -> None:
@@ -513,6 +537,7 @@ def test_get_property_listing_skips_location_lookup_without_sector_link(monkeypa
     listing = client.get_property_listing("42")
 
     assert listing.location_label is None
+    assert listing.location_sector_code is None
     assert calls == []  # no llama crm.item.get si el deal no tiene el vínculo
 
 
