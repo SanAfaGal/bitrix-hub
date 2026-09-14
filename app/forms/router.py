@@ -159,7 +159,12 @@ def _prefill_from_deal(deal_id: str) -> dict[str, str]:
     """Solo los campos ya capturados por un lead creado desde app/interno/ (o
     cualquier otro origen que haya llamado `update_property_listing`) — el
     propietario no debería repetir información que el captador ya guardó en
-    Bitrix. Ver el docstring de `render_form_html` para qué campos cubre."""
+    Bitrix. Ver el docstring de `render_form_html` para qué campos cubre.
+
+    `location`/`location_sector_code` van acá (no solo a `_location_prefill_from_deal`)
+    para que también aparezcan ya escritos si el cliente usa "Corregir" sobre
+    ese paso — `render_form_html` los usa además para saltarse el paso del
+    wizard, ver `get_brokerage_authorization_form`."""
     try:
         crm_client = get_crm_client()
     except (HTTPException, RuntimeError):
@@ -172,7 +177,36 @@ def _prefill_from_deal(deal_id: str) -> dict[str, str]:
         prefill["address"] = listing.address
     if listing.expected_sale_price:
         prefill["sale_price"] = str(listing.expected_sale_price)
+    if listing.location_label:
+        prefill["location"] = listing.location_label
+    if listing.location_sector_code:
+        prefill["location_sector_code"] = listing.location_sector_code
+
+    deal = crm_client.get_deal(deal_id)
+    contact_id = crm_client.get_deal_contact_id(deal) if deal else None
+    if contact_id:
+        contact = crm_client.get_contact(contact_id)
+        full_name = crm_client.get_contact_full_name(contact) if contact else None
+        email = crm_client.get_contact_email(contact) if contact else None
+        if full_name:
+            prefill["interested_party"] = full_name
+        if email:
+            prefill["email"] = email
+
     return prefill
+
+
+def _location_prefill_from_deal(prefill: dict[str, str]) -> dict[str, str] | None:
+    """El wizard solo puede saltarse el paso de ubicación (ver
+    `get_brokerage_authorization_form`) si tiene los dos datos que necesita
+    para darla por confirmada — el sector ya se validó por cobertura cuando
+    el captador creó el lead (`app.flows.interno_nuevo_lead.process_nuevo_lead`),
+    así que no hace falta repetir ese chequeo acá."""
+    location = prefill.get("location")
+    sector_code = prefill.get("location_sector_code")
+    if location and sector_code:
+        return {"location": location, "sector_code": sector_code}
+    return None
 
 
 @router.get(
@@ -187,7 +221,10 @@ def get_brokerage_authorization_form(deal_id: str | None = None, token: str | No
         if _is_already_signed(deal_id):
             return HTMLResponse(render_already_signed_html())
         prefill = _prefill_from_deal(deal_id)
-        return HTMLResponse(render_form_html(deal_id=deal_id, token=token, prefill=prefill))
+        location_prefill = _location_prefill_from_deal(prefill)
+        return HTMLResponse(
+            render_form_html(deal_id=deal_id, token=token, prefill=prefill, location_prefill=location_prefill)
+        )
     return HTMLResponse(render_form_html(deal_id=deal_id, token=token))
 
 

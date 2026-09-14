@@ -77,6 +77,10 @@ class FakeCrmClient:
         parts = [p.strip() for p in (name, last_name) if isinstance(p, str) and p.strip()]
         return " ".join(parts) if parts else None
 
+    def get_contact_email(self, contact: dict[str, Any]) -> str | None:
+        email = contact.get("EMAIL")
+        return email if isinstance(email, str) and email.strip() else None
+
     def get_matricula(self, deal: dict[str, Any]) -> str | None:
         matricula = deal.get("MATRICULA")
         return str(matricula) if matricula else None

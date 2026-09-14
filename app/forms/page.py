@@ -6,6 +6,7 @@ las ~500 líneas por archivo.
 """
 from __future__ import annotations
 
+import json
 from html import escape
 
 from app.forms.models import PROPERTY_TYPES
@@ -456,14 +457,22 @@ def _render_fields_with_sections(fields: list[dict], prefill: dict[str, str] | N
 
 
 def render_form_html(
-    deal_id: str | None = None, token: str | None = None, prefill: dict[str, str] | None = None
+    deal_id: str | None = None,
+    token: str | None = None,
+    prefill: dict[str, str] | None = None,
+    location_prefill: dict[str, str] | None = None,
 ) -> str:
     """`prefill` solo cubre campos que no dependen de un paso del wizard con
     verificación en vivo (`property_type`, `address`, `sale_price`) — no
-    `location`/`registration_number`, que necesitan pasar por su chequeo de
-    cobertura/duplicado en Xposure para quedar en el estado "confirmado" que
-    espera el wizard (ver `_FIELDS`/`confirm_text`). El cliente los ve
-    prellenados pero editables — puede corregir un dato mal capturado."""
+    `registration_number`, que necesita pasar por su chequeo de duplicado en
+    Xposure para quedar en el estado "confirmado" que espera el wizard (ver
+    `_FIELDS`/`confirm_text`). El cliente los ve prellenados pero editables —
+    puede corregir un dato mal capturado.
+
+    `location_prefill` (`{"location": ..., "sector_code": ...}`) sí se salta
+    el paso del wizard en vez de solo prellenarlo: el sector ya pasó por
+    cobertura cuando el captador creó el lead (ver `app.forms.router`), así
+    que no tiene sentido volver a pedirle al cliente que lo confirme."""
     deal_id_field_html = (
         f'        <input type="hidden" name="deal_id" value="{escape(deal_id)}">' if deal_id else ""
     )
@@ -471,6 +480,11 @@ def render_form_html(
     fields_html = _render_fields_with_sections(_FIELDS, prefill)
     location_field_html = _render_field(_LOCATION_FIELD)
     wizard_html = render_wizard_html(location_field_html)
+    location_prefill_script_html = (
+        f'        <script>window.__BH_LOCATION_PREFILL__ = {json.dumps(location_prefill, ensure_ascii=False)};</script>'
+        if location_prefill
+        else ""
+    )
     return (
         _HTML.replace("__WIZARD_HTML__", wizard_html)
         .replace("__DEAL_ID_FIELD__", deal_id_field_html)
@@ -482,7 +496,8 @@ def render_form_html(
         .replace("__STYLE__", FORM_STYLE + WIZARD_STYLE)
         .replace(
             "__SCRIPT__",
-            FORM_SCRIPT.replace("__CLEAN_SIGNATURE_PATH__", CLEAN_SIGNATURE_PATH)
+            location_prefill_script_html
+            + FORM_SCRIPT.replace("__CLEAN_SIGNATURE_PATH__", CLEAN_SIGNATURE_PATH)
             + WIZARD_SCRIPT.replace("__VERIFY_MATRICULA_PATH__", VERIFY_MATRICULA_PATH)
             .replace("__CONFIRM_MATRICULA_MATCH_PATH__", CONFIRM_MATRICULA_MATCH_PATH)
             .replace("__VERIFY_COBERTURA_PATH__", VERIFY_COBERTURA_PATH)

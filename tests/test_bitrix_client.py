@@ -854,3 +854,16 @@ def test_get_contact_full_name_combines_name_and_last_name() -> None:
 def test_get_contact_full_name_returns_none_when_empty() -> None:
     client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
     assert client.get_contact_full_name({}) is None
+
+
+def test_get_contact_email_returns_first_available() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    contact = {"EMAIL": [{"VALUE": "juan@example.com", "VALUE_TYPE": "WORK"}]}
+    assert client.get_contact_email(contact) == "juan@example.com"
+
+
+def test_get_contact_email_returns_none_when_no_email() -> None:
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+    assert client.get_contact_email({}) is None
+    assert client.get_contact_email({"EMAIL": []}) is None
+    assert client.get_contact_email({"EMAIL": [{"VALUE": "", "VALUE_TYPE": "WORK"}]}) is None

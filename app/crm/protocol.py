@@ -88,6 +88,10 @@ class CrmClient(Protocol):
         """Extrae el nombre completo de un contacto ya obtenido con get_contact/find_contact_by_phone."""
         ...
 
+    def get_contact_email(self, contact: dict[str, Any]) -> str | None:
+        """Extrae el email de un contacto ya obtenido con get_contact/find_contact_by_phone."""
+        ...
+
     def get_matricula(self, deal: dict[str, Any]) -> str | None:
         """Extrae la matrícula/registro del inmueble de un deal ya obtenido con get_deal."""
         ...

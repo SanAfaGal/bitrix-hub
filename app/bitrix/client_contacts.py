@@ -78,6 +78,24 @@ class ContactsMixin:
 
         return next(iter(by_type.values()), None)
 
+    def get_contact_email(self, contact: dict[str, Any]) -> str | None:
+        """Extrae el primer email disponible del campo EMAIL de un contacto de Bitrix.
+
+        Mismo formato de lista que PHONE (`{"VALUE": "...", "VALUE_TYPE": "..."}`)
+        pero sin un tipo preferido — a diferencia del teléfono, acá no importa
+        cuál, solo si hay alguno.
+        """
+        emails = contact.get("EMAIL")
+        if not isinstance(emails, list) or not emails:
+            return None
+        for entry in emails:
+            if not isinstance(entry, dict):
+                continue
+            value = entry.get("VALUE")
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
     def find_contact_by_phone(self, phone: str) -> dict[str, Any] | None:
         """Busca un contacto ya existente en Bitrix para `phone`. Retorna sus campos, o None si no hay match.
 

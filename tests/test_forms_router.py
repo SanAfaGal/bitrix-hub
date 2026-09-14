@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.shared.rate_limit as rate_limit_module
+from app.crm.protocol import PropertyListing
 from app.forms.link_token import sign_deal_id
 from app.main import app
 from app.xposure.models import PropertySearchResult
@@ -41,6 +42,9 @@ def FakeCrmClient(
     upload_file_result: str | None = "https://example.bitrix24.com/docs/file/firmado.pdf",
     contact_id: str | None = "7",
     contact_phone: str | None = "573001112233",
+    contact_name: str | None = None,
+    contact_email: str | None = None,
+    property_listing: PropertyListing | None = None,
 ) -> _SharedFakeCrmClient:
     """Arma `tests.fakes.FakeCrmClient` (compartido entre todos los tests) con el único deal
     ("42") que usa este archivo, en vez de mantener una redefinición local del mismo fake."""
@@ -52,10 +56,19 @@ def FakeCrmClient(
 
     contacts: dict[str, dict[str, object]] = {}
     if contact_id is not None:
-        contacts[contact_id] = {"PHONE": contact_phone} if contact_phone is not None else {}
+        contact: dict[str, object] = {}
+        if contact_phone is not None:
+            contact["PHONE"] = contact_phone
+        if contact_name is not None:
+            contact["NAME"] = contact_name
+        if contact_email is not None:
+            contact["EMAIL"] = contact_email
+        contacts[contact_id] = contact
 
     fake = _SharedFakeCrmClient(deals={_DEAL_ID: deal}, contacts=contacts)
     fake.upload_file_result = upload_file_result
+    if property_listing is not None:
+        fake.property_listings[_DEAL_ID] = property_listing
     return fake
 
 
@@ -148,6 +161,49 @@ def test_get_form_embeds_deal_id_and_token_as_hidden_fields_when_present(monkeyp
     assert response.status_code == 200
     assert '<input type="hidden" name="deal_id" value="42">' in response.text
     assert f'<input type="hidden" name="token" value="{_token_for("42")}">' in response.text
+
+
+def test_get_form_prefills_contact_data_from_deal(monkeypatch):
+    monkeypatch.setattr(
+        "app.forms.router.get_crm_client",
+        lambda: FakeCrmClient(contact_name="Juan Pérez", contact_email="juan@example.com"),
+    )
+
+    response = client.get(f"/formularios/autorizacion-de-corretaje?deal_id=42&token={_token_for('42')}")
+
+    assert response.status_code == 200
+    assert 'value="Juan Pérez"' in response.text
+    assert 'value="juan@example.com"' in response.text
+
+
+def test_get_form_skips_authorization_and_location_steps_when_deal_has_confirmed_location(monkeypatch):
+    """Un deal creado desde el formulario interno (app/interno/) ya pasó por cobertura
+    de zona al crearse — no tiene sentido volver a pedirle consentimiento/ubicación al
+    cliente en el sitio, el wizard debe saltar directo al paso de matrícula."""
+    monkeypatch.setattr(
+        "app.forms.router.get_crm_client",
+        lambda: FakeCrmClient(
+            property_listing=PropertyListing(
+                location_label="El Poblado, Medellín, Antioquia", location_sector_code="41001"
+            )
+        ),
+    )
+
+    response = client.get(f"/formularios/autorizacion-de-corretaje?deal_id=42&token={_token_for('42')}")
+
+    assert response.status_code == 200
+    assert "window.__BH_LOCATION_PREFILL__ = " in response.text
+    assert '"location": "El Poblado, Medellín, Antioquia"' in response.text
+    assert '"sector_code": "41001"' in response.text
+
+
+def test_get_form_does_not_skip_location_step_when_deal_has_no_confirmed_location(monkeypatch):
+    monkeypatch.setattr("app.forms.router.get_crm_client", lambda: FakeCrmClient())
+
+    response = client.get(f"/formularios/autorizacion-de-corretaje?deal_id=42&token={_token_for('42')}")
+
+    assert response.status_code == 200
+    assert "window.__BH_LOCATION_PREFILL__ = " not in response.text
 
 
 def test_get_form_shows_authorization_step_before_full_form():

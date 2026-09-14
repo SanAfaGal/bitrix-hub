@@ -54,6 +54,14 @@ WIZARD_SCRIPT = (
     bhSaveState({ wizard: { consentAccepted: dataConsentCheckbox.checked } });
   });
 
+  // Si el deal ya trae ubicación + sector confirmados por el captador (ver
+  // `_location_prefill_from_deal` en app/forms/router.py), el sector ya pasó
+  // por cobertura al crear el lead y el consentimiento ya se explicó en
+  // persona — ni ese paso ni el de ubicación se le vuelven a pedir al
+  // cliente, `bhRestoreWizard` (al final de este archivo) salta directo a
+  // matrícula apenas carga la página, este botón nunca llega a mostrarse.
+  var locationPrefill = window.__BH_LOCATION_PREFILL__ || null;
+
   document.getElementById('wizard-authorize-yes').addEventListener('click', function () {
     if (!dataConsentCheckbox.checked) {
       dataConsentCheckbox.classList.add('field__input--invalid');
@@ -395,7 +403,28 @@ WIZARD_SCRIPT = (
     // aunque la ubicación ya esté confirmada.
     if (w.sectorCode && locationSectorCodeInput) locationSectorCodeInput.value = w.sectorCode;
     if (w.matricula) matriculaInput.value = w.matricula;
-    if (w.step === 'done') {
+    if (!w.step && locationPrefill) {
+      // Primer visita con un deal que ya trae ubicación confirmada por el
+      // captador (ver más arriba) — ni consentimiento ni ubicación se le
+      // vuelven a pedir, arranca directo en matrícula. Se guarda igual que
+      // si hubiera pasado por los pasos a mano, para que una recarga
+      // restaure este mismo punto (rama `w.step === 'matricula'` de abajo)
+      // en vez de volver a correr este atajo.
+      locationInput.value = locationPrefill.location;
+      if (locationSectorCodeInput) locationSectorCodeInput.value = locationPrefill.sector_code;
+      confirmField('location_display', locationPrefill.location);
+      bhSaveState({
+        wizard: {
+          consentAccepted: true,
+          location: locationPrefill.location,
+          sectorCode: locationPrefill.sector_code,
+          step: 'matricula'
+        }
+      });
+      hide(stepAuthorization);
+      show(stepMatricula);
+      refreshServiceStatus();
+    } else if (w.step === 'done') {
       if (w.location) confirmField('location_display', w.location);
       if (w.matricula) confirmField('registration_number', w.matricula);
       hide(stepAuthorization);
