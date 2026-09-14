@@ -89,6 +89,22 @@ class WahaClient:
             logger.warning("Error arrancando la sesión de Waha: %s", exc)
             return False
 
+    def restart_session(self, session: str | None = None) -> bool:
+        """Reinicia la sesión (`POST /api/sessions/{session}/restart`) — la forma recomendada por
+        Waha de recuperar una sesión en FAILED (si no ayuda, la vía manual es logout + start; no
+        alcanza con volver a llamar `start_session` sobre una sesión fallida). No lanza."""
+        try:
+            response = self._http.post(
+                f"{self.base_url}/api/sessions/{session or self.session}/restart",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Error reiniciando la sesión de Waha: %s", exc)
+            return False
+
     def stop_session(self, session: str | None = None) -> bool:
         """Detiene la sesión (`POST /api/sessions/{session}/stop`) sin borrar la autenticación —
         el número sigue vinculado, listo para arrancar de nuevo con `start_session`. No libera

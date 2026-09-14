@@ -695,8 +695,13 @@ Endpoints de la REST API de Waha usados por el cliente
 | `get_session_status` | `GET /api/sessions/{session}` |
 | `start_session` | `POST /api/sessions/{session}/start` |
 | `stop_session` | `POST /api/sessions/{session}/stop` |
+| `restart_session` | `POST /api/sessions/{session}/restart` |
 | `logout_session` | `POST /api/sessions/{session}/logout` |
 | `get_qr_code` | `GET /api/{session}/auth/qr` |
+
+Una sesión en `FAILED` se recupera con `restart_session` (recomendación de
+Waha) — volver a llamar `start_session` sobre una sesión fallida no
+alcanza; si el restart tampoco ayuda, la vía manual es logout + start.
 
 Solo una sesión (`WAHA_SESSION`) por ahora — no hay selector de línea en la
 UI. Todos los métodos del cliente ya reciben un `session` opcional, así que

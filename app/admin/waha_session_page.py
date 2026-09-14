@@ -50,7 +50,11 @@ def render_whatsapp_status_fragment_html(*, status_payload: dict | None) -> str:
         me = status_payload.get("me") if isinstance(status_payload.get("me"), dict) else {}
         phone = me.get("pushName") or me.get("id") or None
         return fragments.connected_panel(WHATSAPP_PATH, phone)
-    # FAILED u otro valor no contemplado — mismo tratamiento que "no respondió".
+    if status == "FAILED":
+        # Waha recomienda "restart" para recuperar una sesión fallida — volver a llamar
+        # "start" sobre ella no alcanza (ver app.waha.client.WahaClient.restart_session).
+        return fragments.failed_panel(WHATSAPP_PATH)
+    # Cualquier otro valor no contemplado — mismo tratamiento que "no respondió".
     return fragments.error_panel(WHATSAPP_PATH)
 
 

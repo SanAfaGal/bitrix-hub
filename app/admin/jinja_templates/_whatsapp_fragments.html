@@ -6,8 +6,15 @@ sigue el polling) envolviendo el contenido propio de cada estado. #}
 {% macro error_panel(whatsapp_path) -%}
 <div class="whatsapp-status-panel" data-status="">
   <div class="alert alert--error">No se pudo consultar el estado de WhatsApp — Waha no respondió.</div>
-  <form method="post" action="{{ whatsapp_path }}/start">
-    <button type="submit" class="btn btn--outline">Reintentar</button>
+  <a href="{{ whatsapp_path }}" class="btn btn--outline">Reintentar</a>
+</div>
+{%- endmacro %}
+
+{% macro failed_panel(whatsapp_path) -%}
+<div class="whatsapp-status-panel" data-status="FAILED">
+  <div class="alert alert--error">La sesión de WhatsApp falló.</div>
+  <form method="post" action="{{ whatsapp_path }}/restart">
+    <button type="submit" class="btn btn--outline">Reiniciar sesión</button>
   </form>
 </div>
 {%- endmacro %}

@@ -125,6 +125,34 @@ def test_start_session_returns_false_on_request_error(monkeypatch) -> None:
     assert client.start_session() is False
 
 
+def test_restart_session_posts_to_restart_endpoint_and_returns_true(monkeypatch) -> None:
+    captured = {}
+
+    def fake_post(url: str, headers: dict, timeout: int) -> FakeResponse:
+        captured["url"] = url
+        return FakeResponse()
+
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.restart_session() is True
+    assert captured["url"] == "http://localhost:3000/api/sessions/default/restart"
+
+
+def test_restart_session_returns_false_on_request_error(monkeypatch) -> None:
+    def fake_post(url: str, headers: dict, timeout: int) -> FakeResponse:
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr(requests.Session, "post", staticmethod(fake_post))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key=None, session="default")
+    client = WahaClient(settings)
+
+    assert client.restart_session() is False
+
+
 def test_stop_session_posts_to_stop_endpoint_and_returns_true(monkeypatch) -> None:
     captured = {}
 

@@ -378,6 +378,12 @@ def post_whatsapp_logout(username: str = Depends(require_admin)) -> RedirectResp
     return RedirectResponse(url=WHATSAPP_PATH, status_code=303)
 
 
+@router.post(f"{WHATSAPP_PATH}/restart", summary="Reinicia una sesión de WhatsApp en estado FAILED")
+def post_whatsapp_restart(username: str = Depends(require_admin)) -> RedirectResponse:
+    get_waha_client().restart_session()
+    return RedirectResponse(url=WHATSAPP_PATH, status_code=303)
+
+
 @router.get(
     "/admin/{full_path:path}",
     summary="Cualquier ruta de admin sin match cae acá — redirige a la entrada única",

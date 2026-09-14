@@ -524,6 +524,7 @@ class FakeWahaClient:
         self.qr = qr
         self.start_calls = 0
         self.logout_calls = 0
+        self.restart_calls = 0
 
     def get_session_status(self) -> dict | None:
         return self.status_payload
@@ -537,6 +538,10 @@ class FakeWahaClient:
 
     def logout_session(self) -> bool:
         self.logout_calls += 1
+        return True
+
+    def restart_session(self) -> bool:
+        self.restart_calls += 1
         return True
 
 
@@ -580,6 +585,38 @@ def test_whatsapp_page_shows_error_when_waha_unreachable(client: TestClient, mon
 
     assert response.status_code == 200
     assert "No se pudo consultar el estado de WhatsApp" in response.text
+
+
+def test_whatsapp_page_shows_restart_action_when_failed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FAILED se recupera con "restart" (recomendación de Waha), no volviendo a llamar "start"."""
+    fake = FakeWahaClient(status_payload={"status": "FAILED"})
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.get("/admin/whatsapp")
+
+    assert response.status_code == 200
+    assert 'data-status="FAILED"' in response.text
+    assert "/admin/whatsapp/restart" in response.text
+
+
+def test_whatsapp_restart_calls_restart_session_and_redirects(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeWahaClient(status_payload={"status": "FAILED"})
+    monkeypatch.setattr(admin_router, "get_waha_client", lambda: fake)
+
+    _log_in()
+    response = client.post("/admin/whatsapp/restart", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/whatsapp"
+    assert fake.restart_calls == 1
+
+
+def test_whatsapp_restart_requires_login(client: TestClient) -> None:
+    response = client.post("/admin/whatsapp/restart", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/auth/login")
 
 
 def test_whatsapp_status_fragment_requires_login(client: TestClient) -> None:
