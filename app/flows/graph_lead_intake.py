@@ -40,6 +40,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from app.crm.protocol import CrmClient, PropertyListing
+from app.flows import graph_lead_store as processed_store
+from app.graph.client import GraphClient
 from app.graph.lead_email_parser import ParsedLead, parse_lead_email
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,84 @@ class LeadIntakeResult:
     reason: str | None = None
     nombre: str | None = None
     telefono: str | None = None
+
+
+def process_inbox(client: GraphClient, crm_client: CrmClient, top: int = 25) -> dict[str, Any]:
+    """Lista los correos de `LEAD_SENDER`, salta los ya procesados y crea contacto+negociación para el resto.
+
+    Lógica compartida entre `POST /graph/process-leads` (disparo manual, ver
+    `app/graph/router.py`) y el job programado (`app/scheduler.py`) — vive
+    acá y no en el router para que ambos callers la reusen sin pegarle a la
+    API por HTTP.
+
+    La respuesta separa cada correo revisado en una de cuatro listas —
+    `total` siempre es la suma de las cuatro: `created` (se creó o ya
+    existía el contacto/negociación), `skipped` (no era "Quiero Vender"),
+    `errors` (falló antes de terminar) y `already_processed` (ya tenía fila
+    en `leads` de una corrida anterior).
+    """
+    messages = client.list_messages(sender=LEAD_SENDER, top=top)
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    already_processed: list[dict[str, Any]] = []
+
+    for message in messages:
+        message_id = message.get("id")
+        if not message_id:
+            continue
+
+        entry_base = {"message_id": message_id, "subject": message.get("subject")}
+
+        subject = message.get("subject") or ""
+        body_text = (message.get("body") or {}).get("content") or ""
+        lead = parse_lead_email(subject, body_text)
+        # Sin ID de Seguimiento parseable (correo malformado) no hay clave de
+        # negocio para dedup — se usa el id de Graph como respaldo, así el
+        # correo igual queda cubierto en una corrida futura.
+        dedup_key = lead.tracking_id or message_id
+
+        try:
+            previous = processed_store.get_processed(dedup_key)
+            if previous is not None:
+                already_processed.append({**entry_base, **previous})
+                continue
+        except Exception:
+            logger.exception("No se pudo confirmar el estado de dedup para el mensaje %s, se omite esta corrida", message_id)
+            errors.append({**entry_base, "reason": "dedup_no_confirmado"})
+            continue
+
+        result = create_lead(lead, crm_client)
+
+        entry = {**entry_base, "reason": result.reason}
+        if result.status == "created":
+            entry["deal_id"] = result.deal_id
+            created.append(entry)
+        elif result.status == "skipped":
+            skipped.append(entry)
+        else:
+            errors.append(entry)
+
+        try:
+            processed_store.mark_processed(
+                dedup_key,
+                status=result.status,
+                deal_id=result.deal_id,
+                detail=result.reason,
+                name=result.nombre,
+                phone=result.telefono,
+            )
+        except Exception:
+            logger.exception("No se pudo marcar como procesado el mensaje %s (creado igual: %s)", message_id, result.deal_id)
+
+    return {
+        "total": len(messages),
+        "created": created,
+        "skipped": skipped,
+        "errors": errors,
+        "already_processed": already_processed,
+    }
 
 
 def process(message: dict[str, Any], crm_client: CrmClient) -> LeadIntakeResult:

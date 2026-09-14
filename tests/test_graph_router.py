@@ -71,13 +71,13 @@ def test_process_leads_creates_deal_and_dedupes_on_second_call(monkeypatch, tmp_
 
     processed: dict[str, dict] = {}
     monkeypatch.setattr(
-        "app.graph.router.processed_store.get_processed", lambda message_id, **kw: processed.get(message_id)
+        "app.flows.graph_lead_intake.processed_store.get_processed", lambda message_id, **kw: processed.get(message_id)
     )
 
     def fake_mark_processed(message_id, *, status, deal_id=None, detail=None, **kw):
         processed[message_id] = {"status": status, "deal_id": deal_id, "detail": detail}
 
-    monkeypatch.setattr("app.graph.router.processed_store.mark_processed", fake_mark_processed)
+    monkeypatch.setattr("app.flows.graph_lead_intake.processed_store.mark_processed", fake_mark_processed)
 
     try:
         first = client.post("/graph/process-leads")

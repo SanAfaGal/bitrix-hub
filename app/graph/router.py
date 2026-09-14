@@ -1,20 +1,15 @@
 """Endpoints HTTP de la integración con Microsoft Graph: lectura del inbox y toma de leads."""
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth.deps import require_admin
 from app.crm.deps import get_crm_client
-from app.flows import graph_lead_store as processed_store
-from app.flows.graph_lead_intake import LEAD_SENDER, create_lead
+from app.flows.graph_lead_intake import process_inbox
 from app.graph.client import GraphClient
 from app.graph.deps import get_graph_client
-from app.graph.lead_email_parser import parse_lead_email
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/graph", tags=["Microsoft Graph"])
 
@@ -59,8 +54,9 @@ def post_process_leads(
     Bitrix (contactos/negociaciones), no debe quedar accesible sin
     autenticación.
 
-    Disparador manual/cron por ahora (no hay suscripción push de Graph
-    todavía) — ver `app/flows/graph_lead_intake.py`.
+    También corre sola cada `GRAPH_LEAD_POLL_MINUTES` minutos vía el job
+    programado (ver `app/scheduler.py`) — este endpoint queda para disparar
+    una corrida fuera de ese ciclo o para depurar.
 
     La respuesta separa cada correo revisado en una de cuatro listas —
     `total` siempre es la suma de las cuatro:
@@ -88,67 +84,6 @@ def post_process_leads(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     try:
-        messages = client.list_messages(sender=LEAD_SENDER, top=top)
+        return process_inbox(client, crm_client, top=top)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    created: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
-    already_processed: list[dict[str, Any]] = []
-
-    for message in messages:
-        message_id = message.get("id")
-        if not message_id:
-            continue
-
-        entry_base = {"message_id": message_id, "subject": message.get("subject")}
-
-        subject = message.get("subject") or ""
-        body_text = (message.get("body") or {}).get("content") or ""
-        lead = parse_lead_email(subject, body_text)
-        # Sin ID de Seguimiento parseable (correo malformado) no hay clave de
-        # negocio para dedup — se usa el id de Graph como respaldo, así el
-        # correo igual queda cubierto en una corrida futura.
-        dedup_key = lead.tracking_id or message_id
-
-        try:
-            previous = processed_store.get_processed(dedup_key)
-            if previous is not None:
-                already_processed.append({**entry_base, **previous})
-                continue
-        except Exception:
-            logger.exception("No se pudo confirmar el estado de dedup para el mensaje %s, se omite esta corrida", message_id)
-            errors.append({**entry_base, "reason": "dedup_no_confirmado"})
-            continue
-
-        result = create_lead(lead, crm_client)
-
-        entry = {**entry_base, "reason": result.reason}
-        if result.status == "created":
-            entry["deal_id"] = result.deal_id
-            created.append(entry)
-        elif result.status == "skipped":
-            skipped.append(entry)
-        else:
-            errors.append(entry)
-
-        try:
-            processed_store.mark_processed(
-                dedup_key,
-                status=result.status,
-                deal_id=result.deal_id,
-                detail=result.reason,
-                name=result.nombre,
-                phone=result.telefono,
-            )
-        except Exception:
-            logger.exception("No se pudo marcar como procesado el mensaje %s (creado igual: %s)", message_id, result.deal_id)
-
-    return {
-        "total": len(messages),
-        "created": created,
-        "skipped": skipped,
-        "errors": errors,
-        "already_processed": already_processed,
-    }
