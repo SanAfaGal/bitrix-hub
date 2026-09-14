@@ -1,14 +1,4 @@
-"""JS del recuadro de firma: dibujar, deshacer/borrar, subir foto, recortar.
-
-Fragmento de FORM_SCRIPT (ver page_script.py) — separado por tamaño. Usa
-`removeSignaturePhotoBackground` (definida en
-page_script_signature_model.py) al procesar una foto subida; el resto es
-propio de este fragmento (canvas, historial de trazos, UI de pestañas
-Dibujar/Subir foto).
-"""
-from __future__ import annotations
-
-SIGNATURE_CANVAS_SCRIPT = """  var canvas = document.getElementById('signature-canvas');
+  var canvas = document.getElementById('signature-canvas');
   // willReadFrequently: cada trazo toma un snapshot con getImageData
   // (historial de Deshacer) y al final se vuelve a leer para recortar la
   // firma — sin esto el navegador optimiza para dibujo, no para lectura, y
@@ -285,4 +275,3 @@ SIGNATURE_CANVAS_SCRIPT = """  var canvas = document.getElementById('signature-c
     return trimmed;
   }
 
-"""

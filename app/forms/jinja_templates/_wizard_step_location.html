@@ -1,0 +1,24 @@
+{% from "_fields.html" import field %}
+<div class="card card--hidden" id="wizard-step-location">
+      <div class="card__header">
+        <h2 class="card__title">
+          Ubicación del inmueble
+          <span class="wizard-status-dot" id="wizard-status-location" title="Verificando disponibilidad..."></span>
+        </h2>
+        <p class="card__subtitle">
+          Cuéntanos dónde está el inmueble: es necesario validar si tenemos cobertura en esa
+          ubicación.
+        </p>
+      </div>
+{{ field(location_field, property_type_options) }}
+      <input type="hidden" id="field-location_sector_code" name="location_sector_code" form="authorization-form" value="">
+      <div class="wizard-actions">
+        <button type="button" class="btn btn--back" id="wizard-back-location">
+          <svg class="wizard-back-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
+          <span>Regresar</span>
+        </button>
+        <button type="button" class="btn btn--primary" id="wizard-location-continue">Continuar</button>
+      </div>
+    </div>

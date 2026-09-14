@@ -1,0 +1,22 @@
+<div class="card" id="wizard-step-authorization">
+      <div class="card__header">
+        <h2 class="card__title">Antes de empezar</h2>
+        <p class="card__subtitle">Confírmanos esto para continuar.</p>
+      </div>
+      <label class="wizard-checkbox" for="wizard-data-consent">
+        <input type="checkbox" id="wizard-data-consent" required>
+        <span class="wizard-checkbox__text">
+          He leído y autorizo el tratamiento de mis datos personales por parte de Alberto Álvarez
+          Servicios Integrales Inmobiliarios, conforme a la Ley 1581 de 2012 y sus decretos
+          reglamentarios y a nuestra
+          <a href="https://albertoalvarez.com/politica-privacidad" target="_blank" rel="noopener noreferrer">política de tratamiento de datos</a>,
+          para los fines del proceso de corretaje de mi inmueble.
+          <span class="field__required">*</span>
+        </span>
+      </label>
+      <span class="field__error" id="error-wizard-data-consent"></span>
+      <div class="wizard-actions">
+        <button type="button" class="btn btn--primary" id="wizard-authorize-yes">Sí, autorizo</button>
+        <button type="button" class="btn btn--outline" id="wizard-authorize-no">No, todavía no</button>
+      </div>
+    </div>

@@ -1,17 +1,4 @@
-"""CSS del formulario de Autorización de Corretaje — separado de page.py por tamaño.
-
-`FORM_STYLE` se arma concatenando este CSS base (tokens, layout, tarjetas,
-botones) con los fragmentos de `page_styles_fields.py` (secciones/campos) y
-`page_styles_signature.py` (recuadro de firma) — mismo patrón que
-`page_script.py` con los fragmentos de JS: un único `<style>` en el HTML
-final, la separación es solo de archivos fuente por el límite de 500 líneas.
-"""
-from __future__ import annotations
-
-from app.forms.page_styles_fields import FIELD_STYLE
-from app.forms.page_styles_signature import SIGNATURE_STYLE
-
-_CORE_STYLE = """  :root {
+  :root {
     color-scheme: light;
 
     --color-navy: #044c7c;
@@ -195,9 +182,7 @@ _CORE_STYLE = """  :root {
 
   form { display: flex; flex-direction: column; gap: var(--space-4); }
 
-"""
-
-_BUTTON_STYLE = """  .btn {
+  .btn {
     font-family: var(--font-family);
     font-size: 14px;
     font-weight: 600;
@@ -267,6 +252,3 @@ _BUTTON_STYLE = """  .btn {
   @keyframes spin {
     to { transform: rotate(360deg); }
   }
-"""
-
-FORM_STYLE = "<style>\n" + _CORE_STYLE + FIELD_STYLE + SIGNATURE_STYLE + _BUTTON_STYLE + "</style>"

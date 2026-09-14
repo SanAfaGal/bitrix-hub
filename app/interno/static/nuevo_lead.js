@@ -1,31 +1,8 @@
-"""JS del formulario interno de nuevo lead.
-
-Mismo patrón que `app/forms/page_script.py`: se arma concatenando texto
-dentro de una sola IIFE. Reusa `FIELD_VALIDATION_SCRIPT`
-(`app/shared/field_validation_script.py`) para que el resaltado de campos
-obligatorios y el mensaje sean el mismo código que usa el formulario
-público, no una copia a mano — y por eso este archivo es `.py` en vez de un
-`.js` estático (JS no puede importar de Python).
-
-A diferencia del público, este formulario no hace envío por `fetch`/JSON: es
-un POST normal de HTML con recarga de página (ver `app/interno/router.py`),
-así que el único trabajo del `submit` listener acá es bloquear el envío si
-algo no pasa la validación en vivo — si todo está bien, deja que el navegador
-mande el formulario tal cual.
-"""
-from __future__ import annotations
-
-from app.shared.field_validation_script import FIELD_VALIDATION_SCRIPT
-
-NUEVO_LEAD_SCRIPT = (
-    """<script>
 (function () {
   var form = document.querySelector('.form');
-"""
-    + FIELD_VALIDATION_SCRIPT
-    + """
+
   function collapseSpacesLive(value) {
-    return value.replace(/^\\s+/, '').replace(/ {2,}/g, ' ');
+    return value.replace(/^\s+/, '').replace(/ {2,}/g, ' ');
   }
 
   // Tipos de <input> (email, number, etc.) no soportan
@@ -57,7 +34,7 @@ NUEVO_LEAD_SCRIPT = (
   });
 
   // Nombre: solo letras — bloquea números y símbolos al escribir, mismo
-  // criterio que `onlyLettersUppercase` en app/forms/page_script_inputs.py
+  // criterio que `onlyLettersUppercase` en app/forms/static/js/input_formatting.js
   // (misma regla que `validate_person_name` en app/shared/field_specs.py).
   function onlyLettersUppercase(value) {
     return collapseSpacesLive(value.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ'\-\s]/g, '')).toUpperCase();
@@ -124,7 +101,7 @@ NUEVO_LEAD_SCRIPT = (
       if (phoneCountryDropdown.hidden) openPhoneCountryDropdown(); else closePhoneCountryDropdown();
     });
 
-    var COMBINING_MARKS_RE = new RegExp('[\\u0300-\\u036f]', 'g');
+    var COMBINING_MARKS_RE = new RegExp('[\u0300-\u036f]', 'g');
     function normalize(value) {
       return value.normalize('NFKD').replace(COMBINING_MARKS_RE, '').toLowerCase();
     }
@@ -182,9 +159,9 @@ NUEVO_LEAD_SCRIPT = (
 
   // Sugerencias de ubicación: desplegable propio (no <datalist> nativo),
   // mismo comportamiento que el público (ver
-  // app/forms/page_script_inputs.py) — filtro en cada tecla, navegación con
-  // flechas/Enter/Escape, y el envío se bloquea si la persona escribió algo
-  // sin elegir una sugerencia.
+  // app/forms/static/js/input_formatting.js) — filtro en cada tecla,
+  // navegación con flechas/Enter/Escape, y el envío se bloquea si la persona
+  // escribió algo sin elegir una sugerencia.
   var locationInput = document.getElementById('location');
   var sectorCodeInput = document.getElementById('location_sector_code');
   var locationList = document.getElementById('location-suggestions');
@@ -208,7 +185,7 @@ NUEVO_LEAD_SCRIPT = (
         // Sin sugerencias (DWH caído): el campo sigue funcionando como texto libre.
       });
 
-    var COMBINING_MARKS_RE = new RegExp('[\\u0300-\\u036f]', 'g');
+    var COMBINING_MARKS_RE = new RegExp('[\u0300-\u036f]', 'g');
     function normalize(value) {
       return value.normalize('NFKD').replace(COMBINING_MARKS_RE, '').toLowerCase();
     }
@@ -403,8 +380,8 @@ NUEVO_LEAD_SCRIPT = (
 
   // Bloquea el envío nativo si falta algo obligatorio o la ubicación no fue
   // elegida de la lista — igual criterio que el público
-  // (app/forms/page_script_submit.py), pero sin fetch: si todo está bien,
-  // deja que el <form> se mande solo.
+  // (app/forms/static/js/submit.js), pero sin fetch: si todo está bien, deja
+  // que el <form> se mande solo.
   // Spinner en el botón mientras se crea el contacto + deal en Bitrix — el
   // POST es un submit normal de HTML (recarga de página, ver
   // app/interno/router.py), así que esto no reemplaza el envío ni lo
@@ -425,5 +402,3 @@ NUEVO_LEAD_SCRIPT = (
     submitButtonText.innerHTML = '<span class="status-loading"><span class="spinner"></span>Creando lead...</span>';
   });
 })();
-</script>"""
-)

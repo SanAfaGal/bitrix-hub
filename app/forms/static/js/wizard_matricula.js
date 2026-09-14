@@ -1,19 +1,4 @@
-"""Fragmento de WIZARD_SCRIPT (ver page_wizard_script.py) — separado por tamaño.
-
-Corre dentro de la misma IIFE que el resto de los fragmentos de ese archivo,
-después de la parte "core" (que declara `hide`/`show`/`stepMatricula`/
-`stepConfirmMatch`/`stepBlocked`/`showBlocked`/`blockedReturnStep`/
-`setWizardFieldError`/`confirmField`/`showConfirmMatch`/`bhSaveState`, todo
-usado acá) y antes de los botones "Corregir"/`bhRestoreWizard` (que sí
-necesitan `matriculaInput` ya declarado, ver el orden de concatenación en
-`page_wizard_script.py`).
-
-Contiene `__VERIFY_MATRICULA_PATH__` y `__CONFIRM_MATRICULA_MATCH_PATH__`,
-reemplazados por `render_form_html()` en `page.py`.
-"""
-from __future__ import annotations
-
-WIZARD_MATRICULA_SCRIPT = """  // Matrícula/ID: "código de oficina - folio", dígitos, letras (código de
+  // Matrícula/ID: "código de oficina - folio", dígitos, letras (código de
   // oficina) y guion, en mayúscula — mismo formato que `_REGISTRATION_NUMBER_RE`
   // en app/forms/models.py: código de oficina de 3-4 caracteres, folio de
   // 5-8 dígitos. Se recorta en vivo a esos largos (no solo se valida al
@@ -32,7 +17,7 @@ WIZARD_MATRICULA_SCRIPT = """  // Matrícula/ID: "código de oficina - folio", d
   // si el formato está mal, en vez de esperar la ida y vuelta al servidor
   // para enterarse (el backend igual vuelve a validar esto, ver
   // `validate_registration_number`; esto es solo para responder más rápido).
-  var MATRICULA_FORMAT_RE = /^(?:\\d{3}[A-Z]?|\\d{2}[A-Z])-\\d{5,8}$|^\\d{4,10}$/;
+  var MATRICULA_FORMAT_RE = /^(?:\d{3}[A-Z]?|\d{2}[A-Z])-\d{5,8}$|^\d{4,10}$/;
 
   var matriculaInput = document.getElementById('wizard-registration-number');
   var matriculaError = document.getElementById('error-wizard-registration-number');
@@ -68,7 +53,7 @@ WIZARD_MATRICULA_SCRIPT = """  // Matrícula/ID: "código de oficina - folio", d
     var dealIdInput = form.elements.deal_id;
     var tokenInput = form.elements.token;
 
-    fetch('__VERIFY_MATRICULA_PATH__', {
+    fetch(window.BH_CONFIG.verifyMatriculaPath, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -133,7 +118,7 @@ WIZARD_MATRICULA_SCRIPT = """  // Matrícula/ID: "código de oficina - folio", d
     var form = document.getElementById('authorization-form');
     var dealIdInput = form.elements.deal_id;
     var tokenInput = form.elements.token;
-    return fetch('__CONFIRM_MATRICULA_MATCH_PATH__', {
+    return fetch(window.BH_CONFIG.confirmMatriculaMatchPath, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -163,4 +148,3 @@ WIZARD_MATRICULA_SCRIPT = """  // Matrícula/ID: "código de oficina - folio", d
     });
   });
 
-"""

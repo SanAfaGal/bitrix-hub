@@ -1,7 +1,6 @@
 """Página de inicio ("/"): accesos a Interno y Admin desde una sola URL."""
 from __future__ import annotations
 
-from html import escape
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -9,65 +8,30 @@ from fastapi.responses import HTMLResponse
 
 from app.auth.deps import is_admin_email, require_staff_user
 from app.shared.html_templates import RawHTML, render_template
+from app.shared.jinja_env import get_env
 from app.shared.staff_nav import staff_fab_html
 
 router = APIRouter(tags=["Inicio"])
 
 _HOME_PATH = Path(__file__).parent / "templates" / "home.html"
+_TEMPLATES_DIR = Path(__file__).parent / "jinja_templates"
+
+
+def _fragments():
+    return get_env(str(_TEMPLATES_DIR)).get_template("_fragments.html").module
 
 
 def _header_html(staff_name: str) -> RawHTML:
     """Mismo header que `app/interno/router.py::_header_html`, con la insignia
     "Inicio" — duplicado a propósito en vez de compartido: son dos páginas que
     hoy cambian por separado y `app/interno/` es privado de ese paquete."""
-    initial = escape(staff_name.strip()[:1].upper() or "?")
-    safe_name = escape(staff_name)
-    return RawHTML(
-        '<header class="topbar">'
-        '<div class="topbar__brand">'
-        '<img class="topbar__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">'
-        '<div class="topbar__identity">'
-        '<span class="topbar__name">Alberto Álvarez</span>'
-        '<span class="topbar__badge">Inicio</span>'
-        "</div>"
-        "</div>"
-        '<div class="topbar__session">'
-        f'<span class="topbar__avatar">{initial}</span>'
-        '<span class="topbar__user">'
-        f'<span class="topbar__user-name">{safe_name}</span>'
-        '<span class="topbar__user-status">Sesión iniciada</span>'
-        "</span>"
-        '<form method="post" action="/auth/logout">'
-        '<button type="submit" class="topbar__logout" aria-label="Cerrar sesión" title="Cerrar sesión">'
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-        '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
-        "</svg>"
-        "</button>"
-        "</form>"
-        "</div>"
-        "</header>"
-    )
+    initial = staff_name.strip()[:1].upper() or "?"
+    return RawHTML(_fragments().header(staff_name, initial))
 
 
 def _home_card_html(*, href: str, icon_svg: str, title: str, subtitle: str, enabled: bool, disabled_hint: str = "") -> RawHTML:
-    if enabled:
-        return RawHTML(
-            f'<a class="home-card" href="{href}">'
-            f'<span class="home-card__icon">{icon_svg}</span>'
-            '<span class="home-card__body">'
-            f'<span class="home-card__title">{escape(title)}</span>'
-            f'<span class="home-card__subtitle">{escape(subtitle)}</span>'
-            "</span>"
-            "</a>"
-        )
     return RawHTML(
-        '<div class="home-card home-card--disabled" title="' + escape(disabled_hint) + '">'
-        f'<span class="home-card__icon">{icon_svg}</span>'
-        '<span class="home-card__body">'
-        f'<span class="home-card__title">{escape(title)}</span>'
-        f'<span class="home-card__subtitle">{escape(disabled_hint or subtitle)}</span>'
-        "</span>"
-        "</div>"
+        _fragments().home_card(href, icon_svg, title, subtitle, enabled, disabled_hint)
     )
 
 

@@ -1,0 +1,48 @@
+{# Fragmentos de la página de inicio — ver app/home/router.py.
+Solo macros acá, nada a nivel superior (igual que app/forms/jinja_templates/_fields.html). #}
+
+{% macro header(staff_name, initial) -%}
+<header class="topbar">
+  <div class="topbar__brand">
+    <img class="topbar__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">
+    <div class="topbar__identity">
+      <span class="topbar__name">Alberto Álvarez</span>
+      <span class="topbar__badge">Inicio</span>
+    </div>
+  </div>
+  <div class="topbar__session">
+    <span class="topbar__avatar">{{ initial }}</span>
+    <span class="topbar__user">
+      <span class="topbar__user-name">{{ staff_name }}</span>
+      <span class="topbar__user-status">Sesión iniciada</span>
+    </span>
+    <form method="post" action="/auth/logout">
+      <button type="submit" class="topbar__logout" aria-label="Cerrar sesión" title="Cerrar sesión">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+    </form>
+  </div>
+</header>
+{%- endmacro %}
+
+{% macro home_card(href, icon_svg, title, subtitle, enabled, disabled_hint) -%}
+{% if enabled %}
+<a class="home-card" href="{{ href }}">
+  <span class="home-card__icon">{{ icon_svg | safe }}</span>
+  <span class="home-card__body">
+    <span class="home-card__title">{{ title }}</span>
+    <span class="home-card__subtitle">{{ subtitle }}</span>
+  </span>
+</a>
+{%- else %}
+<div class="home-card home-card--disabled" title="{{ disabled_hint }}">
+  <span class="home-card__icon">{{ icon_svg | safe }}</span>
+  <span class="home-card__body">
+    <span class="home-card__title">{{ title }}</span>
+    <span class="home-card__subtitle">{{ disabled_hint or subtitle }}</span>
+  </span>
+</div>
+{%- endif %}
+{%- endmacro %}

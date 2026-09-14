@@ -2,15 +2,21 @@
 del staff (Inicio / Crear lead / Admin) sin tocar el header de cada página.
 
 Autocontenido a propósito (marcado + `<style>` propio, con clases prefijadas
-`staff-fab`) — así se puede insertar en `app/home/`, `app/interno/` y
-`app/admin/` sin depender de ninguno de sus sistemas de estilos (`estilos.css`
-vs. el CSS armado en Python de `app/admin/page_styles.py`), sin editarlos y
-sin riesgo de que un cambio ahí rompa el resto del diseño de la página.
-Usa `<details>/<summary>` para el menú desplegable — sin JavaScript.
+`staff-fab`, en `app/shared/jinja_templates/staff_fab.html`) — así se puede
+insertar en `app/home/`, `app/interno/` y `app/admin/` sin depender de
+ninguno de sus sistemas de estilos (`estilos.css` vs. el CSS de
+`app/admin/static/`), sin editarlos y sin riesgo de que un cambio ahí rompa
+el resto del diseño de la página. Usa `<details>/<summary>` para el menú
+desplegable — sin JavaScript.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.shared.html_templates import RawHTML
+from app.shared.jinja_env import get_env
+
+_TEMPLATES_DIR = Path(__file__).parent / "jinja_templates"
 
 _MENU_ICON = (
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
@@ -39,56 +45,13 @@ _LINKS: tuple[tuple[str, str, str, str], ...] = (
     ("admin", "/admin", "Panel admin", _ADMIN_ICON),
 )
 
-_STYLE = """
-<style>
-.staff-fab { position: fixed; right: 20px; bottom: 20px; z-index: 2147483000; font-family: 'Barlow Condensed', -apple-system, 'Segoe UI', sans-serif; }
-.staff-fab__details { position: relative; }
-.staff-fab__details summary { list-style: none; }
-.staff-fab__details summary::-webkit-details-marker { display: none; }
-.staff-fab__button {
-  display: flex; align-items: center; justify-content: center;
-  width: 48px; height: 48px; border-radius: 50%;
-  background: #0c688e; color: #fff; box-shadow: 0 8px 20px rgba(4, 76, 124, 0.35);
-  cursor: pointer; user-select: none; transition: transform 0.15s ease, background-color 0.15s ease;
-}
-.staff-fab__button:hover { background: #0a5578; transform: translateY(-1px); }
-.staff-fab__button svg { width: 20px; height: 20px; }
-.staff-fab__details[open] .staff-fab__button { background: #0a5578; }
-.staff-fab__menu {
-  position: absolute; right: 0; bottom: calc(100% + 12px);
-  display: flex; flex-direction: column; gap: 4px;
-  background: #ffffff; border-radius: 14px; padding: 8px;
-  box-shadow: 0 10px 30px rgba(4, 76, 124, 0.18);
-  min-width: 190px;
-}
-.staff-fab__link {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px; border-radius: 10px;
-  font-size: 13px; font-weight: 600; color: #044c7c; text-decoration: none;
-  white-space: nowrap;
-}
-.staff-fab__link:hover { background: #e8f1f5; }
-.staff-fab__link--active { background: #0c688e; color: #fff; }
-.staff-fab__link svg { width: 16px; height: 16px; flex-shrink: 0; }
-@media print { .staff-fab { display: none; } }
-</style>
-"""
-
 
 def staff_fab_html(*, active: str, is_admin: bool) -> RawHTML:
     """`active` es uno de "home"/"lead"/"admin" — resalta el enlace de la página
     actual. El enlace a Admin no se renderiza para quien no está en
     `ADMIN_EMAILS` (entrar a `/admin` sin permiso ya da 403 vía `require_admin`,
     no hace falta ofrecer un enlace que no lleva a nada)."""
-    items = []
-    for key, href, label, icon in _LINKS:
-        if key == "admin" and not is_admin:
-            continue
-        classes = "staff-fab__link" + (" staff-fab__link--active" if key == active else "")
-        items.append(f'<a class="{classes}" href="{href}">{icon}<span>{label}</span></a>')
-    return RawHTML(
-        f'{_STYLE}<div class="staff-fab"><details class="staff-fab__details">'
-        f'<summary class="staff-fab__button" aria-label="Navegación">{_MENU_ICON}</summary>'
-        f'<nav class="staff-fab__menu">{"".join(items)}</nav>'
-        "</details></div>"
-    )
+    links = [link for link in _LINKS if link[0] != "admin" or is_admin]
+    env = get_env(str(_TEMPLATES_DIR))
+    html = env.get_template("staff_fab.html").render(active=active, links=links, menu_icon=_MENU_ICON)
+    return RawHTML(html)

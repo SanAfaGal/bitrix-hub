@@ -1,7 +1,4 @@
-"""CSS de secciones, campos e inputs del formulario — separado de page_styles.py por tamaño."""
-from __future__ import annotations
-
-FIELD_STYLE = """  .form-section__title {
+  .form-section__title {
     display: inline-flex;
     align-self: flex-start;
     align-items: center;
@@ -192,5 +189,3 @@ FIELD_STYLE = """  .form-section__title {
     letter-spacing: 0.05em;
     color: var(--color-label);
   }
-
-"""

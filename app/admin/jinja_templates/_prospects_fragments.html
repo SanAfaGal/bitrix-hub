@@ -1,0 +1,123 @@
+{# Fragmentos de la vista de prospectos — ver app/admin/prospects_page.py.
+Solo macros acá, nada a nivel superior. Cada macro recibe datos ya
+resueltos por Python (labels, iniciales, etc.) — la lógica de negocio
+(qué label mostrar para cada `bot_enabled_reason`, etc.) se queda en
+Python; acá solo se decide cómo se ve. #}
+
+{% macro deal_badge(deal_id) -%}
+{% if deal_id %}<span class="prospect-badge prospect-badge--deal">Deal {{ deal_id }}</span>
+{%- else %}<span class="prospect-badge prospect-badge--nodeal">Sin deal</span>
+{%- endif %}
+{%- endmacro %}
+
+{% macro bot_badge(bot_enabled, label) -%}
+{% if bot_enabled is not none %}
+{% if bot_enabled %}<span class="prospect-badge prospect-badge--bot-on">Bot: ON</span>
+{%- else %}<span class="prospect-badge prospect-badge--bot-off">Bot: OFF</span>
+{%- endif %}
+{%- if label %} <span class="prospect-badge__reason">({{ label }})</span>{% endif %}
+{%- endif %}
+{%- endmacro %}
+
+{% macro channel_badge(channel) -%}
+<span class="prospect-badge prospect-badge--channel prospect-badge--channel-{{ channel }}">{{ 'Correo' if channel == 'email' else 'WhatsApp' }}</span>
+{%- endmacro %}
+
+{% macro avatar(name, initials, block) -%}
+<span class="{{ block }}{{ (' ' + block + '--muted') if not name else '' }}">{{ initials }}</span>
+{%- endmacro %}
+
+{% macro bot_toggle_form(prospects_path, chat_id, css_class, action, variant, icon_svg, label, busy_label) -%}
+<form class="{{ css_class }}" method="post" action="{{ prospects_path }}/{{ chat_id }}/bot/{{ action }}"
+  onsubmit="const btn=this.querySelector('button'); btn.disabled=true; btn.querySelector('span').textContent='{{ busy_label }}';">
+  <button type="submit" class="{{ css_class }}-btn {{ css_class }}-btn--{{ variant }}">
+    {{ icon_svg | safe }}<span>{{ label }}</span>
+  </button>
+</form>
+{%- endmacro %}
+
+{% macro delete_form(prospects_path, chat_id) -%}
+<form class="prospect-header__delete-form" method="post" action="{{ prospects_path }}/{{ chat_id }}/delete"
+  onsubmit="return confirm('¿Eliminar esta conversación? Esta acción no se puede deshacer.')">
+  <button type="submit" class="prospect-header__delete-btn" aria-label="Eliminar conversación" title="Eliminar conversación">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+      <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+    </svg>
+  </button>
+</form>
+{%- endmacro %}
+
+{% macro row(r, prospects_path, selected_key) -%}
+<a class="prospect-row{{ ' prospect-row--active' if r.key == selected_key else '' }}" href="{{ prospects_path }}/{{ r.key }}"
+   data-row-key="{{ r.key }}" data-channel="{{ r.channel }}">
+  {{ avatar(r.name, r.initials, 'prospect-row__avatar') }}
+  <div class="prospect-row__body">
+    <div class="prospect-row__top">
+      {% if r.name %}<span class="prospect-row__name">{{ r.name }}</span>
+      {%- else %}<span class="prospect-row__name prospect-row__name--muted">Sin confirmar</span>
+      {%- endif %}
+      <span class="prospect-row__time">{{ r.relative_time }}</span>
+    </div>
+    <div class="prospect-row__bottom">
+      {{ channel_badge(r.channel) }}
+      {{ deal_badge(r.deal_id) }}
+      {{ bot_badge(r.bot_enabled, r.bot_label) }}
+    </div>
+    <span class="prospect-row__phone">{{ r.phone }}</span>
+  </div>
+</a>
+{%- endmacro %}
+
+{% macro list_pane(rows, prospects_path, selected_key) -%}
+{% if not rows %}
+<div class="prospect-list-pane"><div class="prospect-empty">Todavía no hay conversaciones registradas.</div></div>
+{%- else %}
+<div class="prospect-list-pane">
+{% for r in rows %}
+{{ row(r, prospects_path, selected_key) }}
+{% endfor %}
+</div>
+{%- endif %}
+{%- endmacro %}
+
+{% macro thread_header(prospects_path, chat_id, name, initials, header_phone, channel, deal_id, bot_enabled, bot_label, actions_html) -%}
+<div class="prospect-header">
+  <a class="prospect-header__back" href="{{ prospects_path }}" aria-label="Volver a la lista">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+  </a>
+  {{ avatar(name, initials, 'prospect-header__avatar') }}
+  <div class="prospect-header__identity">
+    <h1 class="prospect-header__name">{{ name or 'Sin confirmar' }}</h1>
+    <span class="prospect-header__phone">{{ header_phone }}</span>
+    <div class="prospect-header__meta">
+      {{ channel_badge(channel) }}
+      {{ deal_badge(deal_id) }}
+      {{ bot_badge(bot_enabled, bot_label) }}
+    </div>
+  </div>
+  <div class="prospect-header__actions">
+    {{ actions_html | safe }}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro bubble(variant, text, time) -%}
+<div class="prospect-bubble prospect-bubble--{{ variant }}">
+  <div class="prospect-bubble__text">{{ text }}</div>
+  <span class="prospect-bubble__time">{{ time }}</span>
+</div>
+{%- endmacro %}
+
+{% macro bubbles(items) -%}
+{% if not items %}
+<div class="prospect-empty">Sin mensajes todavía.</div>
+{%- else %}
+{% for item in items %}
+{{ bubble(item.variant, item.text, item.time) }}
+{% endfor %}
+{%- endif %}
+{%- endmacro %}

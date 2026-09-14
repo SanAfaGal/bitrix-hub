@@ -1,6 +1,8 @@
 """HTML de la vista de prospectos/mensajes del bot de WhatsApp — HTML sueltos en
 app/admin/templates/ + app/admin/static/ (prospects.css/prospects.js), sigue el
-patrón de app/interno/.
+patrón de app/interno/. Los fragmentos repetidos (badges, filas, burbujas)
+son macros Jinja en app/admin/jinja_templates/_prospects_fragments.html —
+este archivo solo arma los datos (labels, iniciales) y llama a esos macros.
 
 Layout tipo WhatsApp Web: lista de chats a la izquierda, hilo del chat
 seleccionado a la derecha. La carga inicial (`render_prospects_html`) trae
@@ -15,16 +17,21 @@ from __future__ import annotations
 import os
 import time
 from datetime import datetime
-from html import escape
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.admin.page import PROSPECTS_PATH, render_app_shell
 from app.shared.html_templates import RawHTML, render_template
+from app.shared.jinja_env import get_env
 
 _BOGOTA_TZ = ZoneInfo(os.environ.get("TZ", "America/Bogota"))
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+_JINJA_TEMPLATES_DIR = Path(__file__).parent / "jinja_templates"
+
+
+def _fragments():
+    return get_env(str(_JINJA_TEMPLATES_DIR)).get_template("_prospects_fragments.html").module
 
 
 def _format_datetime(ts: float | None) -> str:
@@ -53,12 +60,6 @@ def _display_phone(phone: str | None) -> str | None:
     return f"+{phone}"
 
 
-def _deal_badge(deal_id: str | None) -> str:
-    if deal_id:
-        return f'<span class="prospect-badge prospect-badge--deal">Deal {escape(str(deal_id))}</span>'
-    return '<span class="prospect-badge prospect-badge--nodeal">Sin deal</span>'
-
-
 _BOT_REASON_LABELS = {
     "auto_new_chat": "se activó solo — chat nuevo",
     "auto_pending_review": "en espera de revisión — ya tenía historial",
@@ -77,7 +78,7 @@ _BOT_REASON_LABELS_BY_ENABLED = {
 }
 
 
-def _bot_badge(bot_enabled: bool | None, reason: str | None = None) -> str:
+def _bot_reason_label(bot_enabled: bool | None, reason: str | None) -> str | None:
     """`bot_enabled` es `None` para leads de correo (no aplica, ver
     `app.flows.whatsapp_bot_store.list_chats`) — no se muestra nada ahí.
 
@@ -85,15 +86,10 @@ def _bot_badge(bot_enabled: bool | None, reason: str | None = None) -> str:
     entre paréntesis si hay una etiqueta conocida, para no adivinar por qué un chat quedó en
     ese estado."""
     if bot_enabled is None:
-        return ""
+        return None
     if reason == "admin_manual":
-        label = _BOT_REASON_LABELS_BY_ENABLED[bot_enabled]
-    else:
-        label = _BOT_REASON_LABELS.get(reason or "")
-    suffix = f" <span class=\"prospect-badge__reason\">({escape(label)})</span>" if label else ""
-    if bot_enabled:
-        return f'<span class="prospect-badge prospect-badge--bot-on">Bot: ON</span>{suffix}'
-    return f'<span class="prospect-badge prospect-badge--bot-off">Bot: OFF</span>{suffix}'
+        return _BOT_REASON_LABELS_BY_ENABLED[bot_enabled]
+    return _BOT_REASON_LABELS.get(reason or "")
 
 
 _BOT_TOGGLE_ICON_ON = (
@@ -107,7 +103,7 @@ _BOT_TOGGLE_ICON_OFF = (
 )
 
 
-def _bot_toggle_form(chat_id: str, bot_enabled: bool, *, css_class: str) -> str:
+def _bot_toggle_form_html(chat_id: str, bot_enabled: bool, *, css_class: str) -> str:
     """Botón para activar/desactivar el bot del chat.
 
     Activar es la acción "segura" (el bot arranca en modo asistido, un
@@ -124,18 +120,7 @@ def _bot_toggle_form(chat_id: str, bot_enabled: bool, *, css_class: str) -> str:
     busy_label = "Desactivando…" if bot_enabled else "Activando…"
     icon = _BOT_TOGGLE_ICON_OFF if bot_enabled else _BOT_TOGGLE_ICON_ON
     variant = "deactivate" if bot_enabled else "activate"
-    onsubmit = (
-        "const btn=this.querySelector('button'); btn.disabled=true; "
-        f"btn.querySelector('span').textContent='{busy_label}';"
-    )
-    return f"""
-        <form class="{css_class}" method="post" action="{PROSPECTS_PATH}/{escape(chat_id)}/bot/{action}"
-          onsubmit="{onsubmit}">
-          <button type="submit" class="{css_class}-btn {css_class}-btn--{variant}">
-            {icon}<span>{label}</span>
-          </button>
-        </form>
-    """
+    return _fragments().bot_toggle_form(PROSPECTS_PATH, chat_id, css_class, action, variant, icon, label, busy_label)
 
 
 def _initials(name: str | None) -> str:
@@ -149,72 +134,34 @@ def _initials(name: str | None) -> str:
     return (parts[0][0] + parts[-1][0]).upper()
 
 
-def _avatar_html(name: str | None, *, block: str) -> str:
-    """`block` es el nombre BEM del avatar (`prospect-row__avatar` o `prospect-header__avatar`)."""
-    classes = block if name else f"{block} {block}--muted"
-    return f'<span class="{classes}">{escape(_initials(name))}</span>'
-
-
 def _row_key(chat: dict[str, Any]) -> str | None:
     """Clave usada en la URL de la fila — `chat_id` (WhatsApp) o `tracking_id` (correo)."""
     return chat.get("chat_id") or chat.get("tracking_id")
 
 
-def _channel_badge(channel: str) -> str:
-    label = "Correo" if channel == "email" else "WhatsApp"
-    return f'<span class="prospect-badge prospect-badge--channel prospect-badge--channel-{channel}">{label}</span>'
+def _row_context(chat: dict[str, Any]) -> dict[str, Any]:
+    name = chat.get("confirmed_name")
+    bot_enabled = chat.get("bot_enabled")
+    return {
+        "key": _row_key(chat) or "",
+        "name": name,
+        "initials": _initials(name),
+        "phone": _display_phone(chat.get("confirmed_phone")) or "",
+        "channel": chat.get("channel", "whatsapp"),
+        "deal_id": chat.get("deal_id"),
+        "bot_enabled": bot_enabled,
+        "bot_label": _bot_reason_label(bot_enabled, chat.get("bot_enabled_reason")),
+        "relative_time": _format_relative(chat.get("last_created_at")),
+    }
 
 
 def _list_pane(chats: list[dict[str, Any]], selected_chat_id: str | None) -> str:
-    if not chats:
-        return '<div class="prospect-list-pane"><div class="prospect-empty">Todavía no hay conversaciones registradas.</div></div>'
-
-    rows = []
-    for chat in chats:
-        name = chat.get("confirmed_name")
-        if name:
-            name_html = f'<span class="prospect-row__name">{escape(name)}</span>'
-        else:
-            name_html = '<span class="prospect-row__name prospect-row__name--muted">Sin confirmar</span>'
-        phone = _display_phone(chat.get("confirmed_phone")) or ""
-        key = _row_key(chat)
-        channel = chat.get("channel", "whatsapp")
-        active = " prospect-row--active" if key == selected_chat_id else ""
-        rows.append(
-            f'<a class="prospect-row{active}" href="{PROSPECTS_PATH}/{escape(key or "")}" '
-            f'data-row-key="{escape(key or "")}" data-channel="{escape(channel)}">'
-            f'{_avatar_html(name, block="prospect-row__avatar")}'
-            f'<div class="prospect-row__body">'
-            f'<div class="prospect-row__top">'
-            f"{name_html}"
-            f'<span class="prospect-row__time">{escape(_format_relative(chat.get("last_created_at")))}</span>'
-            f"</div>"
-            f'<div class="prospect-row__bottom">'
-            f'{_channel_badge(chat.get("channel", "whatsapp"))}'
-            f"{_deal_badge(chat.get('deal_id'))}"
-            f"{_bot_badge(chat.get('bot_enabled'), chat.get('bot_enabled_reason'))}"
-            f"</div>"
-            f'<span class="prospect-row__phone">{escape(phone)}</span>'
-            f"</div>"
-            f"</a>"
-        )
-    return f'<div class="prospect-list-pane">{"".join(rows)}</div>'
+    rows = [_row_context(chat) for chat in chats]
+    return _fragments().list_pane(rows, PROSPECTS_PATH, selected_chat_id)
 
 
 def _delete_form_html(chat_id: str) -> str:
-    return f"""
-        <form class="prospect-header__delete-form" method="post" action="{PROSPECTS_PATH}/{escape(chat_id)}/delete"
-          onsubmit="return confirm('¿Eliminar esta conversación? Esta acción no se puede deshacer.')">
-          <button type="submit" class="prospect-header__delete-btn" aria-label="Eliminar conversación" title="Eliminar conversación">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
-            </svg>
-          </button>
-        </form>
-    """
+    return _fragments().delete_form(PROSPECTS_PATH, chat_id)
 
 
 _EMPTY_THREAD_PANE_HTML = (
@@ -231,49 +178,41 @@ def _thread_header_html(*, chat_id: str, chat_meta: dict[str, Any] | None) -> Ra
     channel = chat_meta.get("channel", "whatsapp") if chat_meta else "whatsapp"
     bot_enabled = chat_meta.get("bot_enabled") if chat_meta else None
     bot_enabled_reason = chat_meta.get("bot_enabled_reason") if chat_meta else None
-    header_name = escape(name) if name else "Sin confirmar"
     display_phone = _display_phone(phone)
-    header_phone = escape(display_phone) if display_phone else escape(chat_id)
+    header_phone = display_phone or chat_id
+
+    actions_html = ""
+    if channel == "whatsapp":
+        actions_html = _bot_toggle_form_html(
+            chat_id, bot_enabled, css_class="prospect-header__bot-toggle"
+        ) + _delete_form_html(chat_id)
 
     return RawHTML(
-        f"""
-    <div class="prospect-header">
-      <a class="prospect-header__back" href="{PROSPECTS_PATH}" aria-label="Volver a la lista">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-      </a>
-      {_avatar_html(name, block="prospect-header__avatar")}
-      <div class="prospect-header__identity">
-        <h1 class="prospect-header__name">{header_name}</h1>
-        <span class="prospect-header__phone">{header_phone}</span>
-        <div class="prospect-header__meta">
-          {_channel_badge(channel)}
-          {_deal_badge(deal_id)}
-          {_bot_badge(bot_enabled, bot_enabled_reason)}
-        </div>
-      </div>
-      <div class="prospect-header__actions">
-        {_bot_toggle_form(chat_id, bot_enabled, css_class="prospect-header__bot-toggle") if channel == "whatsapp" else ""}
-        {_delete_form_html(chat_id) if channel == "whatsapp" else ""}
-      </div>
-    </div>
-    """
+        _fragments().thread_header(
+            PROSPECTS_PATH,
+            chat_id,
+            name,
+            _initials(name),
+            header_phone,
+            channel,
+            deal_id,
+            bot_enabled,
+            _bot_reason_label(bot_enabled, bot_enabled_reason),
+            actions_html,
+        )
     )
 
 
 def _bubbles_html(messages: list[dict[str, Any]] | None) -> RawHTML:
-    if not messages:
-        return RawHTML('<div class="prospect-empty">Sin mensajes todavía.</div>')
-    bubbles = []
-    for msg in messages:
-        variant = "assistant" if msg.get("role") == "assistant" else "user"
-        bubbles.append(
-            f'<div class="prospect-bubble prospect-bubble--{variant}">'
-            f'<div class="prospect-bubble__text">{escape(msg.get("content") or "")}</div>'
-            f'<span class="prospect-bubble__time">{escape(_format_datetime(msg.get("created_at")))}</span>'
-            f"</div>"
-        )
-    return RawHTML("".join(bubbles))
+    items = [
+        {
+            "variant": "assistant" if msg.get("role") == "assistant" else "user",
+            "text": msg.get("content") or "",
+            "time": _format_datetime(msg.get("created_at")),
+        }
+        for msg in (messages or [])
+    ]
+    return RawHTML(_fragments().bubbles(items))
 
 
 def render_thread_pane_html(

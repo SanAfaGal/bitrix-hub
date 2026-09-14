@@ -34,6 +34,8 @@ from app.forms.page import (
     TEMPLATE_PATH_URL,
     VERIFY_COBERTURA_PATH,
     VERIFY_MATRICULA_PATH,
+)
+from app.forms.render import (
     render_already_signed_html,
     render_form_html,
     render_link_invalid_html,

@@ -21,10 +21,10 @@ from app.forms.models import PROPERTY_TYPES
 from app.forms.page import FORM_PATH
 from app.forms.settings import load_form_link_secret
 from app.interno.models import NuevoLeadPayload
-from app.interno.page_script import NUEVO_LEAD_SCRIPT
 from app.shared import idempotency
 from app.shared.field_specs import FIELD_SPECS, validate_phone
 from app.shared.html_templates import RawHTML, render_template
+from app.shared.jinja_env import get_env
 from app.shared.phone_countries import DEFAULT_PHONE_COUNTRY_CODE, PHONE_COUNTRIES, phone_country_by_code
 from app.shared.staff_nav import staff_fab_html
 from app.waha.deps import get_waha_client
@@ -36,6 +36,11 @@ router = APIRouter(prefix="/interno", tags=["Interno"])
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _NUEVO_LEAD_PATH = _TEMPLATES_DIR / "nuevo_lead.html"
 _LEAD_DETAIL_PATH = _TEMPLATES_DIR / "lead_detail.html"
+_JINJA_TEMPLATES_DIR = Path(__file__).parent / "jinja_templates"
+
+
+def _fragments():
+    return get_env(str(_JINJA_TEMPLATES_DIR)).get_template("_fragments.html").module
 
 
 def _header_html(staff_name: str) -> RawHTML:
@@ -44,116 +49,33 @@ def _header_html(staff_name: str) -> RawHTML:
     derecha (avatar con inicial, nombre y botón de cerrar sesión) — mismo
     header en `nuevo_lead.html` y `lead_detail.html`, armado acá una sola vez
     en vez de duplicar el marcado en las dos plantillas."""
-    from html import escape
-
-    initial = escape(staff_name.strip()[:1].upper() or "?")
-    safe_name = escape(staff_name)
-    return RawHTML(
-        '<header class="topbar">'
-        '<div class="topbar__brand">'
-        '<img class="topbar__logo" src="/static/imgs/logo_short.webp" alt="Alberto Álvarez">'
-        '<div class="topbar__identity">'
-        '<span class="topbar__name">Alberto Álvarez</span>'
-        '<span class="topbar__badge">Interno</span>'
-        "</div>"
-        "</div>"
-        '<div class="topbar__session">'
-        f'<span class="topbar__avatar">{initial}</span>'
-        '<span class="topbar__user">'
-        f'<span class="topbar__user-name">{safe_name}</span>'
-        '<span class="topbar__user-status">Sesión iniciada</span>'
-        "</span>"
-        '<form method="post" action="/auth/logout">'
-        '<button type="submit" class="topbar__logout" aria-label="Cerrar sesión" title="Cerrar sesión">'
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-        '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
-        "</svg>"
-        "</button>"
-        "</form>"
-        "</div>"
-        "</header>"
-    )
+    initial = staff_name.strip()[:1].upper() or "?"
+    return RawHTML(_fragments().header(staff_name, initial))
 
 
 def _flash_html(message: str | None, *, error: bool = False) -> RawHTML:
-    if not message:
-        return RawHTML("")
-    css_class = "alert--error" if error else "alert--success"
-    from html import escape
-
-    return RawHTML(f'<div class="alert {css_class}">{escape(message)}</div>')
+    return RawHTML(_fragments().flash(message, error))
 
 
 def _property_type_options_html(selected: str | None) -> RawHTML:
-    from html import escape
-
-    options = ['<option value="" disabled selected>Selecciona…</option>' if not selected else ""]
-    for value in PROPERTY_TYPES:
-        is_selected = " selected" if value == selected else ""
-        options.append(f'<option value="{escape(value)}"{is_selected}>{escape(value)}</option>')
-    return RawHTML("".join(options))
+    return RawHTML(_fragments().select_options([(v, v) for v in PROPERTY_TYPES], selected))
 
 
 def _source_channel_options_html(selected: str | None) -> RawHTML:
-    from html import escape
-
-    options = ['<option value="" disabled selected>Selecciona…</option>' if not selected else ""]
-    for identifier, label in SOURCE_CHANNELS:
-        is_selected = " selected" if identifier == selected else ""
-        options.append(f'<option value="{escape(identifier)}"{is_selected}>{escape(label)}</option>')
-    return RawHTML("".join(options))
+    return RawHTML(_fragments().select_options(SOURCE_CHANNELS, selected))
 
 
 def _phone_country_options_html(selected_code: str) -> RawHTML:
-    from html import escape
-
-    items = []
-    for country in PHONE_COUNTRIES:
-        is_selected = " phone-country-list__item--active" if country["code"] == selected_code else ""
-        items.append(
-            f'<li class="phone-country-list__item{is_selected}" role="option" '
-            f'data-code="{escape(country["code"])}" data-iso2="{escape(country["iso2"])}" tabindex="-1">'
-            f'<img class="phone-country-list__flag" src="https://flagcdn.com/w20/{escape(country["iso2"])}.png" alt="">'
-            f'<span class="phone-country-list__name">{escape(country["name"])}</span>'
-            f'<span class="phone-country-list__code">+{escape(country["code"])}</span>'
-            "</li>"
-        )
-    return RawHTML("".join(items))
+    return RawHTML(_fragments().phone_country_options(PHONE_COUNTRIES, selected_code))
 
 
 def _phone_badge_html(selected_code: str) -> RawHTML:
-    from html import escape
-
     country = phone_country_by_code(selected_code)
-    return RawHTML(
-        f'<img class="phone-group__flag" id="phone-country-flag" src="https://flagcdn.com/w40/{escape(country["iso2"])}.png" alt="">'
-        f'<span id="phone-country-label">+{escape(country["code"])}</span>'
-    )
+    return RawHTML(_fragments().phone_badge(country))
 
 
 def _coverage_warning_html(message: str | None) -> RawHTML:
-    if not message:
-        return RawHTML("")
-    from html import escape
-
-    return RawHTML(
-        '<div class="coverage-warning">'
-        '<div class="coverage-warning__header">'
-        '<span class="coverage-warning__icon">'
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-        '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>'
-        '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
-        "</svg>"
-        "</span>"
-        '<span class="coverage-warning__title">Fuera de la zona de cobertura</span>'
-        "</div>"
-        f'<p class="coverage-warning__message">{escape(message)}</p>'
-        '<label class="coverage-warning__checkbox">'
-        '<input type="checkbox" name="coverage_override" value="true">'
-        "<span>Continuar de todas formas</span>"
-        "</label>"
-        "</div>"
-    )
+    return RawHTML(_fragments().coverage_warning(message))
 
 
 def _field_text_kwargs() -> dict[str, str]:
@@ -214,7 +136,6 @@ def _render_nuevo_lead(
         sale_price=sale_price,
         source_channel_options_html=_source_channel_options_html(source_channel),
         coverage_warning_html=_coverage_warning_html(coverage_message),
-        script_html=RawHTML(NUEVO_LEAD_SCRIPT),
         **_field_text_kwargs(),
     )
 

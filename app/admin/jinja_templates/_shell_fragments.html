@@ -1,0 +1,103 @@
+{# Fragmentos del shell del panel admin — ver app/admin/page.py.
+Solo macros acá, nada a nivel superior. #}
+
+{% macro flash(message, error) -%}
+{% if message %}
+<div class="alert {{ 'alert--error' if error else 'alert--info' }}">{{ message }}</div>
+{%- endif %}
+{%- endmacro %}
+
+{% macro navpill(view, label, href, active_view, icon_svg, has_unsaved_indicator) -%}
+<a class="navpill{{ ' navpill--active' if view == active_view else '' }}" href="{{ href }}" title="{{ label }}">
+  {{ icon_svg | safe }}<span class="navpill__label">{{ label }}</span>
+  {%- if has_unsaved_indicator and view == active_view %}<span class="navpill__dot" data-badge></span>{% endif %}
+</a>
+{%- endmacro %}
+
+{% macro topbar(display_name, initial, active_view, logo_url, logout_path, pills) -%}
+<div class="topbar">
+  <div class="topbar__brand">
+    <img class="topbar__mark" src="{{ logo_url }}" alt="Alberto Álvarez">
+    <div class="topbar__identity">
+      <span class="topbar__name">Alberto Álvarez</span>
+      <span class="topbar__tagline">Panel administrativo</span>
+    </div>
+  </div>
+  <div class="topbar__divider"></div>
+  <div class="topbar__nav">
+    {% for view, label, href, icon_svg, has_unsaved_indicator in pills %}
+    {{ navpill(view, label, href, active_view, icon_svg, has_unsaved_indicator) }}
+    {% endfor %}
+  </div>
+  <div class="topbar__user">
+    <div class="userchip">
+      <span class="avatar">{{ initial }}</span>
+      <span class="userchip__text">
+        <span class="userchip__name">{{ display_name }}</span>
+        <span class="userchip__status">Sesión iniciada</span>
+      </span>
+      <form method="post" action="{{ logout_path }}">
+        <button type="submit" class="logout-btn" aria-label="Cerrar sesión" title="Cerrar sesión">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro sidebar_item(item, templates_path) -%}
+<a class="sidebar__item{{ ' sidebar__item--active' if item.active else '' }}" href="{{ templates_path }}/{{ item.key }}">
+  <span class="sidebar__item-text">
+    <span class="sidebar__item-label">{{ item.label }}</span>
+    <span class="sidebar__item-hint">{{ item.hint }}</span>
+  </span>
+  <span class="sidebar__item-end">
+    {%- if item.active %}<span class="sidebar__item-dot" data-badge></span>{% endif %}
+    <svg class="sidebar__item-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 6l6 6-6 6"/></svg>
+  </span>
+</a>
+{%- endmacro %}
+
+{% macro sidebar(sections, templates_path) -%}
+<div class="sidebar">
+  <div>
+    <div class="sidebar__intro-title">Plantillas</div>
+    <div class="sidebar__intro-text">Mensajes reales que le llegan al cliente. Los cambios se aplican al instante.</div>
+  </div>
+  {% for section in sections %}
+  <div class="sidebar__section">
+    <div class="sidebar__section-title">{{ section.name }}</div>
+    {% for item in section.entries %}
+    {{ sidebar_item(item, templates_path) }}
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro var_chip(token) -%}
+<button type="button" class="var-chip" data-insert-var="{{ token }}">{{ token }}</button>
+{%- endmacro %}
+
+{% macro var_chips(tokens) -%}
+{% if tokens %}
+<div class="var-row"><span class="var-row__label">Insertar variable</span>
+  {% for token in tokens %}{{ var_chip(token) }}{% endfor %}
+</div>
+{%- endif %}
+{%- endmacro %}
+
+{% macro tip(text) -%}
+<div class="guide-card__tip"><span class="guide-card__tip-dot"></span>
+  <p class="guide-card__tip-text">{{ text }}</p>
+</div>
+{%- endmacro %}
+
+{% macro tips(items) -%}
+{% for text in items %}{{ tip(text) }}{% endfor %}
+{%- endmacro %}

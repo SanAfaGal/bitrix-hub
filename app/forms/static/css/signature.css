@@ -1,7 +1,4 @@
-"""CSS del recuadro de firma (pestañas, canvas, overlay de procesamiento) — separado de page_styles.py por tamaño."""
-from __future__ import annotations
-
-SIGNATURE_STYLE = """  .signature-group__header {
+  .signature-group__header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -131,5 +128,3 @@ SIGNATURE_STYLE = """  .signature-group__header {
     color: var(--color-text-faint);
     margin: var(--space-2) 0 0;
   }
-
-"""

@@ -1,16 +1,4 @@
-"""JS de limpieza de fondo de una foto de firma (modelo en el navegador + respaldo en el servidor).
-
-Fragmento de FORM_SCRIPT (ver page_script.py) — separado por tamaño. No toca
-el DOM del canvas de firma (eso vive en page_script_signature_canvas.py);
-solo expone `removeSignaturePhotoBackground(file)`, que ese otro fragmento
-llama al recibir una foto subida. Usa `env`, `AutoModel`, `AutoProcessor` y
-`RawImage`, importados a nivel de módulo en page_script.py (el import de
-Transformers.js tiene que quedar antes de la IIFE, no puede venir en un
-fragmento que se concatena dentro de ella).
-"""
-from __future__ import annotations
-
-SIGNATURE_MODEL_SCRIPT = """  // Quitar el fondo de una foto de firma corre en el celular del cliente,
+  // Quitar el fondo de una foto de firma corre en el celular del cliente,
   // no en el servidor: RMBG-1.4 vía Transformers.js/WASM — el mismo modelo
   // y la misma configuración de preprocesamiento que usa
   // https://github.com/addyosmani/bg-remove (https://bg.addy.ie/) en su
@@ -111,7 +99,7 @@ SIGNATURE_MODEL_SCRIPT = """  // Quitar el fondo de una foto de firma corre en e
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
       reader.onload = function () {
-        fetch('__CLEAN_SIGNATURE_PATH__', {
+        fetch(window.BH_CONFIG.cleanSignaturePath, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image_png: reader.result })
@@ -137,4 +125,3 @@ SIGNATURE_MODEL_SCRIPT = """  // Quitar el fondo de una foto de firma corre en e
     });
   }
 
-"""

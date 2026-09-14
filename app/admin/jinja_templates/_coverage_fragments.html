@@ -1,0 +1,82 @@
+{# Fragmentos de la vista de cobertura — ver app/admin/coverage_page.py.
+Solo macros acá, nada a nivel superior. `flash` vive en _shell_fragments.html
+(compartido con page.py/prospects no lo usa) — no se repite acá. #}
+
+{% macro badge(covered) -%}
+{% if covered %}<span class="coverage-badge coverage-badge--on">Con cobertura</span>
+{%- else %}<span class="coverage-badge coverage-badge--off">Sin cobertura</span>
+{%- endif %}
+{%- endmacro %}
+
+{% macro row(s) -%}
+<tr data-coverage-row data-search="{{ s.search_blob }}"
+    {%- for level, value in s.cascade %} data-{{ level }}="{{ value }}"{% endfor %}>
+  <td class="coverage-table__checkbox-col">
+    <input type="checkbox" name="sector_code" value="{{ s.sector_code }}" data-coverage-checkbox>
+  </td>
+  <td class="coverage-table__muted">{{ s.sector_code }}</td>
+  <td>{{ s.sector }}</td>
+  <td class="coverage-table__muted">{{ s.zona }}</td>
+  <td>{{ s.ciudad }}</td>
+  <td class="coverage-table__muted">{{ s.departamento }}</td>
+  <td>{{ s.pais }}</td>
+  <td>{{ badge(s.covered) }}</td>
+</tr>
+{%- endmacro %}
+
+{% macro table(rows) -%}
+{% if not rows %}
+<div class="coverage-empty">No hay sectores para mostrar con este filtro.</div>
+{%- else %}
+<div class="coverage-table-wrap">
+  <table class="coverage-table" data-coverage-table>
+    <thead>
+      <tr>
+        <th class="coverage-table__checkbox-col">
+          <input type="checkbox" data-coverage-select-all title="Seleccionar todo lo visible">
+        </th>
+        <th>Código</th>
+        <th>Sector</th>
+        <th>Zona</th>
+        <th>Ciudad</th>
+        <th>Departamento</th>
+        <th>País</th>
+        <th>Cobertura</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in rows %}
+      {{ row(s) }}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{%- endif %}
+{%- endmacro %}
+
+{% macro estado_select(coverage_path, options, estado) -%}
+{# Sin <form> propio a propósito: este select vive dentro del <form> de batch
+   (para quedar junto al resto de la barra de filtros) y un <form> anidado
+   dentro de otro es HTML inválido — el navegador ignora el de adentro y el
+   select terminaría enviándose con el form de batch (POST) en vez de
+   recargar la lista. Navega por JS en su lugar. #}
+<select class="coverage-select" data-coverage-estado
+  onchange="window.location.href='{{ coverage_path }}?estado=' + encodeURIComponent(this.value)">
+  {% for value, label in options %}
+  <option value="{{ value }}"{{ ' selected' if value == estado else '' }}>{{ label }}</option>
+  {% endfor %}
+</select>
+{%- endmacro %}
+
+{% macro cascade_selects(levels) -%}
+{# Los <option> reales los arma coverage_script.py en el cliente a partir de
+   las filas ya renderizadas — acá solo va el placeholder "Todos", para no
+   duplicar la lista de valores distintos en Python y en JS. #}
+<div class="coverage-toolbar__cascade">
+  {% for level, label in levels %}
+  <select class="coverage-select" data-coverage-cascade="{{ level }}" title="{{ label }}">
+    <option value="">{{ label }}: todos</option>
+  </select>
+  {% endfor %}
+</div>
+{%- endmacro %}

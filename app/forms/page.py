@@ -1,20 +1,30 @@
-"""HTML autocontenido del formulario de Autorización de Corretaje (sin dependencias externas).
+"""Datos del formulario de Autorización de Corretaje — sin HTML.
 
-El CSS y el JS viven aparte (`page_styles.py`, `page_script.py`) — este
-archivo solo arma el esqueleto HTML y los datos de los campos, para no pasar
-las ~500 líneas por archivo.
+El HTML/CSS/JS reales viven en `app/forms/jinja_templates/` y
+`app/forms/static/{css,js}/`, ensamblados por `app/forms/render.py` (Jinja2).
+Este archivo solo arma los datos planos que ese módulo necesita: la lista de
+campos (`_FIELDS`/`_LOCATION_FIELD`, a partir de `app.shared.field_specs`,
+compartido con `app/interno/`), las secciones visuales y las rutas públicas
+del formulario.
 """
 from __future__ import annotations
 
-import json
-from html import escape
+from app.shared.field_specs import FIELD_SPECS, PROPERTY_TYPES
 
-from app.forms.models import PROPERTY_TYPES
-from app.forms.page_script import FORM_SCRIPT
-from app.forms.page_styles import FORM_STYLE
-from app.forms.page_wizard import WIZARD_STYLE, render_wizard_html
-from app.forms.page_wizard_script import WIZARD_SCRIPT
-from app.shared.field_specs import FIELD_SPECS
+__all__ = [
+    "FORM_PATH",
+    "TEMPLATE_PATH_URL",
+    "CLEAN_SIGNATURE_PATH",
+    "VERIFY_MATRICULA_PATH",
+    "CONFIRM_MATRICULA_MATCH_PATH",
+    "VERIFY_COBERTURA_PATH",
+    "ESTADO_SERVICIOS_PATH",
+    "FAVICON_URL",
+    "LOGO_URL",
+    "SECTION_TITLES",
+    "SECTION_ICONS",
+    "PROPERTY_TYPES",
+]
 
 
 def _shared_field(spec_name: str, **overrides: object) -> dict:
@@ -39,6 +49,7 @@ def _shared_field(spec_name: str, **overrides: object) -> dict:
         field["inputmode"] = spec.inputmode
     field.update(overrides)
     return field
+
 
 # Rutas públicas: en español y con nombre claro — las abre el cliente final
 # desde un link de WhatsApp, tiene que entender qué es antes de tocarlo.
@@ -132,375 +143,11 @@ _FIELDS = [
 ]
 
 # Ubicación: se pide en el paso de cobertura del wizard (antes del formulario
-# completo, ver page_wizard.py), no en la sección "Datos del inmueble" — pero
-# es el mismo campo (`name="location"`, mismo id, mismo desplegable de
-# sugerencias) así que se renderiza con `_render_field` igual que el resto,
-# solo que fuera de `_FIELDS`/`_render_fields_with_sections`.
+# completo, ver app/forms/jinja_templates/_wizard_step_location.html), no en
+# la sección "Datos del inmueble" — pero es el mismo campo (`name="location"`,
+# mismo id, mismo desplegable de sugerencias) así que se renderiza con el
+# mismo macro `field()` que el resto (ver `_fields.html`), solo que fuera de
+# `_FIELDS`.
 _LOCATION_FIELD = _shared_field(
     "location", suggest="location-suggestions", form="authorization-form"
 )
-
-_HTML = """<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Autorización de Corretaje — Alberto Álvarez</title>
-<link rel="icon" href="__FAVICON_URL__">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
-__STYLE__
-</head>
-<body>
-<div class="page">
-  <div class="frame">
-    <div class="brand">
-      <img class="brand__logo" src="__LOGO_URL__" alt="Alberto Álvarez">
-      <span class="brand__name">Alberto Álvarez</span>
-      <span class="brand__tagline">Servicios Integrales Inmobiliarios</span>
-    </div>
-    <button type="button" class="start-over-btn start-over-btn--hidden" id="start-over-btn">Empezar de nuevo</button>
-    <div id="form-flow">
-    <div class="card">
-      <div class="card__header">
-        <h1 class="card__title">Autorización de Corretaje Inmobiliario</h1>
-        <p class="card__subtitle">Antes de llenar tus datos, lee el documento completo.</p>
-      </div>
-      <a class="document-cta" href="__TEMPLATE_PATH_URL__" target="_blank" rel="noopener">
-        <span class="document-cta__icon">📄</span>
-        <span class="document-cta__text">
-          <strong>Ver documento completo</strong>
-          <span>Autorización de Corretaje — PDF</span>
-        </span>
-        <span class="document-cta__arrow">›</span>
-      </a>
-    </div>
-__WIZARD_HTML__
-    <div id="full-form-card" class="card card--hidden">
-      <div class="card__header">
-        <h2 class="card__title">Completa la información</h2>
-        <p class="card__subtitle">Datos del interesado, del inmueble y firma al final.</p>
-      </div>
-      <form id="authorization-form" novalidate>
-__DEAL_ID_FIELD__
-__TOKEN_FIELD__
-__FIELDS_HTML__
-        <div class="field-group">
-          <div class="signature-group__header">
-            <span class="field-group__legend">Firma del interesado</span>
-            <div class="signature-tabs">
-              <button type="button" class="signature-tab signature-tab--active" id="tab-draw">Dibujar</button>
-              <button type="button" class="signature-tab" id="tab-upload">Subir foto</button>
-            </div>
-          </div>
-          <div class="signature-canvas-wrap">
-            <canvas id="signature-canvas" class="signature-box"></canvas>
-            <div class="signature-toolbar">
-              <button type="button" class="signature-icon-btn" id="undo-signature" aria-label="Deshacer último trazo" title="Deshacer">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M9 14 4 9l5-5"/>
-                  <path d="M4 9h10.5A5.5 5.5 0 0 1 20 14.5v0A5.5 5.5 0 0 1 14.5 20H11"/>
-                </svg>
-              </button>
-              <button type="button" class="signature-icon-btn" id="clear-signature" aria-label="Borrar firma" title="Borrar">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                  <path d="M10 11v6"/>
-                  <path d="M14 11v6"/>
-                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                </svg>
-              </button>
-            </div>
-            <div class="signature-placeholder signature-placeholder--hidden" id="signature-placeholder">
-              Toca para elegir una foto de tu firma
-            </div>
-            <div class="signature-processing-overlay signature-processing-overlay--hidden" id="signature-processing-overlay">
-              <span class="spinner spinner--lg"></span>
-              <span class="signature-processing-overlay__text" id="signature-processing-overlay-text">Limpiando la firma...</span>
-            </div>
-          </div>
-          <input type="file" id="signature-file" accept="image/*" class="signature-file-input">
-          <div class="signature-actions">
-            <span class="signature-status-text" id="signature-status-text">Firma aquí con el dedo</span>
-          </div>
-        </div>
-        <div class="submit-warning">
-          <span>Este enlace es de un solo uso: revisa bien tu información antes de enviar.</span>
-        </div>
-        <button type="submit" class="btn btn--primary" id="submit-button">Enviar autorización</button>
-        <div id="form-status"></div>
-      </form>
-    </div>
-    </div>
-    <div class="card success-view success-view--hidden" id="success-view">
-      <span class="success-view__icon">✓</span>
-      <h2 class="success-view__title">Autorización enviada</h2>
-      <p class="success-view__text">
-        Tu documento firmado se descargó en este dispositivo. Gracias por confiar en Alberto Álvarez.
-      </p>
-    </div>
-  </div>
-</div>
-__SCRIPT__
-</body>
-</html>
-"""
-
-
-_MESSAGE_HTML = """<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__TITLE__ — Alberto Álvarez</title>
-<link rel="icon" href="__FAVICON_URL__">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
-__STYLE__
-</head>
-<body>
-<div class="page">
-  <div class="frame">
-    <div class="brand">
-      <img class="brand__logo" src="__LOGO_URL__" alt="Alberto Álvarez">
-      <span class="brand__name">Alberto Álvarez</span>
-      <span class="brand__tagline">Servicios Integrales Inmobiliarios</span>
-    </div>
-    <div class="card success-view">
-      <span class="success-view__icon">__ICON__</span>
-      <h2 class="success-view__title">__TITLE__</h2>
-      <p class="success-view__text">__MESSAGE__</p>
-    </div>
-  </div>
-</div>
-</body>
-</html>
-"""
-
-
-def _render_message_page(*, icon: str, title: str, message: str) -> str:
-    return (
-        _MESSAGE_HTML.replace("__ICON__", icon)
-        .replace("__TITLE__", escape(title))
-        .replace("__MESSAGE__", escape(message))
-        .replace("__FAVICON_URL__", FAVICON_URL)
-        .replace("__LOGO_URL__", LOGO_URL)
-        .replace("__STYLE__", FORM_STYLE)
-    )
-
-
-def render_link_invalid_html() -> str:
-    return _render_message_page(
-        icon="⚠",
-        title="Enlace no válido",
-        message="Este enlace no es válido. Pídele a tu asesor que te comparta uno nuevo.",
-    )
-
-
-def render_already_signed_html() -> str:
-    return _render_message_page(
-        icon="✓",
-        title="Autorización ya firmada",
-        message=(
-            "Esta autorización ya fue firmada. Si necesitas hacer algún cambio, "
-            "contacta a tu asesor."
-        ),
-    )
-
-
-def _render_text_input(field: dict) -> str:
-    placeholder = field.get("placeholder")
-    suggest = field.get("suggest")
-    prefill_value = field.get("value")
-    input_html = (
-        '<input class="field__input{correctable_class}" id="field-{name}" type="{input_type}" '
-        '{name_attr}{value}{placeholder}{inputmode}{autocomplete}{required}{readonly}{form}>'.format(
-            value=f' value="{escape(str(prefill_value))}"' if prefill_value else "",
-            # Dueño del espacio del lápiz superpuesto (ver el `.field__input-wrap`
-            # que arma _render_field para los campos con `confirm_text`).
-            correctable_class=" field__input--correctable" if field.get("confirm_text") else "",
-            name=field["name"],
-            input_type=field["input_type"],
-            # Sin `name` el input no viaja en el submit — lo usa el campo
-            # "location_display": es solo una copia de lectura de "location"
-            # (el real, que sí viaja) para que el cliente vea confirmado en el
-            # formulario final lo que ya escribió en el wizard.
-            name_attr="" if field.get("no_submit") else f'name="{field["name"]}" ',
-            placeholder=f' placeholder="{escape(placeholder)}"' if placeholder else "",
-            inputmode=f' inputmode="{field["inputmode"]}"' if field.get("inputmode") else "",
-            # Sin esto el navegador compite con nuestro propio desplegable de
-            # sugerencias (ver el bloque `suggest` debajo) con el suyo propio.
-            autocomplete=' autocomplete="off"' if suggest else "",
-            required=" required" if field["required"] else "",
-            readonly=" readonly" if field.get("readonly") else "",
-            # `form`: asocia el input a un <form> del que no es descendiente en
-            # el DOM (atributo HTML5) — lo usa el campo "location", que vive
-            # visualmente en el paso de ubicación del wizard pero debe viajar
-            # igual en el submit de #authorization-form (ver page_wizard.py).
-            form=f' form="{escape(field["form"])}"' if field.get("form") else "",
-        )
-    )
-    if not suggest:
-        return f"          {input_html}"
-    # Desplegable propio (no <datalist>: el nativo del navegador no se puede
-    # limitar a N filas ni tomar la tipografía de marca). Arranca vacío y
-    # oculto — page_script.py lo puebla con un fetch al cargar la página (ver
-    # /formularios/ubicaciones) y lo filtra/muestra mientras se escribe. El
-    # <input> sigue siendo texto libre: las opciones solo sugieren.
-    return (
-        f'          <div class="field__input-wrap">\n'
-        f"            {input_html}\n"
-        f'            <ul class="location-suggest" id="{suggest}" hidden></ul>\n'
-        f"          </div>"
-    )
-
-
-def _render_select(field: dict, options: list[tuple[str, str]]) -> str:
-    selected_value = field.get("value")
-    options_html = "\n".join(
-        f'            <option value="{escape(value)}"{" selected" if value == selected_value else ""}>'
-        f"{escape(label)}</option>"
-        for value, label in options
-    )
-    placeholder_selected = "" if selected_value else " selected"
-    return (
-        f'          <select class="field__input" id="field-{field["name"]}" name="{field["name"]}"'
-        f'{" required" if field["required"] else ""}>\n'
-        f'            <option value=""{placeholder_selected} disabled>Selecciona una opción...</option>\n'
-        f"{options_html}\n"
-        "          </select>"
-    )
-
-
-def _render_correct_button(name: str) -> str:
-    return (
-        f'<button type="button" class="field__correct-btn field__correct-btn--hidden" '
-        f'id="field-{name}-correct" aria-label="Corregir" title="Corregir">\n'
-        f'              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-        f'stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/>'
-        f'<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>\n'
-        f"            </button>"
-    )
-
-
-def _make_field_correctable(field: dict, body: str) -> tuple[str, str]:
-    """Envuelve el input con el lápiz "Corregir" y arma su ✓ de confirmación.
-
-    Para campos que el wizard ya validó en vivo antes de llegar al
-    formulario final (ubicación con cobertura, matrícula no duplicada en
-    Xposure) — ambos arrancan ocultos, `page_wizard_script.py` los muestra
-    al pasar ese paso (ver `confirmField()`/`bhRestoreWizard` ahí, para
-    reload). El lápiz va superpuesto dentro del propio campo (mismo patrón
-    `.field__input-wrap` que el desplegable de ubicación), no como texto
-    aparte, para que se lea como "este campo es editable ahí".
-    Devuelve `(body, confirm_html)` — ambos van en distinta posición dentro
-    de `_render_field`.
-    """
-    name = field["name"]
-    body = (
-        f'          <div class="field__input-wrap">\n'
-        f"{body}\n"
-        f"            {_render_correct_button(name)}\n"
-        f"          </div>"
-    )
-    confirm_html = (
-        f'\n          <span class="field__confirm field__confirm--hidden" '
-        f'id="field-{name}-confirm">✓ {escape(field["confirm_text"])}</span>'
-    )
-    return body, confirm_html
-
-
-def _render_field(field: dict) -> str:
-    if field["kind"] == "select":
-        body = _render_select(field, [(name, name) for name in PROPERTY_TYPES])
-    elif field["kind"] == "yesno":
-        body = _render_select(field, [("si", "Sí"), ("no", "No")])
-    else:
-        body = _render_text_input(field)
-    required_mark = ' <span class="field__required">*</span>' if field["required"] else ""
-    wrapper_class = "field field--hidden" if field.get("hidden") else "field"
-    confirm_html = ""
-    if field.get("confirm_text"):
-        body, confirm_html = _make_field_correctable(field, body)
-    return (
-        f'        <div class="{wrapper_class}" id="field-wrap-{field["name"]}">\n'
-        f'          <label class="field__label" for="field-{field["name"]}">'
-        f"{escape(field['label'])}{required_mark}</label>\n"
-        f'          <span class="field__hint">{escape(field["hint"])}</span>\n'
-        f"{body}\n"
-        f'          <span class="field__error" id="error-{field["name"]}"></span>'
-        f"{confirm_html}\n"
-        "        </div>"
-    )
-
-
-def _render_fields_with_sections(fields: list[dict], prefill: dict[str, str] | None = None) -> str:
-    parts = []
-    last_section = None
-    for field in fields:
-        if field.get("section") and field["section"] != last_section:
-            section = field["section"]
-            title = escape(SECTION_TITLES[section])
-            icon = (
-                '<svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" '
-                'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-                f"{SECTION_ICONS[section]}</svg>"
-            )
-            parts.append(f'        <h3 class="form-section__title">{icon}{title}</h3>')
-            last_section = section
-        prefill_value = (prefill or {}).get(field["name"])
-        parts.append(_render_field({**field, "value": prefill_value} if prefill_value else field))
-    return "\n".join(parts)
-
-
-def render_form_html(
-    deal_id: str | None = None,
-    token: str | None = None,
-    prefill: dict[str, str] | None = None,
-    location_prefill: dict[str, str] | None = None,
-) -> str:
-    """`prefill` solo cubre campos que no dependen de un paso del wizard con
-    verificación en vivo (`property_type`, `address`, `sale_price`) — no
-    `registration_number`, que necesita pasar por su chequeo de duplicado en
-    Xposure para quedar en el estado "confirmado" que espera el wizard (ver
-    `_FIELDS`/`confirm_text`). El cliente los ve prellenados pero editables —
-    puede corregir un dato mal capturado.
-
-    `location_prefill` (`{"location": ..., "sector_code": ...}`) sí se salta
-    el paso del wizard en vez de solo prellenarlo: el sector ya pasó por
-    cobertura cuando el captador creó el lead (ver `app.forms.router`), así
-    que no tiene sentido volver a pedirle al cliente que lo confirme."""
-    deal_id_field_html = (
-        f'        <input type="hidden" name="deal_id" value="{escape(deal_id)}">' if deal_id else ""
-    )
-    token_field_html = f'        <input type="hidden" name="token" value="{escape(token)}">' if token else ""
-    fields_html = _render_fields_with_sections(_FIELDS, prefill)
-    location_field_html = _render_field(_LOCATION_FIELD)
-    wizard_html = render_wizard_html(location_field_html)
-    location_prefill_script_html = (
-        f'        <script>window.__BH_LOCATION_PREFILL__ = {json.dumps(location_prefill, ensure_ascii=False)};</script>'
-        if location_prefill
-        else ""
-    )
-    return (
-        _HTML.replace("__WIZARD_HTML__", wizard_html)
-        .replace("__DEAL_ID_FIELD__", deal_id_field_html)
-        .replace("__TOKEN_FIELD__", token_field_html)
-        .replace("__FIELDS_HTML__", fields_html)
-        .replace("__TEMPLATE_PATH_URL__", TEMPLATE_PATH_URL)
-        .replace("__FAVICON_URL__", FAVICON_URL)
-        .replace("__LOGO_URL__", LOGO_URL)
-        .replace("__STYLE__", FORM_STYLE + WIZARD_STYLE)
-        .replace(
-            "__SCRIPT__",
-            location_prefill_script_html
-            + FORM_SCRIPT.replace("__CLEAN_SIGNATURE_PATH__", CLEAN_SIGNATURE_PATH)
-            + WIZARD_SCRIPT.replace("__VERIFY_MATRICULA_PATH__", VERIFY_MATRICULA_PATH)
-            .replace("__CONFIRM_MATRICULA_MATCH_PATH__", CONFIRM_MATRICULA_MATCH_PATH)
-            .replace("__VERIFY_COBERTURA_PATH__", VERIFY_COBERTURA_PATH)
-            .replace("__ESTADO_SERVICIOS_PATH__", ESTADO_SERVICIOS_PATH),
-        )
-    )

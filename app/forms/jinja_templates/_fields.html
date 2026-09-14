@@ -1,0 +1,77 @@
+{# Macros de campo del formulario de Autorización de Corretaje.
+
+Solo macros acá — nada de código a nivel superior. Cada consumidor hace
+`{% from "_fields.html" import field %}` (nunca `{% include %}`, que es
+semánticamente distinto). Reemplaza a `_shared_field`/`_render_field`/
+`_render_select`/`_render_text_input`/`_render_correct_button`/
+`_make_field_correctable`/`_render_fields_with_sections` de la vieja
+`app/forms/page.py` — Python solo arma los dicts de datos (ver
+`app/forms/page.py::_shared_field`/`_FIELDS`), estos macros son el único
+lugar donde ese dato se convierte en HTML. #}
+
+{% macro correct_button(name) -%}
+<button type="button" class="field__correct-btn field__correct-btn--hidden" id="field-{{ name }}-correct" aria-label="Corregir" title="Corregir">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+</button>
+{%- endmacro %}
+
+{% macro text_input(f) -%}
+<input class="field__input{{ ' field__input--correctable' if f.confirm_text else '' }}" id="field-{{ f.name }}" type="{{ f.input_type }}"
+    {%- if not f.no_submit %} name="{{ f.name }}"{% endif -%}
+    {%- if f.value %} value="{{ f.value }}"{% endif -%}
+    {%- if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif -%}
+    {%- if f.inputmode %} inputmode="{{ f.inputmode }}"{% endif -%}
+    {%- if f.suggest %} autocomplete="off"{% endif -%}
+    {%- if f.required %} required{% endif -%}
+    {%- if f.readonly %} readonly{% endif -%}
+    {%- if f.form %} form="{{ f.form }}"{% endif -%}>
+{%- endmacro %}
+
+{% macro text_field_body(f) -%}
+{% if f.suggest %}
+<div class="field__input-wrap">
+  {{ text_input(f) }}
+  <ul class="location-suggest" id="{{ f.suggest }}" hidden></ul>
+</div>
+{%- else %}
+{{ text_input(f) }}
+{%- endif %}
+{%- endmacro %}
+
+{% macro select_field_body(f, options) -%}
+<select class="field__input" id="field-{{ f.name }}" name="{{ f.name }}"{{ ' required' if f.required else '' }}>
+  <option value=""{{ '' if f.value else ' selected' }} disabled>Selecciona una opción...</option>
+  {%- for value, label in options %}
+  <option value="{{ value }}"{{ ' selected' if value == f.value else '' }}>{{ label }}</option>
+  {%- endfor %}
+</select>
+{%- endmacro %}
+
+{% macro field_body(f, property_type_options) -%}
+{%- if f.kind == 'select' -%}
+  {{ select_field_body(f, property_type_options) }}
+{%- elif f.kind == 'yesno' -%}
+  {{ select_field_body(f, [('si', 'Sí'), ('no', 'No')]) }}
+{%- else -%}
+  {{ text_field_body(f) }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro field(f, property_type_options) -%}
+<div class="{{ 'field field--hidden' if f.hidden else 'field' }}" id="field-wrap-{{ f.name }}">
+  <label class="field__label" for="field-{{ f.name }}">{{ f.label }}{% if f.required %} <span class="field__required">*</span>{% endif %}</label>
+  <span class="field__hint">{{ f.hint }}</span>
+  {%- if f.confirm_text %}
+  <div class="field__input-wrap">
+    {{ field_body(f, property_type_options) }}
+    {{ correct_button(f.name) }}
+  </div>
+  {%- else %}
+  {{ field_body(f, property_type_options) }}
+  {%- endif %}
+  <span class="field__error" id="error-{{ f.name }}"></span>
+  {%- if f.confirm_text %}
+  <span class="field__confirm field__confirm--hidden" id="field-{{ f.name }}-confirm">✓ {{ f.confirm_text }}</span>
+  {%- endif %}
+</div>
+{%- endmacro %}

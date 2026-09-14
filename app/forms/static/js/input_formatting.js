@@ -1,15 +1,4 @@
-"""JS de formato/validación en vivo de los campos de texto del formulario.
-
-Fragmento de FORM_SCRIPT (ver page_script.py) — separado por tamaño. Corre
-dentro de la misma IIFE que el resto de los fragmentos, no tiene scope
-propio: declara funciones y variables (`locationInput`, `locationSelected`,
-`validateLocationSelection`) que usan tanto page_script_submit.py (validación
-al enviar, restaurar campos) como page_wizard_script.py (que comparte
-`field-location` por id, no por variable JS).
-"""
-from __future__ import annotations
-
-INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno seguido — se aplica en
+  // Sin espacios al principio, y nunca más de uno seguido — se aplica en
   // cada tecla, no solo al salir del campo, para que la persona nunca vea
   // "   dfdfdfd   " mientras escribe. Deja un espacio final suelto (para
   // poder seguir escribiendo la siguiente palabra); el trim final completo
@@ -109,7 +98,7 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
 
   // Sugerencias de ubicación: desplegable propio (no <datalist> nativo, para
   // poder limitarlo a 5 filas y usar la tipografía de marca — ver
-  // .location-suggest en page_styles_fields.py). El catálogo completo se
+  // .location-suggest en app/forms/static/css/fields.css). El catálogo completo se
   // trae una sola vez al abrir el formulario desde /formularios/ubicaciones
   // (backend cachea en memoria, ver app/location_catalog/) y se filtra en
   // el cliente en cada tecla. Si el fetch falla (red caída, backend sin
@@ -139,7 +128,7 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
     // Regex construido con new RegExp() (en vez de /literal/) a propósito:
     // evita que el archivo fuente tenga que llevar el propio carácter Unicode
     // combinante en medio del código.
-    var COMBINING_MARKS_RE = new RegExp('[\\u0300-\\u036f]', 'g');
+    var COMBINING_MARKS_RE = new RegExp('[\u0300-\u036f]', 'g');
     function normalize(value) {
       return value.normalize('NFKD').replace(COMBINING_MARKS_RE, '').toLowerCase();
     }
@@ -195,7 +184,7 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
       if (!query) return hideSuggestions();
 
       // Sin límite acá: se muestran todas las coincidencias, el contenedor
-      // (.location-suggest en page_styles_fields.py) es el que fija la
+      // (.location-suggest en app/forms/static/css/fields.css) es el que fija la
       // altura a 5 filas y hace scroll para el resto.
       currentMatches = allLocations.filter(function (location) {
         return normalize(location.display_label).indexOf(query) !== -1;
@@ -286,4 +275,3 @@ INPUT_FORMATTING_SCRIPT = """  // Sin espacios al principio, y nunca más de uno
     });
   });
 
-"""

@@ -1,38 +1,4 @@
-"""JS de validación, restauración de campos y envío del formulario completo.
 
-Fragmento de FORM_SCRIPT (ver page_script.py) — separado por tamaño. Usa
-`bhLoadState`/`bhSaveState`/`bhStorageKey` (page_storage_script.py),
-`locationInput`/`locationSelected`/`validateLocationSelection`
-(page_script_inputs.py) y `hasSignature`/`processingSignature`/`canvas`/
-`trimSignature`/`statusText` (page_script_signature_canvas.py) — todos
-fragmentos que se concatenan antes que este en page_script.py, dentro de la
-misma IIFE.
-"""
-from __future__ import annotations
-
-from app.shared.field_validation_script import FIELD_VALIDATION_SCRIPT
-
-SUBMIT_SCRIPT = (
-    """  var form = document.getElementById('authorization-form');
-  var status = document.getElementById('form-status');
-  var submitButton = document.getElementById('submit-button');
-
-  // Mensajes propios de Alberto Álvarez en vez de los globos genéricos del
-  // navegador ("Please fill out this field") — el <form> lleva `novalidate`
-  // y esta validación reemplaza por completo a la nativa. Los de campos
-  // obligatorios van junto al campo (`.field__error`), no en un mensaje
-  // general abajo del formulario — así la persona ve de una cuál dato falta.
-  function showFormError(message) {
-    status.className = 'form-status--error';
-    status.textContent = message;
-  }
-  function clearFormError() {
-    status.className = '';
-    status.textContent = '';
-  }
-"""
-    + FIELD_VALIDATION_SCRIPT
-    + """
 
   // El backend (Pydantic) devuelve 422 con `detail: [{loc: ["body", "campo"],
   // msg: "Value error, <mensaje>"}, ...]` — esto lo lleva al campo exacto que
@@ -206,5 +172,3 @@ SUBMIT_SCRIPT = (
       showFormError('Alberto Álvarez: ' + err.message);
     });
   });
-"""
-)

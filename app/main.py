@@ -185,6 +185,9 @@ app.include_router(home_router)
 app.mount("/static/interno", StaticFiles(directory="app/interno/static"), name="static-interno")
 app.mount("/static/home", StaticFiles(directory="app/home/static"), name="static-home")
 app.mount("/static/admin", StaticFiles(directory="app/admin/static"), name="static-admin")
+# JS compartido entre paquetes (ver app/shared/field_validation_script.py) —
+# app/interno/ lo carga como <script src>, no inline como app/forms/.
+app.mount("/static/shared", StaticFiles(directory="app/shared/static"), name="static-shared")
 # Assets de marca (favicon, logo) usados por app/forms y app/admin.
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

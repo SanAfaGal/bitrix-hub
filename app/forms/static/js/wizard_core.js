@@ -1,38 +1,4 @@
-"""JS del wizard previo al formulario completo — separado de page_script.py por tamaño.
-
-`WIZARD_SCRIPT` se arma concatenando esta parte "core" (consentimiento,
-paso de ubicación con su chequeo de cobertura, indicador de estado,
-tarjeta genérica de bloqueo, "Corregir" y `bhRestoreWizard`) con el
-fragmento de matrícula (`page_wizard_script_matricula.py`, separado por el
-mismo límite de 500 líneas por archivo) — éste último debe ir DESPUÉS de la
-parte que declara `hide`/`show`/`showBlocked`/`blockedReturnStep`/
-`setWizardFieldError`/`confirmField`/`showConfirmMatch`/`bhSaveState` (las
-usa) y ANTES de los botones "Corregir"/`bhRestoreWizard` (que necesitan
-`matriculaInput` ya declarado) — mismo patrón de fragmentos-en-una-sola-IIFE
-que `page_script.py`.
-
-Contiene `__VERIFY_MATRICULA_PATH__`, `__CONFIRM_MATRICULA_MATCH_PATH__`,
-`__VERIFY_COBERTURA_PATH__` y `__ESTADO_SERVICIOS_PATH__`, reemplazados por
-`render_form_html()` en `page.py` (mismo mecanismo de placeholders que
-`page_script.py`). Corre en su propia IIFE, después del `<script>` de
-`page_script.py` en el HTML final — no depende de sus funciones internas;
-solo comparte elementos del DOM por id (`field-location`,
-`field-location_sector_code`, `field-registration_number`,
-`authorization-form`) y los helpers de storage de `page_storage_script.py`
-(única fuente de esa lógica, compartida en tiempo de compilación de la
-plantilla, no en tiempo de ejecución — ver el docstring de ese módulo).
-"""
-from __future__ import annotations
-
-from app.forms.page_storage_script import STORAGE_SCRIPT
-from app.forms.page_wizard_script_matricula import WIZARD_MATRICULA_SCRIPT
-
-WIZARD_SCRIPT = (
-    """<script>
-(function () {
-"""
-    + STORAGE_SCRIPT
-    + """  var stepAuthorization = document.getElementById('wizard-step-authorization');
+  var stepAuthorization = document.getElementById('wizard-step-authorization');
   var stepDeclined = document.getElementById('wizard-step-declined');
   var stepLocation = document.getElementById('wizard-step-location');
   var stepMatricula = document.getElementById('wizard-step-matricula');
@@ -162,7 +128,7 @@ WIZARD_SCRIPT = (
       : 'Servicio de ' + label + ' no disponible en este momento — igual puedes continuar.';
   }
   function refreshServiceStatus() {
-    fetch('__ESTADO_SERVICIOS_PATH__')
+    fetch(window.BH_CONFIG.estadoServiciosPath)
       .then(function (response) { return response.json(); })
       .then(function (body) {
         setStatusDot(document.getElementById('wizard-status-location'), body.mobilia_dwh, 'ubicaciones');
@@ -229,7 +195,7 @@ WIZARD_SCRIPT = (
   // en el otro <script> — módulo con su propia IIFE, no accesible desde acá,
   // ver el docstring de este archivo). Antes estos pasos solo ponían el
   // texto del error sin la clase `field__error--visible` que lo muestra
-  // (ver .field__error en page_styles_fields.py, oculto por defecto) — el
+  // (ver .field__error en app/forms/static/css/fields.css, oculto por defecto) — el
   // mensaje quedaba escrito pero invisible, el cliente solo veía el borde
   // rojo del campo sin saber qué corregir.
   function setWizardFieldError(input, errorEl, message) {
@@ -277,7 +243,7 @@ WIZARD_SCRIPT = (
     var dealIdInput = form.elements.deal_id;
     var tokenInput = form.elements.token;
 
-    fetch('__VERIFY_COBERTURA_PATH__', {
+    fetch(window.BH_CONFIG.verifyCoberturaPath, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -345,101 +311,3 @@ WIZARD_SCRIPT = (
     });
   });
 
-"""
-    + WIZARD_MATRICULA_SCRIPT
-    + """  // Botones "Corregir" del formulario final: reabren el paso del wizard
-  // correspondiente si la persona se equivocó, en vez de obligarla a pedir
-  // un enlace nuevo al asesor (los pasos no tienen "atrás" una vez pasados).
-  var locationCorrectButton = document.getElementById('field-location_display-correct');
-  if (locationCorrectButton) {
-    locationCorrectButton.addEventListener('click', function () {
-      // Se baja el paso guardado ANTES de que la persona vuelva a tocar
-      // nada: si recarga a mitad de la corrección, no debe restaurar el
-      // formulario completo con un dato que quedó a medio corregir.
-      bhSaveState({ wizard: { step: 'location' } });
-      hide(fullFormCard);
-      document.getElementById('field-location_display-confirm').classList.add('field__confirm--hidden');
-      locationCorrectButton.classList.add('field__correct-btn--hidden');
-      show(stepLocation);
-      locationInput.focus();
-      locationInput.select();
-    });
-  }
-  var registrationCorrectButton = document.getElementById('field-registration_number-correct');
-  if (registrationCorrectButton) {
-    registrationCorrectButton.addEventListener('click', function () {
-      bhSaveState({ wizard: { step: 'matricula' } });
-      hide(fullFormCard);
-      document.getElementById('field-registration_number-confirm').classList.add('field__confirm--hidden');
-      registrationCorrectButton.classList.add('field__correct-btn--hidden');
-      show(stepMatricula);
-      matriculaInput.focus();
-      matriculaInput.select();
-    });
-  }
-
-  // Botón "Empezar de nuevo": solo visible si hay progreso guardado (se
-  // decide en bhRestoreWizard, más abajo, que ya carga el estado). Borra
-  // todo el localStorage del formulario y recarga — no intenta resetear el
-  // DOM a mano, más simple y evita dejar algún campo a medias.
-  var startOverButton = document.getElementById('start-over-btn');
-  startOverButton.addEventListener('click', function () {
-    if (!confirm('¿Seguro que quieres empezar de nuevo? Se perderá lo que llevas.')) return;
-    bhClearState();
-    location.reload();
-  });
-
-  // Restaura el paso del wizard guardado (recarga de página) — al final de
-  // la IIFE porque necesita todas las funciones/variables ya declaradas.
-  (function bhRestoreWizard() {
-    var state = bhLoadState();
-    var w = state.wizard || {};
-    if (Object.keys(state).length > 0) startOverButton.classList.remove('start-over-btn--hidden');
-    if (w.consentAccepted) dataConsentCheckbox.checked = true;
-    if (w.location) locationInput.value = w.location;
-    // Se restaura junto con `location` (no solo en el paso 'location'):
-    // sin esto, un cliente que recarga después de pasar el chequeo de
-    // cobertura y luego usa "Corregir" se encontraría el sector_code vacío
-    // aunque la ubicación ya esté confirmada.
-    if (w.sectorCode && locationSectorCodeInput) locationSectorCodeInput.value = w.sectorCode;
-    if (w.matricula) matriculaInput.value = w.matricula;
-    if (!w.step && locationPrefill) {
-      // Primer visita con un deal que ya trae ubicación confirmada por el
-      // captador (ver más arriba) — ni consentimiento ni ubicación se le
-      // vuelven a pedir, arranca directo en matrícula. Se guarda igual que
-      // si hubiera pasado por los pasos a mano, para que una recarga
-      // restaure este mismo punto (rama `w.step === 'matricula'` de abajo)
-      // en vez de volver a correr este atajo.
-      locationInput.value = locationPrefill.location;
-      if (locationSectorCodeInput) locationSectorCodeInput.value = locationPrefill.sector_code;
-      confirmField('location_display', locationPrefill.location);
-      bhSaveState({
-        wizard: {
-          consentAccepted: true,
-          location: locationPrefill.location,
-          sectorCode: locationPrefill.sector_code,
-          step: 'matricula'
-        }
-      });
-      hide(stepAuthorization);
-      show(stepMatricula);
-      refreshServiceStatus();
-    } else if (w.step === 'done') {
-      if (w.location) confirmField('location_display', w.location);
-      if (w.matricula) confirmField('registration_number', w.matricula);
-      hide(stepAuthorization);
-      showFullForm();
-    } else if (w.step === 'matricula') {
-      if (w.location) confirmField('location_display', w.location);
-      hide(stepAuthorization);
-      show(stepMatricula);
-      refreshServiceStatus();
-    } else if (w.step === 'location') {
-      hide(stepAuthorization);
-      show(stepLocation);
-      refreshServiceStatus();
-    }
-  })();
-})();
-</script>"""
-)

@@ -1,0 +1,125 @@
+{% from "_fields.html" import field %}
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autorización de Corretaje — Alberto Álvarez</title>
+<link rel="icon" href="{{ favicon_url }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+{{ base_css }}{{ fields_css }}{{ signature_css }}{{ wizard_css }}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="frame">
+    <div class="brand">
+      <img class="brand__logo" src="{{ logo_url }}" alt="Alberto Álvarez">
+      <span class="brand__name">Alberto Álvarez</span>
+      <span class="brand__tagline">Servicios Integrales Inmobiliarios</span>
+    </div>
+    <button type="button" class="start-over-btn start-over-btn--hidden" id="start-over-btn">Empezar de nuevo</button>
+    <div id="form-flow">
+    <div class="card">
+      <div class="card__header">
+        <h1 class="card__title">Autorización de Corretaje Inmobiliario</h1>
+        <p class="card__subtitle">Antes de llenar tus datos, lee el documento completo.</p>
+      </div>
+      <a class="document-cta" href="{{ template_path_url }}" target="_blank" rel="noopener">
+        <span class="document-cta__icon">📄</span>
+        <span class="document-cta__text">
+          <strong>Ver documento completo</strong>
+          <span>Autorización de Corretaje — PDF</span>
+        </span>
+        <span class="document-cta__arrow">›</span>
+      </a>
+    </div>
+{% include "wizard.html" %}
+    <div id="full-form-card" class="card card--hidden">
+      <div class="card__header">
+        <h2 class="card__title">Completa la información</h2>
+        <p class="card__subtitle">Datos del interesado, del inmueble y firma al final.</p>
+      </div>
+      <form id="authorization-form" novalidate>
+{% if deal_id %}
+        <input type="hidden" name="deal_id" value="{{ deal_id }}">
+{% endif %}
+{% if token %}
+        <input type="hidden" name="token" value="{{ token }}">
+{% endif %}
+{% set ns = namespace(last_section=None) %}
+{% for f in fields %}
+{% if f.section and f.section != ns.last_section %}
+        <h3 class="form-section__title"><svg class="form-section__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{{ section_icons[f.section] | safe }}</svg>{{ section_titles[f.section] }}</h3>
+{% set ns.last_section = f.section %}
+{% endif %}
+{{ field(f, property_type_options) }}
+{% endfor %}
+        <div class="field-group">
+          <div class="signature-group__header">
+            <span class="field-group__legend">Firma del interesado</span>
+            <div class="signature-tabs">
+              <button type="button" class="signature-tab signature-tab--active" id="tab-draw">Dibujar</button>
+              <button type="button" class="signature-tab" id="tab-upload">Subir foto</button>
+            </div>
+          </div>
+          <div class="signature-canvas-wrap">
+            <canvas id="signature-canvas" class="signature-box"></canvas>
+            <div class="signature-toolbar">
+              <button type="button" class="signature-icon-btn" id="undo-signature" aria-label="Deshacer último trazo" title="Deshacer">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 14 4 9l5-5"/>
+                  <path d="M4 9h10.5A5.5 5.5 0 0 1 20 14.5v0A5.5 5.5 0 0 1 14.5 20H11"/>
+                </svg>
+              </button>
+              <button type="button" class="signature-icon-btn" id="clear-signature" aria-label="Borrar firma" title="Borrar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6"/>
+                  <path d="M14 11v6"/>
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
+            </div>
+            <div class="signature-placeholder signature-placeholder--hidden" id="signature-placeholder">
+              Toca para elegir una foto de tu firma
+            </div>
+            <div class="signature-processing-overlay signature-processing-overlay--hidden" id="signature-processing-overlay">
+              <span class="spinner spinner--lg"></span>
+              <span class="signature-processing-overlay__text" id="signature-processing-overlay-text">Limpiando la firma...</span>
+            </div>
+          </div>
+          <input type="file" id="signature-file" accept="image/*" class="signature-file-input">
+          <div class="signature-actions">
+            <span class="signature-status-text" id="signature-status-text">Firma aquí con el dedo</span>
+          </div>
+        </div>
+        <div class="submit-warning">
+          <span>Este enlace es de un solo uso: revisa bien tu información antes de enviar.</span>
+        </div>
+        <button type="submit" class="btn btn--primary" id="submit-button">Enviar autorización</button>
+        <div id="form-status"></div>
+      </form>
+    </div>
+    </div>
+    <div class="card success-view success-view--hidden" id="success-view">
+      <span class="success-view__icon">✓</span>
+      <h2 class="success-view__title">Autorización enviada</h2>
+      <p class="success-view__text">
+        Tu documento firmado se descargó en este dispositivo. Gracias por confiar en Alberto Álvarez.
+      </p>
+    </div>
+  </div>
+</div>
+{{ bh_config_script }}
+{% if location_prefill_script %}
+{{ location_prefill_script }}
+{% endif %}
+{{ module_script }}
+{{ wizard_script }}
+</body>
+</html>

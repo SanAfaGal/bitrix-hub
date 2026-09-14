@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} — Alberto Álvarez</title>
+<link rel="icon" href="{{ favicon_url }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+{{ base_css }}{{ fields_css }}{{ signature_css }}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="frame">
+    <div class="brand">
+      <img class="brand__logo" src="{{ logo_url }}" alt="Alberto Álvarez">
+      <span class="brand__name">Alberto Álvarez</span>
+      <span class="brand__tagline">Servicios Integrales Inmobiliarios</span>
+    </div>
+    <div class="card success-view">
+      <span class="success-view__icon">{{ icon }}</span>
+      <h2 class="success-view__title">{{ title }}</h2>
+      <p class="success-view__text">{{ message }}</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>
