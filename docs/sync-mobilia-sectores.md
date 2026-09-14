@@ -14,8 +14,11 @@ composite de mixins), `app/flows/README.md` (por qué este sync NO vive ahí).
 
 Copia el catálogo de sectores de `mobilia_dwh` (vista `cat_mobilia_sectores`)
 hacia el Smart Process de Bitrix `entityTypeId=1088`. **Mobilia es la única
-fuente de verdad; Bitrix es un espejo.** Se ejecuta a mano por ahora
-(`uv run python scripts/sync_mobilia_sectores.py`), sin cron todavía.
+fuente de verdad; Bitrix es un espejo.** Corre sola cada `SECTOR_SYNC_INTERVAL_DAYS`
+días (default 7) vía `app/scheduler.py::job_sync_sectores` — el script
+(`uv run python scripts/sync_mobilia_sectores.py`) queda para correrlo a
+mano fuera de ese ciclo (ej. con `--dry-run` para revisar antes de esperar
+a la próxima corrida automática).
 
 ## Campos de Mobilia usados
 

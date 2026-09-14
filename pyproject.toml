@@ -5,6 +5,7 @@ description = "Hub de integraciones disparadas por webhooks de Bitrix (Waha, y a
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.13.0",
+    "apscheduler>=3.11.3",
     "babel>=2.18.0",
     "beautifulsoup4>=4.15.0",
     "certifi>=2026.7.22",

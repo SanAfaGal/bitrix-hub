@@ -199,7 +199,8 @@ app/
   interno/
     router.py                 # GET/POST /interno/nuevo-lead, /interno/lead/{deal_id} (tag "Interno")
     templates/, static/          # HTML/CSS/JS sueltos (no armados en Python, ver app/shared/html_templates.py)
-  main.py                 # FastAPI(), openapi_tags, include_router(...), GET /health
+  main.py                 # FastAPI(), openapi_tags, include_router(...), GET /health, /health/integrations
+  scheduler.py            # Jobs programados: correos->Bitrix cada 5 min, sectores Mobilia->Bitrix cada semana (SCHEDULER_ENABLED)
 scripts/
   resolve_bitrix_drive_folder.py     # Busca carpetas de Bitrix Drive por nombre
   list_bitrix_picklist_values.py     # Lista los VALUE ID de un campo picklist del deal (ej. Tipo de inmueble)
@@ -216,6 +217,7 @@ tests/
   test_admin_router.py
   test_phone.py
   test_registry_duplicate_check.py
+  test_scheduler.py
   test_main.py
 ```
 
