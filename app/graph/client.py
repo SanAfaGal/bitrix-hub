@@ -27,6 +27,20 @@ class GraphClient:
         self._token: str | None = None
         self._token_expires_at: float = 0.0
 
+    def is_reachable(self) -> bool:
+        """Chequeo liviano de disponibilidad (ver GET /health/integrations en app/main.py).
+
+        Solo confirma que se puede autenticar (obtener token OAuth) contra
+        Graph — no hace una llamada real al inbox. Cubre la falla más común
+        (secreto vencido/rotado, app registration deshabilitada) sin el
+        costo de traer mensajes. Nunca lanza: loguea y devuelve False."""
+        try:
+            self._get_token()
+            return True
+        except RuntimeError:
+            logger.warning("Microsoft Graph no está respondiendo (chequeo de disponibilidad)")
+            return False
+
     def list_messages(self, sender: str | None = None, top: int = 25) -> list[dict[str, Any]]:
         """Lista mensajes del Inbox de la bandeja configurada, opcionalmente filtrados por remitente.
 

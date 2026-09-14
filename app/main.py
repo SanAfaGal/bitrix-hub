@@ -17,15 +17,24 @@ mimetypes.add_type("image/webp", ".webp")
 from app.admin.router import router as admin_router
 from app.auth.router import router as auth_router
 from app.auth.settings import load_session_settings
+from app.bitrix.client import BitrixClient
+from app.bitrix.settings import load_bitrix_settings
 from app.flows.router import router as flows_router
 from app.forms.router import router as forms_router
+from app.graph.client import GraphClient
 from app.graph.router import router as graph_router
+from app.graph.settings import load_graph_settings
 from app.home.router import router as home_router
 from app.interno.router import router as interno_router
 from app.location_catalog.router import router as location_catalog_router
 from app.message_templates import store as templates_store
+from app.scheduler import start_scheduler
+from app.waha.client import WahaClient
 from app.waha.router import router as waha_router
+from app.waha.settings import load_waha_settings
+from app.xposure.client import XposureClient
 from app.xposure.router import router as xposure_router
+from app.xposure.settings import load_xposure_settings
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +127,10 @@ async def _lifespan(app: FastAPI):
     except Exception:
         logger.exception("No se pudo inicializar la base de plantillas de MySQL, se seguirá con los defaults")
     _warn_if_webhook_secrets_missing()
+    scheduler = start_scheduler()
     yield
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
 
 
 def _warn_if_webhook_secrets_missing() -> None:
@@ -194,5 +206,51 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.get("/health", tags=["Salud"], summary="Estado del servicio")
 def health() -> dict[str, str]:
-    """Verifica que la API esté corriendo."""
+    """Verifica que la API esté corriendo.
+
+    Deliberadamente no consulta integraciones externas — es lo que golpea
+    el healthcheck de docker-compose.yml, y una caída transitoria de
+    Bitrix/Xposure/Waha no debe hacer que Docker reinicie este contenedor.
+    Para eso ver `/health/integrations`.
+    """
     return {"status": "ok"}
+
+
+def _check_bitrix() -> bool:
+    webhook_url = load_bitrix_settings()
+    return BitrixClient(webhook_url).is_reachable()
+
+
+def _check_xposure() -> bool:
+    base_url, username, password = load_xposure_settings()
+    return XposureClient(base_url, username, password).is_reachable()
+
+
+def _check_waha() -> bool:
+    return WahaClient(load_waha_settings()).is_reachable()
+
+
+def _check_graph() -> bool:
+    tenant_id, client_id, client_secret, mailbox = load_graph_settings()
+    return GraphClient(tenant_id, client_id, client_secret, mailbox).is_reachable()
+
+
+@app.get("/health/integrations", tags=["Salud"], summary="Estado de las integraciones externas")
+def health_integrations() -> dict[str, str]:
+    """Chequeo real por integración (Bitrix, Xposure, Waha, Microsoft Graph/Outlook) —
+    pensado para un monitor externo (UptimeRobot, healthchecks.io, cron) que alerte
+    antes de que un usuario se tope con un error. Nunca lanza: falla de config o de
+    red en una integración se reporta como "error", sin tumbar el resto del chequeo."""
+    results: dict[str, str] = {}
+    for name, check in (
+        ("bitrix", _check_bitrix),
+        ("xposure", _check_xposure),
+        ("waha", _check_waha),
+        ("graph", _check_graph),
+    ):
+        try:
+            results[name] = "ok" if check() else "error"
+        except Exception as exc:
+            logger.warning("Chequeo de disponibilidad de %s falló: %s", name, exc)
+            results[name] = "error"
+    return results

@@ -47,6 +47,22 @@ def test_health_endpoint() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_health_integrations_reports_ok_and_error_per_integration(monkeypatch) -> None:
+    monkeypatch.setattr("app.main._check_bitrix", lambda: True)
+    monkeypatch.setattr("app.main._check_xposure", lambda: False)
+
+    def _raise() -> bool:
+        raise RuntimeError("Falta variable de entorno: WAHA_BASE_URL")
+
+    monkeypatch.setattr("app.main._check_waha", _raise)
+    monkeypatch.setattr("app.main._check_graph", lambda: True)
+
+    response = client.get("/health/integrations")
+
+    assert response.status_code == 200
+    assert response.json() == {"bitrix": "ok", "xposure": "error", "waha": "error", "graph": "ok"}
+
+
 def test_single_property_lookup() -> None:
     class FakeClient:
         def search_property(self, tax_roll: str, tax_roll_area_code: str | None = None) -> PropertySearchResult:

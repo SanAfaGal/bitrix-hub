@@ -30,6 +30,28 @@ class WahaClient:
         # en cada llamada, reutilizándola entre requests de la misma instancia.
         self._http = requests.Session()
 
+    def is_reachable(self, session: str | None = None) -> bool:
+        """Chequeo liviano de disponibilidad (ver GET /health/integrations en app/main.py).
+
+        Llama a `GET /api/sessions/{session}` y confirma que el status sea
+        "WORKING" — a diferencia de pegarle solo a `/api/version` (lo que
+        hace el healthcheck de docker-compose.yml), esto detecta también el
+        caso de que Waha esté arriba pero la sesión de WhatsApp se haya
+        desconectado/deslogueado, que es la falla real que le importa a
+        quien envía mensajes. Nunca lanza: loguea y devuelve False."""
+        try:
+            response = self._http.get(
+                f"{self.base_url}/api/sessions/{session or self.session}",
+                headers=self._headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return isinstance(payload, dict) and payload.get("status") == "WORKING"
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            logger.warning("Waha no está respondiendo (chequeo de disponibilidad): %s", exc)
+            return False
+
     def mark_seen(self, chat_id: str, session: str | None = None) -> bool:
         """Marca como visto el último mensaje de un chat (`POST /api/sendSeen`). No lanza si falla.
 

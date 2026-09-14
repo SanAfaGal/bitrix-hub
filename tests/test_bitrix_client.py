@@ -25,6 +25,33 @@ class FakeResponse:
         return self._json_data
 
 
+def test_is_reachable_returns_true_when_profile_responds_ok(monkeypatch) -> None:
+    monkeypatch.setattr(requests.Session, "get", staticmethod(lambda url, timeout: FakeResponse({"ID": "1"})))
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+
+    assert client.is_reachable() is True
+
+
+def test_is_reachable_returns_false_when_profile_responds_with_error(monkeypatch) -> None:
+    monkeypatch.setattr(requests.Session, "get", staticmethod(lambda url, timeout: FakeResponse(status_code=500)))
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+
+    assert client.is_reachable() is False
+
+
+def test_is_reachable_returns_false_when_request_fails(monkeypatch) -> None:
+    def _raise(url: str, timeout: int):
+        raise requests.exceptions.ConnectionError("no llega")
+
+    monkeypatch.setattr(requests.Session, "get", staticmethod(_raise))
+
+    client = BitrixClient("https://example.bitrix24.com/rest/1/token/")
+
+    assert client.is_reachable() is False
+
+
 def test_get_deal_returns_result(monkeypatch) -> None:
     captured = {}
 

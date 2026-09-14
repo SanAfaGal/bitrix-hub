@@ -36,6 +36,20 @@ def test_get_token_raises_runtime_error_when_response_has_no_access_token(monkey
         client._get_token()
 
 
+def test_is_reachable_returns_true_when_token_obtained(monkeypatch) -> None:
+    client = GraphClient("tenant", "client-id", "secret", "gestionventas@albertoalvarez.com")
+    monkeypatch.setattr(client.session, "post", lambda *a, **k: FakeResponse({"access_token": "tok", "expires_in": 3600}))
+
+    assert client.is_reachable() is True
+
+
+def test_is_reachable_returns_false_when_auth_fails(monkeypatch) -> None:
+    client = GraphClient("tenant", "client-id", "secret", "gestionventas@albertoalvarez.com")
+    monkeypatch.setattr(client.session, "post", lambda *a, **k: FakeResponse({"error": "invalid_client"}))
+
+    assert client.is_reachable() is False
+
+
 def test_list_messages_without_sender_does_not_filter(monkeypatch) -> None:
     client = _client()
     raw = [{"id": "1", "from": {"emailAddress": {"address": "a@x.com"}}}]

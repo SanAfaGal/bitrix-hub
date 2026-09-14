@@ -20,6 +20,42 @@ class FakeResponse:
         return self._json_data or {}
 
 
+def test_is_reachable_returns_true_when_session_status_is_working(monkeypatch) -> None:
+    def fake_get(url: str, headers: dict, timeout: int) -> FakeResponse:
+        assert url == "http://localhost:3000/api/sessions/default"
+        return FakeResponse(json_data={"status": "WORKING"})
+
+    monkeypatch.setattr(requests.Session, "get", staticmethod(fake_get))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
+    client = WahaClient(settings)
+
+    assert client.is_reachable() is True
+
+
+def test_is_reachable_returns_false_when_session_status_is_not_working(monkeypatch) -> None:
+    monkeypatch.setattr(
+        requests.Session, "get", staticmethod(lambda url, headers, timeout: FakeResponse(json_data={"status": "STOPPED"}))
+    )
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
+    client = WahaClient(settings)
+
+    assert client.is_reachable() is False
+
+
+def test_is_reachable_returns_false_when_request_fails(monkeypatch) -> None:
+    def _raise(url: str, headers: dict, timeout: int):
+        raise requests.exceptions.ConnectionError("no llega")
+
+    monkeypatch.setattr(requests.Session, "get", staticmethod(_raise))
+
+    settings = WahaSettings(base_url="http://localhost:3000", api_key="secret", session="default")
+    client = WahaClient(settings)
+
+    assert client.is_reachable() is False
+
+
 def test_send_text_posts_expected_payload_and_returns_true(monkeypatch) -> None:
     captured = {}
 
