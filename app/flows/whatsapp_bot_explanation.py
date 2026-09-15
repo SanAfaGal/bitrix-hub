@@ -62,7 +62,7 @@ def maybe_send_explanation(chat_id: str, session: str, waha_client: WahaClient, 
     Retorna `True` cuando este turno ya quedó resuelto acá (el caller no debe
     invocar al LLM), `False` cuando la explicación ya se había mandado antes.
     """
-    if store.get_explanation_sent(chat_id):
+    if store.has_reached(chat_id, "explanation"):
         return False
 
     process_text = templates_store.get_template("whatsapp_process_explanation")
@@ -70,7 +70,7 @@ def maybe_send_explanation(chat_id: str, session: str, waha_client: WahaClient, 
         store.add_turn(chat_id, "assistant", process_text)
 
     if _send_voice_and_ask_acceptance(chat_id, session, waha_client, store):
-        store.set_explanation_sent(chat_id)
+        store.mark_reached(chat_id, "explanation")
     return True
 
 
@@ -84,14 +84,14 @@ def maybe_handle_delayed_explanation_request(
     """
     if not requested:
         return False
-    if store.get_explanation_sent(chat_id):
+    if store.has_reached(chat_id, "explanation"):
         return False
 
     # El mensaje de la persona que pidió esto ya se registró en `process()`
     # (este helper se llama después del turno normal del LLM) — acá solo
     # falta registrar lo que el bot manda de más.
     if _send_voice_and_ask_acceptance(chat_id, session, waha_client, store):
-        store.set_explanation_sent(chat_id)
+        store.mark_reached(chat_id, "explanation")
     return True
 
 
@@ -113,8 +113,8 @@ def maybe_handle_acceptance(
     si el link ya se mandó o firmó antes, o si `text` no es una afirmación
     clara — en cualquiera de esos casos el caller sigue con el turno normal.
 
-    "Ya se mandó" se decide con `store.get_authorization_link_sent` (local),
-    no con `crm_client.get_authorization_status(deal) is None` — ese campo
+    "Ya se mandó" se decide con `store.has_reached(chat_id, "authorization_link")`
+    (local), no con `crm_client.get_authorization_status(deal) is None` — ese campo
     de Bitrix puede traer un valor por defecto no nulo desde que se crea el
     deal (`"pendiente_envio"`), así que "no es None" no significa "ya lo
     mandamos" (bug visto en producción: el gate nunca se abría y el bot
@@ -124,10 +124,10 @@ def maybe_handle_acceptance(
     diferencia del default ambiguo — para cubrir un deal cuyo tracking local
     se perdiera (ej. reset de la base) pero Bitrix ya sepa que se mandó.
     """
-    if not store.get_explanation_sent(chat_id):
+    if not store.has_reached(chat_id, "explanation"):
         return False
 
-    if store.get_authorization_link_sent(chat_id):
+    if store.has_reached(chat_id, "authorization_link"):
         return False
 
     deal = crm_client.get_deal(deal_id)
@@ -145,7 +145,7 @@ def maybe_handle_acceptance(
         deal_id, crm_client, waha_client, public_base_url, link_secret, session=session
     )
     if result.get("ok"):
-        store.set_authorization_link_sent(chat_id)
+        store.mark_reached(chat_id, "authorization_link")
         store.add_turn(
             chat_id, "assistant", "[Se envió el enlace de la Autorización de Corretaje para completar y firmar]"
         )

@@ -1,29 +1,39 @@
-"""baseline: templates, leads, messages
+"""baseline: templates, leads, messages, whatsapp_messages, checkpoints, lead_checkpoints
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-08-31
+Create Date: 2026-09-14
 
-Migración única — reemplaza la cadena anterior (0001..0004), squasheada
-porque ninguna base real (fuera de este entorno de desarrollo) tenía datos
-que preservar salvo `templates` (antes `message_templates`), respaldada y
-reimportada a mano al aplicar esto. Crea el esquema final completo:
+Migración única — reemplaza la cadena anterior (0001..0005), squasheada de
+nuevo porque ninguna base real (fuera de este entorno de desarrollo) tenía
+datos que preservar salvo `templates` (respaldada y reimportada a mano al
+aplicar esto, igual que en el squash anterior). Crea el esquema final
+completo:
 
-- `templates` (antes `message_templates`): texto editable desde el panel
-  admin, identificado por `key` (`app.message_templates.models.MessageTemplate`).
+- `templates`: texto editable desde el panel admin, identificado por `key`
+  (`app.message_templates.models.MessageTemplate`).
 - `leads`: un prospecto por `chat_id` (WhatsApp, `channel="whatsapp"`) o
   `tracking_id` (formulario web vía correo, `channel="email"`) — nunca por
   los dos; PK sintética `id` porque ninguna de las dos claves de negocio
   aplica a todas las filas (`app.flows.whatsapp_bot_models.Conversation`).
-  Incluye `bot_enabled` — activación explícita del bot por chat (opt-in),
-  arranca en False; un admin lo prende a mano desde el panel admin, o el
-  chat se auto-activa solo si es genuinamente nuevo en Waha (ver
-  `whatsapp_bot_new_chat_check.py`) — y `history_seeded`, que marca si ya
-  se intentó importar el historial previo de WhatsApp desde Waha para ese
-  chat (`app.flows.whatsapp_bot_history_seed.seed_history_from_waha`),
-  también arranca en False. Sin significado para un lead de correo.
+  Incluye `bot_enabled`/`bot_enabled_reason` — activación explícita del bot
+  por chat (opt-in) y el motivo del último cambio — e `history_seeded`, que
+  marca si ya se intentó importar el historial previo de WhatsApp desde Waha
+  para ese chat. El progreso conversacional (zona en cobertura, explicación
+  enviada, link de Autorización enviado) YA NO son columnas acá — viven en
+  `checkpoints`/`lead_checkpoints` (ver abajo).
 - `messages`: historial de turnos de un lead de WhatsApp, 1:N vía
   `lead_id` -> `leads.id` (`app.flows.whatsapp_bot_models.ConversationMessage`).
+- `whatsapp_messages`: log de dedup de `message_id` de Waha, independiente de
+  `messages`/`leads` (`app.flows.whatsapp_bot_models.WhatsappMessage`).
+- `checkpoints` (catálogo) + `lead_checkpoints` (progreso por lead): modelo
+  genérico de progreso conversacional — agregar un checkpoint nuevo es una
+  fila en `CHECKPOINT_SEED`
+  (`app.flows.whatsapp_bot_checkpoints.CHECKPOINT_SEED`), no una migración de
+  schema. Que exista la fila en `lead_checkpoints` para
+  `(lead_id, checkpoint_id)` ya significa "alcanzado", sin importar si
+  `value`/`reached_at` son `NULL`. `bot_enabled`/`bot_enabled_reason` NO son
+  checkpoints — son control operativo de admin, no progreso conversacional.
 """
 from typing import Sequence, Union
 
@@ -36,6 +46,15 @@ revision: str = "0001"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+# Debe quedar igual a `app.flows.whatsapp_bot_checkpoints.CHECKPOINT_SEED` —
+# única fuente de verdad del catálogo inicial, no se importa desde acá para
+# no atar esta migración (histórica, inmutable) a que ese módulo no cambie.
+_CHECKPOINT_SEED = [
+    ("zone_coverage", "¿Zona del inmueble está en cobertura (Medellín / Oriente antioqueño)?", 1),
+    ("explanation", "Explicación del proceso enviada", 2),
+    ("authorization_link", "Link de Autorización de Corretaje enviado", 3),
+]
 
 
 def upgrade() -> None:
@@ -57,9 +76,8 @@ def upgrade() -> None:
         sa.Column("deal_id", sa.String(length=32), nullable=True),
         sa.Column("name", sa.String(length=255), nullable=True),
         sa.Column("phone", sa.String(length=32), nullable=True),
-        sa.Column("explanation_sent", sa.Boolean(), nullable=False),
-        sa.Column("authorization_link_sent", sa.Boolean(), nullable=False),
         sa.Column("bot_enabled", sa.Boolean(), nullable=False),
+        sa.Column("bot_enabled_reason", sa.String(length=32), nullable=True),
         sa.Column("history_seeded", sa.Boolean(), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=True),
         sa.Column("detail", sa.Text(), nullable=True),
@@ -82,9 +100,58 @@ def upgrade() -> None:
     )
     op.create_index("idx_messages_lead_id", "messages", ["lead_id", "id"], unique=False)
 
+    op.create_table(
+        "whatsapp_messages",
+        sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+        sa.Column("message_id", sa.String(128), nullable=False),
+        sa.Column("processed_at", sa.DateTime, nullable=False),
+        sa.UniqueConstraint("message_id", name="uq_whatsapp_messages_message_id"),
+    )
+
+    op.create_table(
+        "checkpoints",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("key", sa.String(length=64), nullable=False),
+        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("order", sa.Integer(), nullable=False),
+        sa.Column("active", sa.Boolean(), nullable=False),
+        sa.UniqueConstraint("key", name="uq_checkpoints_key"),
+        sa.UniqueConstraint("order", name="uq_checkpoints_order"),
+    )
+
+    op.create_table(
+        "lead_checkpoints",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("lead_id", sa.Integer(), nullable=False),
+        sa.Column("checkpoint_id", sa.Integer(), nullable=False),
+        sa.Column("value", sa.Integer(), nullable=True),
+        sa.Column("reached_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(["lead_id"], ["leads.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["checkpoint_id"], ["checkpoints.id"]),
+        sa.UniqueConstraint("lead_id", "checkpoint_id", name="uq_lead_checkpoints_lead_checkpoint"),
+    )
+
+    checkpoints_table = sa.table(
+        "checkpoints",
+        sa.column("key", sa.String),
+        sa.column("description", sa.Text),
+        sa.column("order", sa.Integer),
+        sa.column("active", sa.Boolean),
+    )
+    op.bulk_insert(
+        checkpoints_table,
+        [
+            {"key": key, "description": description, "order": order, "active": True}
+            for key, description, order in _CHECKPOINT_SEED
+        ],
+    )
+
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_table("lead_checkpoints")
+    op.drop_table("checkpoints")
+    op.drop_table("whatsapp_messages")
     op.drop_table("messages")
     op.drop_table("leads")
     op.drop_table("templates")

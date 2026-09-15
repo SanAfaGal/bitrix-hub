@@ -56,7 +56,7 @@ Si el cliente afirma en el
 chat que ya firmó la Autorización de Corretaje (`LlmTurn.signed_claim`)
 pero el campo de Bitrix todavía no dice `"firmada"`, el bot se lo aclara y
 reenvía el link en vez de darlo por bueno. Mientras el link ya se mandó
-(`authorization_link_sent`) pero Bitrix no dice `"firmada"` todavía, cada
+(checkpoint `authorization_link`) pero Bitrix no dice `"firmada"` todavía, cada
 turno recuerda que falta firmar (`_awaiting_signature_note`) en vez de
 volver al prompt genérico — sin esto una confirmación genérica de la
 persona ("sí") se podía contestar como si el proceso ya hubiera avanzado.
@@ -385,15 +385,15 @@ def _generate_and_send_reply(
         deal_id = _create_deal_from_confirmed_identity(chat_id, crm_client, store)
 
     awaiting_zone_response = False
-    if deal_id is not None and store.get_zone_asked(chat_id) and store.get_zone_in_coverage(chat_id) is None:
+    if deal_id is not None and store.has_reached(chat_id, "zone_coverage") and store.get_answer(chat_id, "zone_coverage") is None:
         if maybe_handle_zone_response(chat_id, text, waha_client, session, store, user_turn_created_at):
             return {"ok": True, "chat_id": chat_id, "skipped": "zone_resolved"}
         awaiting_zone_response = True
 
     awaiting_acceptance = False
     awaiting_signature = False
-    if not awaiting_zone_response and deal_id is not None and store.get_explanation_sent(chat_id):
-        if not store.get_authorization_link_sent(chat_id):
+    if not awaiting_zone_response and deal_id is not None and store.has_reached(chat_id, "explanation"):
+        if not store.has_reached(chat_id, "authorization_link"):
             resolved_base_url, resolved_secret = _resolve_authorization_link_config(public_base_url, link_secret)
 
             if resolved_base_url and resolved_secret and maybe_handle_acceptance(
@@ -413,8 +413,8 @@ def _generate_and_send_reply(
             awaiting_acceptance = True
         elif crm_client.get_authorization_status(crm_client.get_deal(deal_id)) != "firmada":
             # El link ya se mandó pero Bitrix todavía no registra la firma — sin esto, una vez
-            # `authorization_link_sent` queda en True el prompt vuelve a ser el genérico de
-            # siempre, y el LLM puede responder un "sí"/confirmación de la persona como si el
+            # el checkpoint `authorization_link` queda alcanzado el prompt vuelve a ser el
+            # genérico de siempre, y el LLM puede responder un "sí"/confirmación de la persona como si el
             # proceso ya hubiera avanzado (bug real: el bot contestó "¡Perfecto, gracias!" a un
             # "sí" que no era la firma). Mientras siga pendiente, cada turno se lo recuerda.
             awaiting_signature = True
@@ -489,7 +489,7 @@ def _generate_and_send_reply(
                 # original se perdió respondiendo nombre/teléfono en su lugar. El deal
                 # recién se crea acá — hay que volver a pedirla, si no la conversación
                 # queda esperando sin que el bot pida nada.
-                zone_in_coverage = store.get_zone_in_coverage(chat_id)
+                zone_in_coverage = store.get_answer(chat_id, "zone_coverage")
                 if zone_in_coverage is None:
                     zone_text = templates_store.get_template("whatsapp_ask_zone")
                     if waha_client.send_text(chat_id, zone_text, session=session):
@@ -498,7 +498,7 @@ def _generate_and_send_reply(
                     # Misma situación, un paso más adelante: la zona ya estaba confirmada y
                     # la explicación ya se había mandado también, así que la afirmación
                     # original a `whatsapp_ask_acceptance` es la que se perdió acá.
-                    if store.get_explanation_sent(chat_id) and not store.get_authorization_link_sent(chat_id):
+                    if store.has_reached(chat_id, "explanation") and not store.has_reached(chat_id, "authorization_link"):
                         resolved_base_url, resolved_secret = _resolve_authorization_link_config(
                             public_base_url, link_secret
                         )

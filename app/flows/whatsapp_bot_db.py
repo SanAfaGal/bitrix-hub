@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.flows.whatsapp_bot_checkpoints import seed_default_checkpoints
 from app.flows.whatsapp_bot_models import Base
 from app.message_templates.db import engine
 
@@ -30,4 +31,8 @@ def build_sqlite_engine(url: str = "sqlite:///:memory:") -> Engine:
         kwargs["poolclass"] = StaticPool
     test_engine = create_engine(url, **kwargs)
     Base.metadata.create_all(test_engine)
+    # En producción el catálogo lo siembra la migración Alembic (0005_checkpoints.py); acá
+    # se siembra directo porque los tests solo pasan por `create_all`, nunca por Alembic.
+    with Session(test_engine) as session:
+        seed_default_checkpoints(session)
     return test_engine

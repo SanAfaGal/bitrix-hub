@@ -65,11 +65,11 @@ def test_seed_history_imports_turns_and_sets_lead_fields_from_analysis(monkeypat
     assert [m["role"] for m in history] == ["user", "assistant", "user"]
 
     assert store.get_confirmed_identity("573001112233@c.us") == ("Carlos Ramírez", "573001112233")
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is True
     # authorization_mentioned (mera mención en la conversación) no implica que el link
     # REAL ya se mandó — ver docstring de seed_history_from_waha, Hallazgo 3 de la
     # revisión final.
-    assert store.get_authorization_link_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "authorization_link") is False
     assert store.get_history_seeded("573001112233@c.us") is True
 
     assert waha.calls == [("573001112233@c.us", 40, "default")]

@@ -6,9 +6,11 @@ import time
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from app.crm.protocol import PropertyListing
 from app.flows.whatsapp_bot import BotConfig, ConversationStore, _parse_llm_output, process
+from app.flows.whatsapp_bot_checkpoints import seed_default_checkpoints
 from app.flows.whatsapp_bot_history_seed import seed_history_from_waha
 from app.flows.whatsapp_bot_models import Base
 from app.message_templates import store as templates_store
@@ -21,6 +23,8 @@ def _sqlite_file_engine(db_path: str):
     al mismo archivo ven los mismos datos (simula sobrevivir a un restart del proceso)."""
     engine = create_engine(f"sqlite:///{db_path}", future=True)
     Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        seed_default_checkpoints(session)
     return engine
 
 
@@ -1110,13 +1114,13 @@ def test_process_sends_explanation_after_zone_confirmed_by_affirmation() -> None
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
 
     result = process(_inbound(text="si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "zone_resolved"}
-    assert store.get_zone_in_coverage("573001112233@c.us") is True
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is True
     assert llm.calls == []
 
 
@@ -1127,15 +1131,15 @@ def test_process_disables_bot_when_zone_declined(monkeypatch: "pytest.MonkeyPatc
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
     store.set_bot_enabled("573001112233@c.us", True)
 
     result = process(_inbound(text="no"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "zone_resolved"}
-    assert store.get_zone_in_coverage("573001112233@c.us") is False
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is False
     assert store.get_bot_enabled("573001112233@c.us") is False
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "explanation") is False
     assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_zone_out_of_coverage"]]
 
 
@@ -1145,7 +1149,7 @@ def test_process_falls_back_to_llm_with_zone_context_when_reply_is_ambiguous() -
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
 
     result = process(
         _inbound(text="no sé bien la zona"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
@@ -1159,7 +1163,7 @@ def test_process_falls_back_to_llm_with_zone_context_when_reply_is_ambiguous() -
     assert len(llm.calls) == 1
     system_prompt = llm.calls[0][0]
     assert "Medellín o en el Oriente antioqueño" in system_prompt
-    assert store.get_zone_in_coverage("573001112233@c.us") is None
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is None
 
 
 # ── Explicación del proceso + link de Autorización ──────────────────────
@@ -1179,10 +1183,10 @@ def test_process_asks_zone_right_after_creating_deal_from_confirmed_identity() -
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
     assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert store.get_zone_asked("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "zone_coverage") is True
     # La explicación (texto + audio + aceptación) todavía no se manda — primero hay que
     # confirmar que el inmueble está en zona de cobertura.
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "explanation") is False
     assert waha.voice_calls == []
     # El "gracias!" del LLM se manda primero, la pregunta de zona después.
     assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
@@ -1205,9 +1209,9 @@ def test_process_reasks_acceptance_when_deal_created_after_explanation_already_s
     )
     crm = FakeCrmClient()
     store = ConversationStore()
-    store.set_zone_asked("573001112233@c.us")
-    store.set_zone_in_coverage("573001112233@c.us", True)
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
+    store.mark_reached("573001112233@c.us", "zone_coverage", value=True)
+    store.mark_reached("573001112233@c.us", "explanation")
 
     result = process(
         _inbound(chat_id="573001112233@c.us"),
@@ -1223,7 +1227,7 @@ def test_process_reasks_acceptance_when_deal_created_after_explanation_already_s
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
     assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert store.get_authorization_link_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "authorization_link") is False
     # "gracias!" primero, la re-pregunta de aceptación después — no se queda parado.
     assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
     assert len(waha.calls) == 2
@@ -1243,7 +1247,7 @@ def test_process_reasks_zone_question_when_deal_created_after_zone_already_asked
     )
     crm = FakeCrmClient()
     store = ConversationStore()
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
 
     result = process(
         _inbound(chat_id="573001112233@c.us"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
@@ -1251,7 +1255,7 @@ def test_process_reasks_zone_question_when_deal_created_after_zone_already_asked
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "gracias!"}
     assert store.get_deal_id("573001112233@c.us") == "6000"
-    assert store.get_zone_in_coverage("573001112233@c.us") is None
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is None
     # "gracias!" primero, la re-pregunta de zona después — no se queda parado.
     assert waha.calls[0] == ("573001112233@c.us", "gracias!", "default")
     assert waha.calls[1] == ("573001112233@c.us", templates_store.DEFAULT_TEMPLATES["whatsapp_ask_zone"], "default")
@@ -1270,7 +1274,7 @@ def test_process_does_not_send_explanation_for_deal_that_already_existed_before_
     process(_inbound(), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
     assert waha.voice_calls == []
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "explanation") is False
 
 
 def test_process_sends_authorization_link_when_person_accepts() -> None:
@@ -1279,7 +1283,7 @@ def test_process_sends_authorization_link_when_person_accepts() -> None:
     crm = FakeCrmClient(contacts={"5000": {"PHONE": "3001112233"}})
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
     crm._deals["6000"] = {"ID": "6000", "CONTACT_ID": "5000"}
 
     result = process(
@@ -1308,7 +1312,7 @@ def test_process_sends_authorization_link_despite_bitrix_ambiguous_default_statu
     crm = FakeCrmClient(contacts={"5000": {"PHONE": "3001112233"}})
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
     crm._deals["6000"] = {"ID": "6000", "CONTACT_ID": "5000", "AUTHORIZATION_STATUS": "pendiente_envio"}
 
     result = process(
@@ -1325,7 +1329,7 @@ def test_process_sends_authorization_link_despite_bitrix_ambiguous_default_statu
 
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "authorization_link_sent"}
     assert crm.authorization_status_updates == [("6000", "pendiente_firma")]
-    assert store.get_authorization_link_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "authorization_link") is True
 
 
 def test_process_falls_back_to_llm_with_extra_context_when_reply_is_ambiguous() -> None:
@@ -1334,7 +1338,7 @@ def test_process_falls_back_to_llm_with_extra_context_when_reply_is_ambiguous() 
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     result = process(
         _inbound(text="esto tiene costo?"),
@@ -1364,7 +1368,7 @@ def test_process_does_not_resend_explanation_or_reask_once_link_already_sent() -
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
     crm._deals["6000"] = {"ID": "6000", "AUTHORIZATION_STATUS": "pendiente_firma"}
 
     result = process(
@@ -1392,8 +1396,8 @@ def test_process_reminds_to_sign_when_link_already_sent_but_not_signed_yet() -> 
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_explanation_sent("573001112233@c.us")
-    store.set_authorization_link_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
+    store.mark_reached("573001112233@c.us", "authorization_link")
     crm._deals["6000"] = {"ID": "6000", "AUTHORIZATION_STATUS": "pendiente_firma"}
 
     result = process(
@@ -1420,8 +1424,8 @@ def test_process_stops_reminding_to_sign_once_bitrix_says_firmada() -> None:
     crm = FakeCrmClient()
     store = ConversationStore()
     store.set_deal_id("573001112233@c.us", "6000")
-    store.set_explanation_sent("573001112233@c.us")
-    store.set_authorization_link_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
+    store.mark_reached("573001112233@c.us", "authorization_link")
     crm._deals["6000"] = {"ID": "6000", "AUTHORIZATION_STATUS": "firmada"}
 
     process(_inbound(text="listo"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
@@ -1448,7 +1452,7 @@ def test_process_sends_audio_when_person_asks_for_it_before_it_was_sent() -> Non
     assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "claro, ahora te la mando"}
     assert len(waha.voice_calls) == 1
     assert waha.calls[-1] == ("573001112233@c.us", templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"], "default")
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is True
 
 
 def test_process_does_not_resend_explanation_once_already_sent() -> None:
@@ -1456,7 +1460,7 @@ def test_process_does_not_resend_explanation_once_already_sent() -> None:
     llm = FakeLlmClient(reply_text=_plain_reply("todo bien"))
     crm = FakeCrmClient()
     store = ConversationStore()
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     process(_inbound(text="si"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store)
 
@@ -1867,7 +1871,7 @@ def test_disabled_chat_then_activate_seeds_waha_history_and_next_message_uses_it
         "listo, gracias",
     ]
     assert store.get_confirmed_identity(chat_id) == ("Carlos Ramírez", "573001112233")
-    assert store.get_explanation_sent(chat_id) is True
+    assert store.has_reached(chat_id, "explanation") is True
     assert store.get_history_seeded(chat_id) is True
 
     # 3. El próximo mensaje entrante, ya con el bot activado, le llega al LLM con el
@@ -1967,15 +1971,15 @@ def test_conversation_store_confirmed_identity_survives_new_instance_same_db_fil
 def test_conversation_store_explanation_sent_defaults_to_false() -> None:
     store = ConversationStore()
 
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "explanation") is False
 
 
-def test_conversation_store_set_explanation_sent() -> None:
+def test_conversation_store_mark_reached_explanation() -> None:
     store = ConversationStore()
 
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is True
 
 
 def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(tmp_path) -> None:
@@ -1983,11 +1987,11 @@ def test_conversation_store_explanation_sent_survives_new_instance_same_db_file(
 
     first = ConversationStore(engine=_sqlite_file_engine(db_path))
     first.set_deal_id("573001112233@c.us", "6000")
-    first.set_explanation_sent("573001112233@c.us")
+    first.mark_reached("573001112233@c.us", "explanation")
 
     second = ConversationStore(engine=_sqlite_file_engine(db_path))
 
-    assert second.get_explanation_sent("573001112233@c.us") is True
+    assert second.has_reached("573001112233@c.us", "explanation") is True
 
 
 # ── Activación del bot por chat (opt-in, prendido a mano desde el panel admin) ─

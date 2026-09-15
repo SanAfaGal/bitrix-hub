@@ -34,13 +34,13 @@ def maybe_ask_zone(chat_id: str, session: str, waha_client: WahaClient, store: "
     Retorna `True` cuando este turno ya quedó resuelto acá (el caller no debe invocar al
     LLM), `False` cuando la pregunta ya se había mandado antes.
     """
-    if store.get_zone_asked(chat_id):
+    if store.has_reached(chat_id, "zone_coverage"):
         return False
 
     text = templates_store.get_template("whatsapp_ask_zone")
     if waha_client.send_text(chat_id, text, session=session):
         store.add_turn(chat_id, "assistant", text)
-        store.set_zone_asked(chat_id)
+        store.mark_reached(chat_id, "zone_coverage")
     return True
 
 
@@ -58,23 +58,23 @@ def maybe_handle_zone_response(
     quedó resuelta antes, o si `text` no es ni una afirmación ni una negación clara — en
     cualquiera de esos casos el caller sigue con el turno normal.
     """
-    if not store.get_zone_asked(chat_id):
+    if not store.has_reached(chat_id, "zone_coverage"):
         return False
 
-    if store.get_zone_in_coverage(chat_id) is not None:
+    if store.get_answer(chat_id, "zone_coverage") is not None:
         return False
 
     stripped = text.strip()
 
     if _AFFIRMATION_RE.match(stripped):
         store.add_turn(chat_id, "user", text, created_at)
-        store.set_zone_in_coverage(chat_id, True)
+        store.mark_reached(chat_id, "zone_coverage", value=True)
         maybe_send_explanation(chat_id, session, waha_client, store)
         return True
 
     if _NEGATION_RE.match(stripped):
         store.add_turn(chat_id, "user", text, created_at)
-        store.set_zone_in_coverage(chat_id, False)
+        store.mark_reached(chat_id, "zone_coverage", value=False)
         out_text = templates_store.get_template("whatsapp_zone_out_of_coverage")
         if waha_client.send_text(chat_id, out_text, session=session):
             store.add_turn(chat_id, "assistant", out_text)

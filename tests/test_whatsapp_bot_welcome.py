@@ -56,8 +56,8 @@ def test_sends_known_welcome_with_name_then_zone_question_when_bitrix_has_contac
     # La explicación (texto + audio + aceptación) todavía no se manda — primero hay que
     # confirmar que el inmueble está en zona de cobertura.
     assert waha.voice_calls == []
-    assert store.get_zone_asked("573001112233@c.us") is True
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "zone_coverage") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is False
 
     # Bitrix ya conocía este teléfono (por eso saludó con el nombre) — la
     # identidad y el deal quedan resueltos en este mismo paso, sin esperar a
@@ -76,7 +76,7 @@ def test_does_not_send_explanation_for_unknown_client() -> None:
     maybe_send_first_contact_welcome("573001112233@c.us", "default", waha, crm, store)
 
     assert len(waha.calls) == 1  # solo la bienvenida a cliente nuevo, sin explicación todavía
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "explanation") is False
 
 
 def test_does_not_send_explanation_when_welcome_text_fails() -> None:
@@ -88,7 +88,7 @@ def test_does_not_send_explanation_when_welcome_text_fails() -> None:
     maybe_send_first_contact_welcome("573001112233@c.us", "default", waha, crm, store)
 
     assert len(waha.calls) == 1
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "explanation") is False
 
 
 def test_sends_welcome_when_chat_only_has_disabled_period_user_messages() -> None:

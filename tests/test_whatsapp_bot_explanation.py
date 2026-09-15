@@ -52,7 +52,7 @@ def test_sends_text_audio_and_ask_acceptance_in_one_go_without_asking_first() ->
         templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"],
     ]
     assert len(waha.voice_calls) == 1
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is True
 
     history = store.get_full_history("573001112233@c.us")
     assert [h["role"] for h in history] == ["assistant", "assistant", "assistant"]
@@ -61,7 +61,7 @@ def test_sends_text_audio_and_ask_acceptance_in_one_go_without_asking_first() ->
 def test_does_not_resend_explanation_once_already_sent() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     handled = maybe_send_explanation("573001112233@c.us", "default", waha, store)
 
@@ -82,7 +82,7 @@ def test_sends_audio_when_person_asks_for_explanation_before_it_was_sent() -> No
     assert handled is True
     assert len(waha.voice_calls) == 1
     assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"]]
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is True
 
 
 def test_does_not_send_audio_when_not_requested() -> None:
@@ -98,7 +98,7 @@ def test_does_not_send_audio_when_not_requested() -> None:
 def test_does_not_resend_when_explanation_already_sent() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     handled = maybe_handle_delayed_explanation_request("573001112233@c.us", True, waha, "default", store)
 
@@ -116,7 +116,7 @@ def test_sends_authorization_link_when_person_confirms() -> None:
         contacts={"5000": {"PHONE": "3001112233"}},
     )
     store = ConversationStore()
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     handled = maybe_handle_acceptance(
         "573001112233@c.us", "si", "6000", crm, waha, "default", _PUBLIC_BASE_URL, _LINK_SECRET, store
@@ -146,7 +146,7 @@ def test_does_not_handle_when_reply_is_not_a_clear_affirmation() -> None:
     waha = FakeWahaClient()
     crm = FakeCrmClient(deals={"6000": {"ID": "6000", "CONTACT_ID": "5000"}})
     store = ConversationStore()
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     handled = maybe_handle_acceptance(
         "573001112233@c.us",
@@ -174,7 +174,7 @@ def test_does_not_resend_link_once_authorization_already_pending_in_bitrix() -> 
         contacts={"5000": {"PHONE": "3001112233"}},
     )
     store = ConversationStore()
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     handled = maybe_handle_acceptance(
         "573001112233@c.us", "si", "6000", crm, waha, "default", _PUBLIC_BASE_URL, _LINK_SECRET, store
@@ -195,7 +195,7 @@ def test_sends_link_when_bitrix_has_the_ambiguous_default_status_but_never_actua
         contacts={"5000": {"PHONE": "3001112233"}},
     )
     store = ConversationStore()
-    store.set_explanation_sent("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "explanation")
 
     handled = maybe_handle_acceptance(
         "573001112233@c.us", "si", "6000", crm, waha, "default", _PUBLIC_BASE_URL, _LINK_SECRET, store
@@ -203,4 +203,4 @@ def test_sends_link_when_bitrix_has_the_ambiguous_default_status_but_never_actua
 
     assert handled is True
     assert crm.authorization_status_updates == [("6000", "pendiente_firma")]
-    assert store.get_authorization_link_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "authorization_link") is True

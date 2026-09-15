@@ -31,7 +31,7 @@ def test_sends_zone_question_and_marks_it_asked() -> None:
 
     assert handled is True
     assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_ask_zone"]]
-    assert store.get_zone_asked("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "zone_coverage") is True
     history = store.get_full_history("573001112233@c.us")
     assert [h["role"] for h in history] == ["assistant"]
 
@@ -39,7 +39,7 @@ def test_sends_zone_question_and_marks_it_asked() -> None:
 def test_does_not_reask_zone_once_already_asked() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
 
     handled = maybe_ask_zone("573001112233@c.us", "default", waha, store)
 
@@ -53,17 +53,17 @@ def test_does_not_reask_zone_once_already_asked() -> None:
 def test_confirms_zone_and_sends_explanation_on_affirmation() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
 
     handled = maybe_handle_zone_response("573001112233@c.us", "si", waha, "default", store)
 
     assert handled is True
-    assert store.get_zone_in_coverage("573001112233@c.us") is True
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is True
     assert [c[1] for c in waha.calls] == [
         templates_store.DEFAULT_TEMPLATES["whatsapp_process_explanation"],
         templates_store.DEFAULT_TEMPLATES["whatsapp_ask_acceptance"],
     ]
-    assert store.get_explanation_sent("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "explanation") is True
     history = store.get_full_history("573001112233@c.us")
     assert history[0] == {"role": "user", "content": "si", "created_at": history[0]["created_at"]}
 
@@ -71,29 +71,29 @@ def test_confirms_zone_and_sends_explanation_on_affirmation() -> None:
 def test_marks_out_of_coverage_and_disables_bot_on_negation() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
     store.set_bot_enabled("573001112233@c.us", True)
 
     handled = maybe_handle_zone_response("573001112233@c.us", "no", waha, "default", store)
 
     assert handled is True
-    assert store.get_zone_in_coverage("573001112233@c.us") is False
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is False
     assert [c[1] for c in waha.calls] == [templates_store.DEFAULT_TEMPLATES["whatsapp_zone_out_of_coverage"]]
     assert store.get_bot_enabled("573001112233@c.us") is False
     assert store.get_bot_enabled_reason("573001112233@c.us") == "zone_out_of_coverage"
-    assert store.get_explanation_sent("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "explanation") is False
 
 
 def test_does_not_handle_when_reply_is_not_a_clear_yes_or_no() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
 
     handled = maybe_handle_zone_response("573001112233@c.us", "no sé bien la dirección exacta", waha, "default", store)
 
     assert handled is False
     assert waha.calls == []
-    assert store.get_zone_in_coverage("573001112233@c.us") is None
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is None
 
 
 def test_does_not_handle_when_zone_was_not_asked_yet() -> None:
@@ -109,8 +109,8 @@ def test_does_not_handle_when_zone_was_not_asked_yet() -> None:
 def test_does_not_handle_when_zone_already_resolved() -> None:
     waha = FakeWahaClient()
     store = ConversationStore()
-    store.set_zone_asked("573001112233@c.us")
-    store.set_zone_in_coverage("573001112233@c.us", True)
+    store.mark_reached("573001112233@c.us", "zone_coverage")
+    store.mark_reached("573001112233@c.us", "zone_coverage", value=True)
 
     handled = maybe_handle_zone_response("573001112233@c.us", "si", waha, "default", store)
 

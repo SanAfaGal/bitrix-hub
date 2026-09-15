@@ -7,7 +7,10 @@ del formulario web) — un prospecto llega por `chat_id` (WhatsApp,
 `channel="email"`, ver `app.flows.graph_lead_store`); nunca por los dos.
 `chat_id`/`tracking_id` son nullable porque ninguno aplica a todas
 las filas — la PK es el `id` sintético. `messages` sí es 1:N (solo aplica a
-leads de WhatsApp, vía `lead_id` -> `leads.id`) y se queda aparte. El esquema lo posee
+leads de WhatsApp, vía `lead_id` -> `leads.id`) y se queda aparte. `checkpoints`/
+`lead_checkpoints` reemplazan las columnas booleanas por punto de progreso
+conversacional (ver `app.flows.whatsapp_bot_checkpoints`) — agregar un punto
+nuevo es una fila en `checkpoints`, no una migración de schema. El esquema lo posee
 Alembic (ver `migrations/`) — `create_all` solo se usa contra el SQLite en
 memoria de los tests (`build_sqlite_engine`).
 """
@@ -31,9 +34,9 @@ class Conversation(Base):
     `name`/`phone` vienen ya sanitizados del formulario
     (`app.graph.lead_email_parser`).
 
-    `explanation_sent`/`authorization_link_sent` son conceptos exclusivos
-    del bot de WhatsApp — quedan en su default `False` para un lead de
-    correo, sin significado ahí. `status`/`detail` son el
+    Los checkpoints de progreso conversacional (explicación enviada, link de
+    autorización enviado, cobertura de zona) ya no son columnas acá — viven
+    en `checkpoints`/`lead_checkpoints`. `status`/`detail` son el
     resultado de procesar un correo (`created`/`skipped`/`error` + motivo,
     ver `app.flows.graph_lead_store`) — `None` para un lead de WhatsApp.
     """
@@ -49,16 +52,6 @@ class Conversation(Base):
 
     name: str | None = Column(String(255), nullable=True)
     phone: str | None = Column(String(32), nullable=True)
-
-    explanation_sent: bool = Column(Boolean, nullable=False, default=False)
-
-    # Fuente de verdad LOCAL de si ya mandamos el link de Autorización de
-    # Corretaje — no depende de leer el picklist `UF_CRM_1773864282733` de
-    # Bitrix (`is None`/`is not None`), que puede traer un valor por defecto
-    # no nulo desde que se crea el deal y hacía que el bot nunca detectara
-    # "todavía no se mandó" (bug visto en producción: el bot prometía el
-    # link en cada turno sin mandarlo nunca). Ver `maybe_handle_acceptance`.
-    authorization_link_sent: bool = Column(Boolean, nullable=False, default=False)
 
     # Activación explícita del bot por chat (opt-in) — arranca en False para
     # todo lead nuevo; un admin lo prende a mano desde el panel admin, o el
@@ -87,14 +80,6 @@ class Conversation(Base):
     # ejecutara. Sin significado para un lead de correo.
     history_seeded: bool = Column(Boolean, nullable=False, default=False)
 
-    # Pregunta de cobertura de zona (Medellín / Oriente antioqueño) que el bot le hace al
-    # cliente antes de la explicación del proceso — `zone_asked` marca que ya se mandó la
-    # pregunta; `zone_in_coverage` queda en `None` hasta que la persona responda con
-    # claridad (`True`/`False`). Ver `app/flows/whatsapp_bot_zone.py`. Sin significado para
-    # un lead de correo.
-    zone_asked: bool = Column(Boolean, nullable=False, default=False)
-    zone_in_coverage: bool | None = Column(Boolean, nullable=True, default=None)
-
     # Resultado de procesar un correo del formulario web (solo canal "email").
     status: str | None = Column(String(16), nullable=True)
     detail: str | None = Column(Text, nullable=True)
@@ -115,6 +100,39 @@ class ConversationMessage(Base):
     role: str = Column(String(16), nullable=False)
     content: str = Column(Text, nullable=False)
     created_at: float = Column(Float, nullable=False)
+
+
+class Checkpoint(Base):
+    """Catálogo de puntos de progreso conversacional del bot (ej. `zone_coverage`,
+    `explanation`, `authorization_link`) — agregar uno nuevo es una fila acá, no una
+    migración. `order` define la secuencia global en la que se alcanzan; `active`
+    permite desactivar uno sin borrar el histórico ya guardado en `lead_checkpoints`.
+    """
+
+    __tablename__ = "checkpoints"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    key: str = Column(String(64), nullable=False, unique=True)
+    description: str | None = Column(Text, nullable=True)
+    order: int = Column(Integer, nullable=False, unique=True)
+    active: bool = Column(Boolean, nullable=False, default=True)
+
+
+class LeadCheckpoint(Base):
+    """Progreso de un lead sobre un `Checkpoint` — que exista la fila ya significa que se
+    alcanzó, sin importar si `value`/`reached_at` son `NULL` (ver
+    `app.flows.whatsapp_bot_checkpoints`). `reached_at` queda `NULL` en filas de backfill
+    histórico sin timestamp real; se llena solo cuando la fila se crea desde código nuevo.
+    """
+
+    __tablename__ = "lead_checkpoints"
+    __table_args__ = (UniqueConstraint("lead_id", "checkpoint_id", name="uq_lead_checkpoints_lead_checkpoint"),)
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    lead_id: int = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
+    checkpoint_id: int = Column(Integer, ForeignKey("checkpoints.id"), nullable=False)
+    value: int | None = Column(Integer, nullable=True)
+    reached_at = Column(DateTime, nullable=True)
 
 
 class WhatsappMessage(Base):

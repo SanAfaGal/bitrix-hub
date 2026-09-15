@@ -22,9 +22,10 @@ defecto** (`WHATSAPP_BOT_ENABLED=false`).
 | Archivo | Rol |
 |---|---|
 | `whatsapp_bot.py` | Orquestador — `process()`/`_process()`, el pipeline completo por mensaje entrante |
-| `whatsapp_bot_models.py` | Modelos SQLAlchemy: `Conversation` (tabla `leads`), `ConversationMessage` (tabla `messages`), `WhatsappMessage` (tabla `whatsapp_messages`, dedup de `message_id`) |
+| `whatsapp_bot_models.py` | Modelos SQLAlchemy: `Conversation` (tabla `leads`), `ConversationMessage` (tabla `messages`), `Checkpoint`/`LeadCheckpoint` (tablas `checkpoints`/`lead_checkpoints`, progreso conversacional genérico), `WhatsappMessage` (tabla `whatsapp_messages`, dedup de `message_id`) |
 | `whatsapp_bot_store.py` | Funciones puras sobre una `Session` ya abierta — persistencia real |
-| `whatsapp_bot_conversation_store.py` | `ConversationStore` — envuelve `whatsapp_bot_store.py`, agrega locks/rate-limit en memoria y dedup híbrido (memoria + MySQL) |
+| `whatsapp_bot_checkpoints.py` | Funciones puras sobre `checkpoints`/`lead_checkpoints` (`get_next_checkpoint`/`has_reached`/`get_answer`/`mark_reached`) — agregar un checkpoint nuevo es una fila en `CHECKPOINT_SEED`, no una migración |
+| `whatsapp_bot_conversation_store.py` | `ConversationStore` — envuelve `whatsapp_bot_store.py`/`whatsapp_bot_checkpoints.py`, agrega locks/rate-limit en memoria y dedup híbrido (memoria + MySQL) |
 | `whatsapp_bot_db.py` | Engine/sesión SQLAlchemy del bot (comparte pool MySQL con `app.message_templates.db`) |
 | `whatsapp_bot_llm.py` | Texto puro: arma el prompt, parsea la salida del LLM — no toca CRM/Waha/store |
 | `whatsapp_bot_welcome.py` | Bienvenida de primer contacto (texto fijo, no generado por LLM) |
@@ -173,7 +174,7 @@ nombre/teléfono que el cliente ya dio, repite la explicación del proceso ya
 mandada, y queda evidente para el cliente que "no se acuerda" de la
 conversación. La importación trae el historial real desde Waha, lo analiza
 con el LLM (`analyze_prior_history`) y precarga: identidad confirmada
-(nombre+teléfono), si la explicación ya se dio (`explanation_sent`), y los
+(nombre+teléfono), si la explicación ya se dio (checkpoint `explanation`), y los
 turnos mismos (reemplazan, no duplican, lo que ya estaba guardado local del
 período apagado — ver `store.clear_messages`).
 
@@ -275,24 +276,41 @@ https://waha.devlike.pro/docs/overview/how-to-avoid-blocking/:
   el riesgo real de baneo está en el primer contacto no solicitado, no en
   seguir una conversación en curso.
 
-## Los cuatro flags que parecen redundantes pero no lo son
+## Progreso conversacional: checkpoints, no columnas por pregunta
 
-- **`explanation_sent`** — ¿ya se mandó el texto+voz+pregunta de
-  aceptación? Local, gatilla la rama "esperando aceptación" del prompt.
-- **`authorization_link_sent`** — ¿ya se mandó el link REAL de
-  Autorización de Corretaje? Deliberadamente independiente del campo de
-  Bitrix: ese picklist trae un default no-nulo (`"pendiente_envio"`) desde
-  que se crea el deal, así que "no es `None`" no significa "ya se mandó"
-  (bug real: el gate nunca se abría, el bot prometía el link sin mandarlo
-  nunca). Bitrix (`"pendiente_firma"`/`"firmada"`) se usa solo como
-  respaldo si el tracking local se pierde (ej. reset de la base).
-- **`authorization_mentioned`** — NO es columna persistida. Es resultado
-  transitorio de analizar el historial importado: "¿se habló del tema en
-  la conversación previa?" Se usa solo para el resumen que ve el admin al
-  activar un chat. Explícitamente NO se mapea a `authorization_link_sent`
-  — un asesor mencionando la Autorización no es lo mismo que haberla
-  mandado; setearlo acá bloquearía para siempre que el bot mande el link
-  real.
+`checkpoints` (catálogo) + `lead_checkpoints` (progreso por lead) reemplazan lo
+que antes eran columnas booleanas dedicadas en `leads` — agregar un punto de
+seguimiento nuevo es una fila en `checkpoints`, no una migración de schema (ver
+`app/flows/whatsapp_bot_checkpoints.py`). Que exista la fila en
+`lead_checkpoints` para `(lead_id, checkpoint_id)` ya significa "alcanzado",
+sin importar si `value`/`reached_at` son `NULL`.
+
+Checkpoints activos hoy:
+
+- **`zone_coverage`** — ¿el inmueble está en Medellín/Oriente antioqueño?
+  `has_reached` marca que ya se preguntó; `get_answer` queda en `None` hasta
+  que la persona responde con claridad (`True`/`False`).
+- **`explanation`** — ¿ya se mandó el texto+voz+pregunta de aceptación?
+  Local, gatilla la rama "esperando aceptación" del prompt.
+- **`authorization_link`** — ¿ya se mandó el link REAL de Autorización de
+  Corretaje? Deliberadamente independiente del campo de Bitrix: ese
+  picklist trae un default no-nulo (`"pendiente_envio"`) desde que se crea
+  el deal, así que "no es `None`" no significa "ya se mandó" (bug real: el
+  gate nunca se abría, el bot prometía el link sin mandarlo nunca). Bitrix
+  (`"pendiente_firma"`/`"firmada"`) se usa solo como respaldo si el
+  tracking local se pierde (ej. reset de la base).
+
+`bot_enabled`/`bot_enabled_reason` siguen siendo columnas dedicadas en
+`leads`, no checkpoints — son control operativo de admin (opt-in por chat),
+no progreso conversacional.
+
+- **`authorization_mentioned`** — NO es checkpoint ni columna persistida. Es
+  resultado transitorio de analizar el historial importado: "¿se habló del
+  tema en la conversación previa?" Se usa solo para el resumen que ve el
+  admin al activar un chat. Explícitamente NO marca el checkpoint
+  `authorization_link` — un asesor mencionando la Autorización no es lo
+  mismo que haberla mandado; marcarlo acá bloquearía para siempre que el
+  bot mande el link real.
 - **`confirmed_identity` (name/phone)** — se escriben atómicamente juntos,
   nunca uno solo, solo cuando el LLM confirma ambos en el mismo turno
   (`_apply_confirmed_identity`). Distinto de los "candidatos" (nombre de

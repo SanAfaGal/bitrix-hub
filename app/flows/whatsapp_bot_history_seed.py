@@ -139,20 +139,19 @@ def seed_history_from_waha(
         if analysis["client_full_name"] is not None and normalized_phone is not None:
             store.set_confirmed_identity(chat_id, analysis["client_full_name"], normalized_phone)
 
-    if analysis["process_explained"] and not store.get_explanation_sent(chat_id):
-        store.set_explanation_sent(chat_id)
+    if analysis["process_explained"] and not store.has_reached(chat_id, "explanation"):
+        store.mark_reached(chat_id, "explanation")
 
     # OJO: `analysis["authorization_mentioned"]` (el LLM detectó que se
-    # HABLÓ de la Autorización en la conversación previa) NO se mapea a
-    # `authorization_link_sent` — ese flag significa en el resto del código
-    # (`maybe_handle_acceptance` en whatsapp_bot_explanation.py,
-    # `Conversation.authorization_link_sent` en whatsapp_bot_models.py) que
-    # el link REAL ya se mandó, y se usa para no volver a mandarlo nunca. Un
-    # asesor humano mencionando la Autorización en el chat ("te voy a mandar
-    # la Autorización") no es lo mismo que haberla mandado — setear el flag
-    # acá bloquearía silenciosa y permanentemente que el bot mande el link
-    # real. `authorization_mentioned` solo se usa para el `summary` del
-    # análisis, no cambia ningún estado.
+    # HABLÓ de la Autorización en la conversación previa) NO se mapea al
+    # checkpoint `authorization_link` — ese checkpoint significa en el resto
+    # del código (`maybe_handle_acceptance` en whatsapp_bot_explanation.py)
+    # que el link REAL ya se mandó, y se usa para no volver a mandarlo nunca.
+    # Un asesor humano mencionando la Autorización en el chat ("te voy a
+    # mandar la Autorización") no es lo mismo que haberla mandado — marcar el
+    # checkpoint acá bloquearía silenciosa y permanentemente que el bot mande
+    # el link real. `authorization_mentioned` solo se usa para el `summary`
+    # del análisis, no cambia ningún estado.
     store.set_history_seeded(chat_id)
 
     logger.info(

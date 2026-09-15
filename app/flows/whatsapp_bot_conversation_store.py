@@ -21,8 +21,10 @@ from typing import Any
 
 from sqlalchemy.orm import sessionmaker
 
+from app.flows import whatsapp_bot_checkpoints as checkpoints_db
 from app.flows import whatsapp_bot_db as store_engine
 from app.flows import whatsapp_bot_store as store_db
+from app.flows.whatsapp_bot_checkpoints import CheckpointInfo
 
 SEEN_MESSAGE_TTL_SECONDS = 600
 RATE_LIMIT_COOLDOWN_SECONDS = 5  # Max 1 msg every 5 seconds per chat
@@ -153,37 +155,21 @@ class ConversationStore:
         with self._SessionLocal() as session:
             store_db.set_confirmed_identity(session, chat_id, name, phone)
 
-    def get_explanation_sent(self, chat_id: str) -> bool:
+    def get_next_checkpoint(self, chat_id: str) -> CheckpointInfo | None:
         with self._SessionLocal() as session:
-            return store_db.get_explanation_sent(session, chat_id)
+            return checkpoints_db.get_next_checkpoint(session, chat_id)
 
-    def set_explanation_sent(self, chat_id: str) -> None:
+    def has_reached(self, chat_id: str, checkpoint_key: str) -> bool:
         with self._SessionLocal() as session:
-            store_db.set_explanation_sent(session, chat_id)
+            return checkpoints_db.has_reached(session, chat_id, checkpoint_key)
 
-    def get_authorization_link_sent(self, chat_id: str) -> bool:
+    def get_answer(self, chat_id: str, checkpoint_key: str) -> bool | None:
         with self._SessionLocal() as session:
-            return store_db.get_authorization_link_sent(session, chat_id)
+            return checkpoints_db.get_answer(session, chat_id, checkpoint_key)
 
-    def set_authorization_link_sent(self, chat_id: str) -> None:
+    def mark_reached(self, chat_id: str, checkpoint_key: str, value: bool | None = None) -> None:
         with self._SessionLocal() as session:
-            store_db.set_authorization_link_sent(session, chat_id)
-
-    def get_zone_asked(self, chat_id: str) -> bool:
-        with self._SessionLocal() as session:
-            return store_db.get_zone_asked(session, chat_id)
-
-    def set_zone_asked(self, chat_id: str) -> None:
-        with self._SessionLocal() as session:
-            store_db.set_zone_asked(session, chat_id)
-
-    def get_zone_in_coverage(self, chat_id: str) -> bool | None:
-        with self._SessionLocal() as session:
-            return store_db.get_zone_in_coverage(session, chat_id)
-
-    def set_zone_in_coverage(self, chat_id: str, in_coverage: bool) -> None:
-        with self._SessionLocal() as session:
-            store_db.set_zone_in_coverage(session, chat_id, in_coverage)
+            checkpoints_db.mark_reached(session, chat_id, checkpoint_key, value)
 
     def chat_exists(self, chat_id: str) -> bool:
         with self._SessionLocal() as session:

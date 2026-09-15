@@ -97,23 +97,23 @@ def test_history_seeded_defaults_to_false_and_can_be_set() -> None:
 def test_zone_asked_defaults_to_false_and_can_be_set() -> None:
     store = ConversationStore()
 
-    assert store.get_zone_asked("573001112233@c.us") is False
+    assert store.has_reached("573001112233@c.us", "zone_coverage") is False
 
-    store.set_zone_asked("573001112233@c.us")
+    store.mark_reached("573001112233@c.us", "zone_coverage")
 
-    assert store.get_zone_asked("573001112233@c.us") is True
+    assert store.has_reached("573001112233@c.us", "zone_coverage") is True
 
 
 def test_zone_in_coverage_defaults_to_none_and_can_be_set_true_or_false() -> None:
     store = ConversationStore()
 
-    assert store.get_zone_in_coverage("573001112233@c.us") is None
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is None
 
-    store.set_zone_in_coverage("573001112233@c.us", True)
-    assert store.get_zone_in_coverage("573001112233@c.us") is True
+    store.mark_reached("573001112233@c.us", "zone_coverage", value=True)
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is True
 
-    store.set_zone_in_coverage("573001112233@c.us", False)
-    assert store.get_zone_in_coverage("573001112233@c.us") is False
+    store.mark_reached("573001112233@c.us", "zone_coverage", value=False)
+    assert store.get_answer("573001112233@c.us", "zone_coverage") is False
 
 
 def test_has_assistant_turn_false_for_user_only_history() -> None:

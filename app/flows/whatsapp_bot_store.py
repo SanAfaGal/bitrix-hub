@@ -279,50 +279,6 @@ def set_confirmed_identity(session: Session, chat_id: str, name: str, phone: str
     session.commit()
 
 
-def get_explanation_sent(session: Session, chat_id: str) -> bool:
-    row = _get_by_chat_id(session, chat_id)
-    return bool(row.explanation_sent) if row else False
-
-
-def set_explanation_sent(session: Session, chat_id: str) -> None:
-    row = _get_or_create(session, chat_id)
-    row.explanation_sent = True
-    session.commit()
-
-
-def get_authorization_link_sent(session: Session, chat_id: str) -> bool:
-    row = _get_by_chat_id(session, chat_id)
-    return bool(row.authorization_link_sent) if row else False
-
-
-def set_authorization_link_sent(session: Session, chat_id: str) -> None:
-    row = _get_or_create(session, chat_id)
-    row.authorization_link_sent = True
-    session.commit()
-
-
-def get_zone_asked(session: Session, chat_id: str) -> bool:
-    row = _get_by_chat_id(session, chat_id)
-    return bool(row.zone_asked) if row else False
-
-
-def set_zone_asked(session: Session, chat_id: str) -> None:
-    row = _get_or_create(session, chat_id)
-    row.zone_asked = True
-    session.commit()
-
-
-def get_zone_in_coverage(session: Session, chat_id: str) -> bool | None:
-    row = _get_by_chat_id(session, chat_id)
-    return row.zone_in_coverage if row else None
-
-
-def set_zone_in_coverage(session: Session, chat_id: str, in_coverage: bool) -> None:
-    row = _get_or_create(session, chat_id)
-    row.zone_in_coverage = in_coverage
-    session.commit()
-
-
 def get_bot_enabled(session: Session, chat_id: str) -> bool:
     row = _get_by_chat_id(session, chat_id)
     return bool(row.bot_enabled) if row else False
