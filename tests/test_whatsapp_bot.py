@@ -1724,10 +1724,12 @@ def test_process_keeps_bot_disabled_for_new_chat_with_prior_waha_history_from_bo
     assert llm.calls == []
 
 
-def test_process_auto_activates_bot_for_unanswered_lead_only_customer_side_ever_wrote(monkeypatch) -> None:
-    """Waha devuelve un mensaje previo, pero solo del lado del cliente (`fromMe=False`) — ningún
-    asesor le contestó nunca por WhatsApp Web, así que no hay nada humano que el bot vaya a
-    interrumpir: se auto-activa igual que un chat genuinamente nuevo."""
+def test_process_keeps_bot_disabled_for_unanswered_lead_only_customer_side_ever_wrote(monkeypatch) -> None:
+    """Waha devuelve un mensaje previo, pero solo del lado del cliente (`fromMe=False`) —
+    ningún asesor le contestó nunca por WhatsApp Web. Igual queda apagado para activación
+    manual: nunca debe auto-activarse si ya hay CUALQUIER conversación previa real, aunque no
+    haya un humano atendiéndola (ej. el cliente escribió días atrás mientras el hub estaba
+    apagado y ese mensaje quedó sin respuesta)."""
     monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
     waha = FakeWahaClient(
         chat_messages=[
@@ -1735,7 +1737,7 @@ def test_process_auto_activates_bot_for_unanswered_lead_only_customer_side_ever_
             {"id": "msg1", "fromMe": False, "body": "hola", "timestamp": 100},
         ]
     )
-    llm = FakeLlmClient(reply_text=_plain_reply("hola! como te ayudo?"))
+    llm = FakeLlmClient()
     crm = FakeCrmClient()
     store = ConversationStore()
 
@@ -1743,8 +1745,10 @@ def test_process_auto_activates_bot_for_unanswered_lead_only_customer_side_ever_
         _inbound(message_id="msg1", text="hola"), waha, llm, crm, _TRANSCRIPTION, config=_enabled_config(), store=store
     )
 
-    assert result == {"ok": True, "chat_id": "573001112233@c.us", "reply": "hola! como te ayudo?"}
-    assert store.get_bot_enabled("573001112233@c.us") is True
+    assert result == {"ok": True, "chat_id": "573001112233@c.us", "skipped": "bot_disabled_for_chat"}
+    assert store.get_bot_enabled("573001112233@c.us") is False
+    assert store.get_bot_enabled_reason("573001112233@c.us") == "auto_pending_review"
+    assert llm.calls == []
 
 
 def test_process_auto_activates_bot_ignoring_empty_body_e2e_notification_placeholder(monkeypatch) -> None:
@@ -1895,6 +1899,52 @@ def test_disabled_chat_then_activate_seeds_waha_history_and_next_message_uses_it
     assert history_sent_to_llm  # no vacío: el bot ve la conversación previa importada de Waha.
     assert {"role": "user", "content": "hola, quiero vender mi apto"} in history_sent_to_llm
     assert {"role": "assistant", "content": "claro, soy Andrea, le explico el proceso"} in history_sent_to_llm
+
+
+_PRIOR_CLIENT_ONLY_MESSAGES = [
+    {"id": "old1", "fromMe": False, "body": "hola, soy Carlos Ramírez, mi numero es 573001112233", "timestamp": 50},
+    {"id": "old2", "fromMe": False, "body": "quiero vender mi apto, nadie me contesto", "timestamp": 60},
+]
+
+
+def test_process_never_auto_activates_with_only_customer_history_then_admin_activation_seeds_it(
+    monkeypatch,
+) -> None:
+    """Si el cliente ya había escrito antes (ej. mientras el hub estaba apagado, días atrás) y
+    nadie le contestó, el chat NUNCA se auto-activa — queda apagado para activación manual,
+    igual que si un asesor ya lo estuviera atendiendo a mano (ver
+    `test_whatsapp_bot_new_chat_check.py::test_chat_with_only_customer_side_history_is_not_new`).
+    Cuando el admin lo activa a mano, `seed_history_from_waha` (mismo mecanismo que
+    `activate_bot_for_chat`) sí importa ese historial viejo como contexto."""
+    monkeypatch.setattr(ConversationStore, "get_bot_enabled", _REAL_GET_BOT_ENABLED)
+    chat_id = "573001112233@c.us"
+    store = ConversationStore()
+    crm = FakeCrmClient()
+
+    inbound_waha = FakeWahaClient(chat_messages=_PRIOR_CLIENT_ONLY_MESSAGES)
+    inbound_llm = FakeLlmClient()
+    result = process(
+        _inbound(message_id="new1", text="alguien ahi?"),
+        inbound_waha,
+        inbound_llm,
+        crm,
+        _TRANSCRIPTION,
+        config=_enabled_config(),
+        store=store,
+    )
+
+    assert result == {"ok": True, "chat_id": chat_id, "skipped": "bot_disabled_for_chat"}
+    assert store.get_bot_enabled(chat_id) is False
+    assert store.get_bot_enabled_reason(chat_id) == "auto_pending_review"
+    assert inbound_llm.calls == []
+
+    seed_waha = FakeWahaClient(chat_messages=_PRIOR_CLIENT_ONLY_MESSAGES)
+    seed_llm = FakeLlmClient(reply_text=_HISTORY_ANALYSIS_JSON)
+    seed_result = seed_history_from_waha(store, seed_waha, seed_llm, chat_id)
+    store.set_bot_enabled(chat_id, True)
+
+    assert seed_result["seeded"] is True
+    assert store.get_confirmed_identity(chat_id) == ("Carlos Ramírez", "573001112233")
 
 
 # ── Persistencia de historial (sobrevive a un "restart") ────────────────

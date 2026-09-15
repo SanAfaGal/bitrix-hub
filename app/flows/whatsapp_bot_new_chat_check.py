@@ -3,10 +3,11 @@
 Separado de `whatsapp_bot.py` (límite de 500 líneas del repo) — mismo motivo
 que `whatsapp_bot_conversation_store.py`/`whatsapp_bot_llm.py`. Usado por
 `_process()` justo al crear el lead por primera vez (`ConversationStore.chat_exists`)
-para decidir el `bot_enabled` inicial: auto-activación si el chat es
-genuinamente nuevo o nadie de nuestro lado lo contestó nunca, apagado si ya
-hay un asesor atendiéndolo a mano por WhatsApp Web (mensajes previos de
-AMBOS lados) antes de que el bot existiera para ese chat_id.
+para decidir el `bot_enabled` inicial: auto-activación solo si el chat es
+genuinamente nuevo (sin ningún mensaje real previo, de ningún lado),
+apagado para activación manual si hay cualquier mensaje real previo —
+del cliente, de un asesor a mano por WhatsApp Web, o de ambos — antes de
+que el bot existiera para ese chat_id.
 """
 from __future__ import annotations
 
@@ -29,14 +30,14 @@ def is_chat_new_in_waha(inbound: InboundMessage, waha_client: WahaClient) -> boo
     (ver `_process` en whatsapp_bot.py) — nunca en mensajes subsiguientes de
     un chat ya conocido, ver `ConversationStore.chat_exists`.
 
-    "Conversación real ya existente" exige un mensaje anterior de CADA
-    lado (`fromMe=True` y `fromMe=False`) — no alcanza con que solo el
-    cliente haya escrito antes sin que nunca le hayan contestado (lead que
-    se cayó, ningún asesor lo tocó todavía): ahí no hay nada humano que el
-    bot vaya a interrumpir, así que se auto-activa igual. Si en cambio ya
-    hay un asesor que le escribió a mano por WhatsApp Web (o el cliente le
-    escribió y el asesor ya respondió), se asume que ese asesor sigue
-    atendiendo el chat y se deja apagado para activación manual.
+    "Conversación real ya existente" alcanza con un mensaje previo real de
+    CUALQUIER lado (`fromMe=True` o `fromMe=False`) — incluido el caso de
+    un lead que escribió y nadie le contestó todavía: aunque no haya un
+    asesor atendiéndolo a mano, ya hay contexto real que el bot no debe
+    arrancar ignorando (y que puede seguir llegando mientras el hub estuvo
+    apagado, ver `whatsapp_bot_history_seed.seed_history_from_waha`, que sí
+    se dispara para este mismo chat apenas se lo activa a mano). Se deja
+    apagado para activación manual en ambos casos.
 
     Compara por `id` de mensaje (mismo shape que devuelve
     `WahaClient.get_chat_messages`, ver su docstring) en vez de por
@@ -77,4 +78,4 @@ def is_chat_new_in_waha(inbound: InboundMessage, waha_client: WahaClient) -> boo
     def _has_real_prior_message(messages: list[dict]) -> bool:
         return any(str(m.get("id")) != inbound.message_id and m.get("body") for m in messages)
 
-    return not (_has_real_prior_message(incoming) and _has_real_prior_message(outgoing))
+    return not (_has_real_prior_message(incoming) or _has_real_prior_message(outgoing))

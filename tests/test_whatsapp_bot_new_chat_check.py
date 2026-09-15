@@ -46,14 +46,17 @@ def test_chat_with_history_from_both_sides_is_not_new() -> None:
     assert is_chat_new_in_waha(_inbound(), waha) is False
 
 
-def test_chat_with_only_customer_side_history_is_new() -> None:
+def test_chat_with_only_customer_side_history_is_not_new() -> None:
+    """Un mensaje previo real de un solo lado (el cliente escribió y nadie le contestó nunca)
+    ya alcanza para NO auto-activar — nunca activarse de más si ya hay cualquier conversación
+    previa, aunque no haya un asesor humano atendiéndola."""
     waha = FakeWahaClient(
         chat_messages=[
             {"id": "wa_prior_in", "fromMe": False, "body": "hola, nadie me contesto"},
             {"id": "msg1", "fromMe": False, "body": "hola"},
         ]
     )
-    assert is_chat_new_in_waha(_inbound(), waha) is True
+    assert is_chat_new_in_waha(_inbound(), waha) is False
 
 
 def test_fails_closed_when_either_waha_call_fails() -> None:

@@ -276,6 +276,13 @@ def _process(
             "sin historial previo" if is_new_chat else "con historial previo (o falló la consulta)",
             is_new_chat,
         )
+        if is_new_chat:
+            # `is_chat_new_in_waha` ya confirma que no hay NINGÚN mensaje real previo (ni del
+            # cliente ni de un asesor) para auto-activar — no hay nada que `seed_history_from_waha`
+            # pudiera importar acá, así que solo se marca el flag directo (evita que una futura
+            # reactivación manual de este mismo chat, si se llega a apagar y reactivar después,
+            # vuelva a pegarle a Waha buscando algo que ya sabemos que no existe).
+            store.set_history_seeded(inbound.chat_id)
 
     if not store.get_bot_enabled(inbound.chat_id):
         logger.info(
